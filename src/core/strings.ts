@@ -7,6 +7,10 @@
 //   later syncs depend on them.
 // Page property keys (title, onenote-id, ...) are not here: they are always English.
 
+export type Language = 'en' | 'zh-Hans' | 'zh-Hant' | 'ja' | 'ko';
+
+export const LANGUAGES: readonly Language[] = ['en', 'zh-Hans', 'zh-Hant', 'ja', 'ko'];
+
 export interface Strings {
 	/** Comment before each text box on a page laid out in several columns. */
 	boxMarker(index: number, total: number, leftCm: string, topCm: string): string;
@@ -30,6 +34,24 @@ export interface Strings {
 	inkWord: string;
 }
 
+export const en: Strings = {
+	boxMarker: (index, total, left, top) => `<!-- Box ${index} of ${total}, position on page: left ${left} cm, top ${top} cm -->`,
+	missingAttachment: name => `[Missing attachment: ${name}. The OneDrive download has no data for this file.]`,
+	unnamedFile: 'unnamed file',
+	untitledPage: 'Untitled',
+	conflictPageSuffix: ' (conflict)',
+	tocTitle: name => `${name} contents`,
+	sectionOrderNote: '> Sections are sorted by name (files downloaded from OneDrive do not record the section order in OneNote).',
+	conversionFailedSuffix: ' (conversion failed)',
+	attachmentsFolder: '_attachments',
+	tocFileName: '_contents',
+	oldVersionsFolder: '_previous versions',
+	updateLogFolder: '_sync log',
+	reportFileName: '_conversion report.json',
+	imageWord: 'image',
+	inkWord: 'ink',
+};
+
 export const zhHans: Strings = {
 	boxMarker: (index, total, left, top) => `<!-- 第${index}块（共${total}块） 页面位置：左 ${left} cm，上 ${top} cm -->`,
 	missingAttachment: name => `〔附件缺失：${name}（OneDrive 下载包里没有这个文件的数据）〕`,
@@ -47,3 +69,63 @@ export const zhHans: Strings = {
 	imageWord: '图',
 	inkWord: '手写',
 };
+
+export const zhHant: Strings = {
+	boxMarker: (index, total, left, top) => `<!-- 第${index}塊（共${total}塊） 頁面位置：左 ${left} cm，上 ${top} cm -->`,
+	missingAttachment: name => `〔附件缺失：${name}（OneDrive 下載包裡沒有這個檔案的資料）〕`,
+	unnamedFile: '未命名檔案',
+	untitledPage: '無標題',
+	conflictPageSuffix: '（衝突版本）',
+	tocTitle: name => `${name} 目錄`,
+	sectionOrderNote: '> 分區按名稱排序（OneDrive 下載的檔案裡沒有 OneNote 中的分區順序）。',
+	conversionFailedSuffix: '（轉換失敗）',
+	attachmentsFolder: '_附件',
+	tocFileName: '_目錄',
+	oldVersionsFolder: '_舊版本',
+	updateLogFolder: '_更新記錄',
+	reportFileName: '_轉換報告.json',
+	imageWord: '圖',
+	inkWord: '手寫',
+};
+
+export const ja: Strings = {
+	boxMarker: (index, total, left, top) => `<!-- 第${index}ブロック（全${total}ブロック） ページ上の位置：左 ${left} cm、上 ${top} cm -->`,
+	missingAttachment: name => `〔添付ファイルなし：${name}（OneDrive のダウンロードにこのファイルのデータがありません）〕`,
+	unnamedFile: '名前のないファイル',
+	untitledPage: '無題',
+	conflictPageSuffix: '（競合）',
+	tocTitle: name => `${name} 目次`,
+	sectionOrderNote: '> セクションは名前順です（OneDrive からダウンロードしたファイルには、OneNote でのセクションの並び順が含まれていません）。',
+	conversionFailedSuffix: '（変換失敗）',
+	attachmentsFolder: '_添付ファイル',
+	tocFileName: '_目次',
+	oldVersionsFolder: '_旧バージョン',
+	updateLogFolder: '_更新記録',
+	reportFileName: '_変換レポート.json',
+	imageWord: '図',
+	inkWord: '手書き',
+};
+
+export const ko: Strings = {
+	boxMarker: (index, total, left, top) => `<!-- ${total}개 중 ${index}번째 블록, 페이지 위치: 왼쪽 ${left} cm, 위 ${top} cm -->`,
+	missingAttachment: name => `〔첨부 파일 없음: ${name} (OneDrive 다운로드에 이 파일의 데이터가 없습니다)〕`,
+	unnamedFile: '이름 없는 파일',
+	untitledPage: '제목 없음',
+	conflictPageSuffix: ' (충돌 버전)',
+	tocTitle: name => `${name} 목차`,
+	sectionOrderNote: '> 섹션은 이름순으로 정렬됩니다 (OneDrive에서 내려받은 파일에는 OneNote의 섹션 순서가 들어 있지 않습니다).',
+	conversionFailedSuffix: ' (변환 실패)',
+	attachmentsFolder: '_첨부 파일',
+	tocFileName: '_목차',
+	oldVersionsFolder: '_이전 버전',
+	updateLogFolder: '_업데이트 기록',
+	reportFileName: '_변환 보고서.json',
+	imageWord: '그림',
+	inkWord: '손글씨',
+};
+
+export const STRINGS: Record<Language, Strings> = { 'en': en, 'zh-Hans': zhHans, 'zh-Hant': zhHant, 'ja': ja, 'ko': ko };
+
+export function isLanguage(value: string): value is Language {
+	return (LANGUAGES as readonly string[]).includes(value);
+}

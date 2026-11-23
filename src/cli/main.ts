@@ -7,6 +7,8 @@
 //   --dump <path>        the native section parser (`dump`); a WebAssembly build replaces it later
 //   --tmp <dir>          scratch folder for parser output (default: the system temp folder)
 //   --only "A|B"         convert only these notebooks (exact names)
+//   --language <code>    language of inserted marks and folder names: en, zh-Hans, zh-Hant, ja, ko
+//                        (default zh-Hans until per-notebook detection exists)
 //   --no-box-markers     no position comments before text boxes
 //   --no-font-color      drop font colours
 
@@ -17,7 +19,7 @@ import { tmpdir } from 'node:os';
 import { Adapter } from '../core/adapter.ts';
 import type { SectionSource, Sink } from '../core/io.ts';
 import { joinPath, nameCollator } from '../core/names.ts';
-import { zhHans } from '../core/strings.ts';
+import { STRINGS, isLanguage, LANGUAGES } from '../core/strings.ts';
 import { notebookFolder, notebookToc, sectionFolder, writeSection } from '../core/write.ts';
 import type { NotebookTocEntry, SectionReport } from '../core/write.ts';
 
@@ -42,6 +44,7 @@ function parseArgs(argv: string[]) {
 		dump: option('--dump'),
 		tmp: option('--tmp') ?? join(tmpdir(), 'onenote-ferry'),
 		only: option('--only')?.split('|').filter(Boolean),
+		language: option('--language') ?? 'zh-Hans',
 		boxMarkers: !flag('--no-box-markers'),
 		keepFontColor: !flag('--no-font-color'),
 		input: '',
@@ -101,10 +104,14 @@ interface SectionResult extends NotebookTocEntry {
 async function main() {
 	const options = parseArgs(process.argv.slice(2));
 	if (!options.input || !options.output || !options.dump) {
-		console.error('Usage: node src/cli/main.ts <input folder> <output folder> --dump <parser> [--tmp DIR] [--only "A|B"] [--no-box-markers] [--no-font-color]');
+		console.error('Usage: node src/cli/main.ts <input folder> <output folder> --dump <parser> [--tmp DIR] [--only "A|B"] [--language CODE] [--no-box-markers] [--no-font-color]');
 		process.exit(2);
 	}
-	const strings = zhHans;
+	if (!isLanguage(options.language)) {
+		console.error(`Unknown language "${options.language}". Use one of: ${LANGUAGES.join(', ')}`);
+		process.exit(2);
+	}
+	const strings = STRINGS[options.language];
 	const sink = fileSink(options.output);
 	mkdirSync(options.tmp, { recursive: true });
 	const rawDir = join(options.tmp, 'raw');
