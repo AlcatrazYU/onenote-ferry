@@ -16,4 +16,8 @@ export interface Sink {
 	writeText(path: string, text: string): Promise<void>;
 	writeBinary(path: string, bytes: Uint8Array): Promise<void>;
 	setModifiedTime(path: string, time: Date): Promise<void>;
+	/** Text of a file written earlier, or undefined when there is none. */
+	readText(path: string): Promise<string | undefined>;
+	/** Every file below a folder, as paths from the output root. */
+	listFiles(folder: string): Promise<string[]>;
 }

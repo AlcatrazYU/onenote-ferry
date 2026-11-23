@@ -82,6 +82,12 @@ test('line starts that would become structure are escaped', () => {
 	assert.equal(escapeLineStart('#hashtag stays'), '#hashtag stays');
 });
 
+test('a link that names its page by id is not matched by title, even if this section has a page of that title', () => {
+	const url = 'onenote:https://d.docs.live.net/0/F/Other%20notebook/Other.one#Same%20Title&section-id={00000000-0000-0000-0000-000000000002}&page-id={00000000-0000-0000-0000-000000000003}&end';
+	const options = { keepFontColor: false, resolveInternalLink: (title: string) => title === 'Same Title' ? 'Same Title.md' : undefined };
+	assert.equal(render([{ text: 'go', hyperlinkUrl: url }], options), `[go](${url})`);
+});
+
 test('URLs: encoded ones are left alone, spaces and brackets are handled', () => {
 	assert.equal(linkTarget('https://example.com/a b'), 'https://example.com/a%20b');
 	assert.equal(linkTarget('https://example.com/%E4%B8%AD'), 'https://example.com/%E4%B8%AD');

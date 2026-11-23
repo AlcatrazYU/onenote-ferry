@@ -111,7 +111,9 @@ function layerValue(run: TextRun, layer: Layer): string {
 }
 
 function linkMarkdown(text: string, url: string, options: InlineOptions): string {
-	const pageTitle = internalPageTitle(url);
+	// A link that names its page by id is matched by that id later (links.ts), never by title here:
+	// a page of the same title in this section may be a copy, not the page the link means.
+	const pageTitle = /page-id=/i.test(url) ? undefined : internalPageTitle(url);
 	const target = pageTitle ? options.resolveInternalLink?.(pageTitle) : undefined;
 	return target ? `[${text}](<${target}>)` : `[${text}](${linkTarget(url)})`;
 }
