@@ -2,6 +2,7 @@
 
 import type { AssetData, Element, EmbeddedFile, Image, Ink, InkStroke, Outline, Page, Paragraph, Section, Tag, TextRun } from './model.ts';
 import { MIN_PEN_OPACITY } from './model.ts';
+import { composedText } from './names.ts';
 import type { Strings } from './strings.ts';
 import { emphasisColor } from './render/color.ts';
 import { strokesToSvg } from './render/ink-svg.ts';
@@ -81,9 +82,10 @@ export function liftHyperlinkFields(runs: TextRun[]): void {
 }
 
 /**
- * OneNote inserts a file "as printout" twice: the file itself, and one image per page that
- * holds the whole document plus a page number. Obsidian cannot show XPS, but it can show a
- * page of a PDF, so when the original PDF sits on the same page the images point at it.
+ * OneNote inserts a file "as printout" twice: the file itself, and one image per page. On Windows
+ * each image holds the whole document (XPS or PDF) plus a page number; on the Mac each is a picture
+ * of one page. Obsidian cannot show XPS, and a page picture cannot be searched, but Obsidian can
+ * show a page of a PDF, so when the original PDF sits on the same page the images point at it.
  */
 export function linkPrintouts(page: Page): void {
 	const files = new Map<string, EmbeddedFile>();
@@ -100,7 +102,7 @@ export function linkPrintouts(page: Page): void {
 	};
 	walk(page);
 	for (const image of images) {
-		const file = image.fileName ? files.get(String(image.fileName).normalize('NFC')) : undefined;
+		const file = image.printoutName ? files.get(image.printoutName.normalize('NFC')) : undefined;
 		if (file) image.printoutOf = file;
 	}
 }
@@ -179,13 +181,13 @@ export class Adapter {
 	}
 
 	section(json: Json): Section {
-		return { name: json.name ?? '', pages: (json.pages as Json[]).map(p => this.page(p)) };
+		return { name: composedText(json.name ?? ''), pages: (json.pages as Json[]).map(p => this.page(p)) };
 	}
 
 	page(p: Json): Page {
 		const page: Page = {
 			id: p.id,
-			title: p.title ?? '',
+			title: composedText(p.title ?? ''),
 			level: Math.max(0, (p.level ?? 1) - 1),
 			createdUtc: p.created ? new Date(p.created * 1000) : undefined,
 			lastModifiedUtc: p.updated ? new Date(p.updated * 1000) : undefined,
@@ -242,24 +244,38 @@ export class Adapter {
 				};
 			case 'image': {
 				const extension: string | undefined = c.asset?.asset?.split('.').pop();
-				const image: Image = { kind: 'image', fileName: c.fileName ?? undefined, extension, data: stored(c.asset) };
-				// A printout keeps the whole document (XPS or PDF) and shows one page of it (0-based).
-				if (typeof c.page === 'number' && /^(xps|pdf)$/i.test(extension ?? '')) image.printoutPage = c.page + 1;
+				// File names are names: composed like the others (the parser gives them as stored).
+				const fileName: string | undefined = c.fileName ? composedText(c.fileName) : undefined;
+				const image: Image = { kind: 'image', fileName, extension, data: stored(c.asset) };
+				if (typeof c.page === 'number' && /^(xps|pdf)$/i.test(extension ?? '')) {
+					// Windows: a printout keeps the whole document (XPS or PDF) and shows one page of it (0-based).
+					image.printoutPage = c.page + 1;
+					if (fileName) image.printoutName = fileName;
+				}
+				else if (typeof c.page === 'number') {
+					// Mac: each printout page is its own picture, named `<document>_<page>.pdf` (1-based).
+					const mac = /^(.+)_(\d+)\.pdf$/i.exec(fileName ?? '');
+					if (mac && Number(mac[2]) === c.page) {
+						image.printoutPage = c.page;
+						image.printoutName = `${mac[1]}.pdf`;
+					}
+				}
 				const place = placeOf(c);
 				if (place) image.place = place;
 				return image;
 			}
 			case 'file': {
+				const fileName: string | undefined = c.fileName ? composedText(c.fileName) : undefined;
 				if (!c.asset) {
 					const missing: Paragraph = {
 						kind: 'paragraph',
 						children: [],
-						runs: [{ text: this.strings.missingAttachment(c.fileName ?? this.strings.unnamedFile), italic: true }],
+						runs: [{ text: this.strings.missingAttachment(fileName ?? this.strings.unnamedFile), italic: true }],
 					};
 					return missing;
 				}
 				const extension: string | undefined = c.asset?.asset?.split('.').pop();
-				const file: EmbeddedFile = { kind: 'embedded-file', fileName: c.fileName ?? undefined, extension, data: stored(c.asset) };
+				const file: EmbeddedFile = { kind: 'embedded-file', fileName, extension, data: stored(c.asset) };
 				const place = placeOf(c);
 				if (place) file.place = place;
 				return file;
@@ -285,6 +301,18 @@ export class Adapter {
 		const runs = (c.runs as Json[]).map(run);
 		for (const r of runs) r.text = r.text.replace(OBJECT_REPLACEMENT, '');
 		liftHyperlinkFields(runs);
+		// Shown text in composed form; link targets (now in hyperlinkUrl) stay as written. A combining
+		// mark belongs to the character before it, even when a formatting change falls between them.
+		let base: RawRun | undefined;
+		for (const r of runs) {
+			const marks = base ? /^\p{M}+/u.exec(r.text)?.[0] : undefined;
+			if (base && marks) {
+				base.text += marks;
+				r.text = r.text.slice(marks.length);
+			}
+			if (r.text !== '') base = r;
+		}
+		for (const r of runs) r.text = composedText(r.text);
 		// A link's shown text may span several runs (e.g. a font change inside it): carry the URL on.
 		let previous: RawRun | undefined;
 		for (const r of runs) {

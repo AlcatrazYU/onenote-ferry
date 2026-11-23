@@ -2,7 +2,7 @@
 
 import type { SectionSource, Sink } from './io.ts';
 import type { AssetData, Section } from './model.ts';
-import { joinPath, safeName } from './names.ts';
+import { composedText, joinPath, safeName } from './names.ts';
 import { renderPage } from './render/page.ts';
 import type { AttachmentHint, ResolvedAttachment } from './render/page.ts';
 import type { Strings } from './strings.ts';
@@ -74,7 +74,8 @@ export async function writeSection(section: Section, source: SectionSource, sink
 	const byKey = new Map<string, string>();
 	const usedAttachments = new Set<string>();
 	let attachmentCount = 0, reused = 0;
-	const report: SectionReport = { section: options.label, dir, pages: [], pageCount: 0, attachments: 0, reusedAttachments: 0 };
+	const label = composedText(options.label);
+	const report: SectionReport = { section: label, dir, pages: [], pageCount: 0, attachments: 0, reusedAttachments: 0 };
 
 	for (const [order, page] of pages.entries()) {
 		const noteName = fileOf.get(page.id)!;
@@ -123,7 +124,7 @@ export async function writeSection(section: Section, source: SectionSource, sink
 			keepFontColor: options.keepFontColor,
 			keepHighlighterInk: options.keepHighlighterInk,
 			isCancelled: options.isCancelled,
-			resolveInternalLink: title => titleToFile.has(title) ? `${titleToFile.get(title)}.md` : undefined,
+			resolveInternalLink: title => titleToFile.has(composedText(title)) ? `${titleToFile.get(composedText(title))}.md` : undefined,
 			onSkipped: (description, reason) => skipped.push(`${description}: ${reason}`),
 			saveAttachment,
 		});
@@ -131,7 +132,7 @@ export async function writeSection(section: Section, source: SectionSource, sink
 		const frontMatter = [
 			'---',
 			`title: ${yaml(page.title)}`,
-			`onenote-section: ${yaml(options.label)}`,
+			`onenote-section: ${yaml(label)}`,
 			`onenote-order: ${order + 1}`,
 			`onenote-level: ${page.level}`,
 			page.createdUtc ? `created: ${page.createdUtc.toISOString()}` : '',
@@ -147,7 +148,7 @@ export async function writeSection(section: Section, source: SectionSource, sink
 	}
 
 	const toc = [
-		'---', `title: ${yaml(strings.tocTitle(options.label))}`, '---', '', `# ${options.label}`, '',
+		'---', `title: ${yaml(strings.tocTitle(label))}`, '---', '', `# ${label}`, '',
 		...pages.map(page => `${'\t'.repeat(page.level)}- [${(page.title || strings.untitledPage).replace(/[[\]]/g, '\\$&')}](<${fileOf.get(page.id)}.md>)`),
 	].join('\n');
 	await sink.writeText(joinPath(dir, `${strings.tocFileName}.md`), toc + '\n');
@@ -176,11 +177,12 @@ export function notebookFolder(name: string, strings: Strings): string {
 	return safeName(name, strings.untitledPage, 120);
 }
 
-export function notebookToc(name: string, entries: NotebookTocEntry[], strings: Strings): string {
+export function notebookToc(notebookName: string, entries: NotebookTocEntry[], strings: Strings): string {
+	const name = composedText(notebookName);
 	const lines = ['---', `title: ${yaml(strings.tocTitle(name))}`, '---', '', `# ${name}`, '', strings.sectionOrderNote, ''];
 	for (const entry of entries) {
 		const indent = '\t'.repeat(entry.groups.length);
-		lines.push(`${indent}- [${entry.section}](<${sectionFolder(entry.groups, entry.section, strings)}/${strings.tocFileName}.md>)${entry.failed ? strings.conversionFailedSuffix : ''}`);
+		lines.push(`${indent}- [${composedText(entry.section)}](<${sectionFolder(entry.groups, entry.section, strings)}/${strings.tocFileName}.md>)${entry.failed ? strings.conversionFailedSuffix : ''}`);
 	}
 	return lines.join('\n') + '\n';
 }

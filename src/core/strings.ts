@@ -16,6 +16,10 @@ export interface Strings {
 	boxMarker(index: number, total: number, leftCm: string, topCm: string): string;
 	/** Shown where an embedded file has no data in the download. */
 	missingAttachment(fileName: string): string;
+	/** Shown where pictures have no data in the download; pictures in a row share one notice. `names`: the known file names. */
+	missingImages(count: number, names: string[]): string;
+	/** Shown where printout pages `first` to `last` (1-based) of a document have no data in the download. */
+	missingPrintoutPages(document: string, first: number, last: number): string;
 	unnamedFile: string;
 	untitledPage: string;
 	conflictPageSuffix: string;
@@ -37,6 +41,12 @@ export interface Strings {
 export const en: Strings = {
 	boxMarker: (index, total, left, top) => `<!-- Box ${index} of ${total}, position on page: left ${left} cm, top ${top} cm -->`,
 	missingAttachment: name => `[Missing attachment: ${name}. The OneDrive download has no data for this file.]`,
+	missingImages: (count, names) => count === 1
+		? `[Missing image${names.length ? `: ${names[0]}` : ''}. The OneDrive download has no data for this image.]`
+		: `[${count} missing images${names.length ? `: ${names.join(', ')}` : ''}. The OneDrive download has no data for these images.]`,
+	missingPrintoutPages: (document, first, last) => first === last
+		? `[Missing printout page ${first} of ${document}. The OneDrive download has no data for this page.]`
+		: `[Missing printout pages ${first} to ${last} of ${document}. The OneDrive download has no data for these pages.]`,
 	unnamedFile: 'unnamed file',
 	untitledPage: 'Untitled',
 	conflictPageSuffix: ' (conflict)',
@@ -55,6 +65,12 @@ export const en: Strings = {
 export const zhHans: Strings = {
 	boxMarker: (index, total, left, top) => `<!-- 第${index}块（共${total}块） 页面位置：左 ${left} cm，上 ${top} cm -->`,
 	missingAttachment: name => `〔附件缺失：${name}（OneDrive 下载包里没有这个文件的数据）〕`,
+	missingImages: (count, names) => count === 1
+		? `〔图片缺失${names.length ? `：${names[0]}` : ''}（OneDrive 下载包里没有这张图片的数据）〕`
+		: `〔图片缺失 ${count} 张${names.length ? `：${names.join('、')}` : ''}（OneDrive 下载包里没有这些图片的数据）〕`,
+	missingPrintoutPages: (document, first, last) => first === last
+		? `〔打印页缺失：${document} 第 ${first} 页（OneDrive 下载包里没有这一页的数据）〕`
+		: `〔打印页缺失：${document} 第 ${first} 到 ${last} 页（OneDrive 下载包里没有这些页面的数据）〕`,
 	unnamedFile: '未命名文件',
 	untitledPage: '无标题',
 	conflictPageSuffix: '（冲突版本）',
@@ -73,6 +89,12 @@ export const zhHans: Strings = {
 export const zhHant: Strings = {
 	boxMarker: (index, total, left, top) => `<!-- 第${index}塊（共${total}塊） 頁面位置：左 ${left} cm，上 ${top} cm -->`,
 	missingAttachment: name => `〔附件缺失：${name}（OneDrive 下載包裡沒有這個檔案的資料）〕`,
+	missingImages: (count, names) => count === 1
+		? `〔圖片缺失${names.length ? `：${names[0]}` : ''}（OneDrive 下載包裡沒有這張圖片的資料）〕`
+		: `〔圖片缺失 ${count} 張${names.length ? `：${names.join('、')}` : ''}（OneDrive 下載包裡沒有這些圖片的資料）〕`,
+	missingPrintoutPages: (document, first, last) => first === last
+		? `〔列印頁缺失：${document} 第 ${first} 頁（OneDrive 下載包裡沒有這一頁的資料）〕`
+		: `〔列印頁缺失：${document} 第 ${first} 到 ${last} 頁（OneDrive 下載包裡沒有這些頁面的資料）〕`,
 	unnamedFile: '未命名檔案',
 	untitledPage: '無標題',
 	conflictPageSuffix: '（衝突版本）',
@@ -91,6 +113,12 @@ export const zhHant: Strings = {
 export const ja: Strings = {
 	boxMarker: (index, total, left, top) => `<!-- 第${index}ブロック（全${total}ブロック） ページ上の位置：左 ${left} cm、上 ${top} cm -->`,
 	missingAttachment: name => `〔添付ファイルなし：${name}（OneDrive のダウンロードにこのファイルのデータがありません）〕`,
+	missingImages: (count, names) => count === 1
+		? `〔画像なし${names.length ? `：${names[0]}` : ''}（OneDrive のダウンロードにこの画像のデータがありません）〕`
+		: `〔画像なし ${count} 枚${names.length ? `：${names.join('、')}` : ''}（OneDrive のダウンロードにこれらの画像のデータがありません）〕`,
+	missingPrintoutPages: (document, first, last) => first === last
+		? `〔印刷イメージなし：${document} ${first} ページ目（OneDrive のダウンロードにこのページのデータがありません）〕`
+		: `〔印刷イメージなし：${document} ${first} ページ目から ${last} ページ目（OneDrive のダウンロードにこれらのページのデータがありません）〕`,
 	unnamedFile: '名前のないファイル',
 	untitledPage: '無題',
 	conflictPageSuffix: '（競合）',
@@ -109,6 +137,12 @@ export const ja: Strings = {
 export const ko: Strings = {
 	boxMarker: (index, total, left, top) => `<!-- ${total}개 중 ${index}번째 블록, 페이지 위치: 왼쪽 ${left} cm, 위 ${top} cm -->`,
 	missingAttachment: name => `〔첨부 파일 없음: ${name} (OneDrive 다운로드에 이 파일의 데이터가 없습니다)〕`,
+	missingImages: (count, names) => count === 1
+		? `〔그림 없음${names.length ? `: ${names[0]}` : ''} (OneDrive 다운로드에 이 그림의 데이터가 없습니다)〕`
+		: `〔그림 ${count}개 없음${names.length ? `: ${names.join(', ')}` : ''} (OneDrive 다운로드에 이 그림들의 데이터가 없습니다)〕`,
+	missingPrintoutPages: (document, first, last) => first === last
+		? `〔인쇄물 페이지 없음: ${document} ${first}페이지 (OneDrive 다운로드에 이 페이지의 데이터가 없습니다)〕`
+		: `〔인쇄물 페이지 없음: ${document} ${first}페이지부터 ${last}페이지까지 (OneDrive 다운로드에 이 페이지들의 데이터가 없습니다)〕`,
 	unnamedFile: '이름 없는 파일',
 	untitledPage: '제목 없음',
 	conflictPageSuffix: ' (충돌 버전)',

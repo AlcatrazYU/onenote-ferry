@@ -114,17 +114,45 @@ test('printout pages of a PDF on the page show that page of the PDF, once per ru
 		'[doc.pdf](<_附件/doc.pdf>)\n\n![](<_附件/doc.pdf#page=1>)\n\nnote\n\n![](<_附件/doc.pdf#page=2>)');
 });
 
+test('Mac printout pages show the original PDF too, once per run', async () => {
+	const pdf: EmbeddedFile = { kind: 'embedded-file', fileName: 'doc.pdf', extension: 'pdf', data: stored('h.pdf') };
+	const macPage = (n: number): Image => ({ kind: 'image', fileName: `doc_${n}.pdf`, extension: 'png', data: stored(`m${n}.png`), printoutPage: n, printoutName: 'doc.pdf', printoutOf: pdf });
+	assert.equal(await md(page([box([pdf, macPage(1), macPage(2), macPage(3)])])),
+		'[doc.pdf](<_附件/doc.pdf>)\n\n![](<_附件/doc.pdf#page=1>)');
+});
+
 test('a printout without its original PDF falls back to the image itself', async () => {
 	const image: Image = { kind: 'image', fileName: 'letter.docx', extension: 'xps', data: stored('y.xps'), printoutPage: 3 };
 	assert.equal(await md(page([box([image])])), '![](<_附件/img1.xps>)');
 });
 
-test('an attachment without data is reported, not linked', async () => {
+test('a picture without data is reported and leaves a notice in its place', async () => {
 	const h = harness();
 	const result = await renderPage(page([box([{ kind: 'image', extension: 'png' }, p('after')])]), h.options);
-	assert.equal(result.markdown, 'after');
+	assert.equal(result.markdown, '*〔图片缺失（OneDrive 下载包里没有这张图片的数据）〕*\n\nafter');
 	assert.deepEqual(h.skipped, ['image.png']);
 	assert.equal(h.saved.length, 0);
+});
+
+test('pictures without data in a row share one notice; printout pages of one document become a page range', async () => {
+	const gone = (fileName?: string): Image => ({ kind: 'image', fileName });
+	const macPage = (n: number, document = 'doc'): Image => ({ kind: 'image', fileName: `${document}_${n}.pdf`, printoutPage: n, printoutName: `${document}.pdf` });
+	assert.equal(await md(page([box([gone('a.png'), gone(), gone('b.png'), p('text'), gone()])])), [
+		'*〔图片缺失 3 张：a.png、b.png（OneDrive 下载包里没有这些图片的数据）〕*', 'text', '*〔图片缺失（OneDrive 下载包里没有这张图片的数据）〕*',
+	].join('\n\n'));
+	assert.equal(await md(page([box([macPage(1), macPage(2), macPage(3), macPage(1, 'other'), macPage(5, 'other'), gone('c.png')])])), [
+		'*〔打印页缺失：doc.pdf 第 1 到 3 页（OneDrive 下载包里没有这些页面的数据）〕*',
+		'*〔打印页缺失：other.pdf 第 1 页（OneDrive 下载包里没有这一页的数据）〕*',
+		'*〔打印页缺失：other.pdf 第 5 页（OneDrive 下载包里没有这一页的数据）〕*',
+		'*〔图片缺失：c.png（OneDrive 下载包里没有这张图片的数据）〕*',
+	].join('\n\n'));
+});
+
+test('a picture without data inside a list item or a table cell leaves its notice there', async () => {
+	const item = p('item', { list: bullet, children: [{ kind: 'image', fileName: 'x.png' } as Image, { kind: 'image' } as Image] });
+	assert.equal(await md(page([box([item])])), '- item\n\n\t*〔图片缺失 2 张：x.png（OneDrive 下载包里没有这些图片的数据）〕*');
+	const table: Element = { kind: 'table', rows: [{ cells: [{ children: [p('H')] }] }, { cells: [{ children: [{ kind: 'image', fileName: 'y.png' } as Image] }] }] };
+	assert.equal(await md(page([box([table])])), '| H |\n| --- |\n| *〔图片缺失：y.png（OneDrive 下载包里没有这张图片的数据）〕* |');
 });
 
 test('embedded files are links named after the file; inline ink is an embedded drawing', async () => {
@@ -143,4 +171,12 @@ test('loose ink on the page becomes one drawing at the end', async () => {
 	assert.equal(result.markdown, 'text\n\n![](<_附件/ink.svg>)');
 	const saved = h.saved[0].data;
 	assert.ok(saved.kind === 'inline' && new TextDecoder().decode(saved.bytes).startsWith('<svg'));
+});
+
+test('a tagged heading stays a heading, with the tag as a symbol before its text', async () => {
+	const star: Tag = { checkable: false, completed: false, shape: 13, label: 'Important' };
+	const bulb: Tag = { checkable: false, completed: false, shape: 21, label: 'Idea' };
+	const heading = p('Chapter 3', { styleId: 'h2', list: bullet, tags: [star], children: [p('detail')] });
+	assert.equal(await md(page([box([heading, p('note', { tags: [star] }), p('Plan', { styleId: 'h3', tags: [bulb] })])])),
+		'## ⭐ Chapter 3\n\ndetail\n\n> [!important] Important\n> note\n\n### 💡 Plan');
 });

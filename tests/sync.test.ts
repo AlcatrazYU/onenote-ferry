@@ -80,3 +80,10 @@ test('front matter and the archive are read back from written pages', async () =
 	assert.deepEqual([...result.get('S')!], [['{A}', { title: 'One', modified: T1, file: 'One.md' }]]);
 	assert.equal(result.get('G/S2')!.size, 0);
 });
+
+test('a section folder or page title written decomposed by an earlier conversion is still the same', () => {
+	const decomposed = 'ライティンク\u3099';
+	const items = planNotebook('NB', [scan(decomposed.normalize('NFC'), [['{A}', page('ヘ\u309Aージ'.normalize('NFC'))]])], archive({ [decomposed]: [['{A}', page('ヘ\u309Aージ')]] }), zhHans);
+	assert.deepEqual(items.map(i => [i.status, i.old, i.new]), [['same', decomposed, decomposed.normalize('NFC')]]);
+	assert.equal(scannedPages({ pages: [{ id: '{a}', title: 'ヘ\u309Aージ' }] }).get('{A}')!.title, 'ページ');
+});

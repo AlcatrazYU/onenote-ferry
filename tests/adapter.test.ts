@@ -68,12 +68,23 @@ test('a printout page points at the PDF of the same name on the page; page numbe
 	assert.equal(image.printoutOf, embedded);
 });
 
-test('a page image that is a PNG (Mac printouts) is an ordinary image', () => {
-	const image = { type: 'image', asset: asset('m.png'), fileName: 'doc_1.pdf', page: 1, x: 1, y: 2, w: 5 };
-	const { page } = adapt([outline([element([image])])]);
-	const result = unwrap(page.outlines[0].children[0]) as Image;
-	assert.equal(result.printoutPage, undefined);
-	assert.equal(result.extension, 'png');
+test('Mac printout pages (one picture each, named <document>_<page>.pdf) point at the PDF on the page', () => {
+	const file = { type: 'file', asset: asset('f.pdf'), fileName: 'doc.pdf', x: 1, y: 1, w: 5 };
+	const macPage = (n: number) => ({ type: 'image', asset: asset(`m${n}.png`), fileName: `doc_${n}.pdf`, page: n, x: 1, y: 2, w: 5 });
+	const { page } = adapt([outline([element([file]), element([macPage(1)]), element([macPage(2)])])]);
+	const [embedded, first, second] = page.outlines[0].children.map(unwrap) as [EmbeddedFile, Image, Image];
+	assert.deepEqual([first.printoutPage, first.printoutName, first.printoutOf], [1, 'doc.pdf', embedded]);
+	assert.deepEqual([second.printoutPage, second.printoutOf, second.extension], [2, embedded, 'png']);
+});
+
+test('a Mac printout page without its PDF, or an image only named like one, stays an ordinary image', () => {
+	const alone = { type: 'image', asset: asset('m.png'), fileName: 'doc_1.pdf', page: 1, x: 1, y: 2, w: 5 };
+	const wrongPage = { type: 'image', asset: asset('w.png'), fileName: 'scan_2.pdf', page: 3, x: 1, y: 2, w: 5 };
+	const noPage = { type: 'image', asset: asset('n.png'), fileName: 'scan_2.pdf', x: 1, y: 2, w: 5 };
+	const { page } = adapt([outline([element([alone]), element([wrongPage]), element([noPage])])]);
+	const [a, b, c] = page.outlines[0].children.map(unwrap) as Image[];
+	assert.deepEqual([a.printoutPage, a.printoutName, a.printoutOf], [1, 'doc.pdf', undefined]);
+	assert.deepEqual([b.printoutPage, c.printoutPage], [undefined, undefined]);
 });
 
 test('page ink keeps highlighter strokes in the model; highlighter-only ink is set aside', () => {

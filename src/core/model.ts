@@ -89,6 +89,8 @@ export interface Image extends Placed {
 	inkSvg?: boolean;
 	/** A printout shows one page (1-based) of a whole document. */
 	printoutPage?: number;
+	/** The printed document's file name (`<name>.pdf` on the Mac, where each page image is named `<name>_<page>.pdf`). */
+	printoutName?: string;
 	/** The original PDF on the same page, when there is one. */
 	printoutOf?: EmbeddedFile;
 }

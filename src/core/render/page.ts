@@ -86,25 +86,26 @@ function headingPrefix(styleId: string | undefined): string {
 	return level ? '#'.repeat(Number(level[1])) + ' ' : '';
 }
 
-// NoteTagShape values shown as Obsidian callouts.
-const CALLOUT_SHAPES: Record<number, string> = {
-	13: 'important', // Yellow star
-	15: 'question', // Question mark
-	17: 'danger', // High priority (red exclamation mark)
-	21: 'tip', // Light bulb
-	111: 'question', // Question balloon (desktop files only)
+// NoteTagShape values shown as Obsidian callouts, and the symbol a tagged heading shows instead.
+const CALLOUT_SHAPES: Record<number, { type: string, symbol: string }> = {
+	13: { type: 'important', symbol: '⭐' }, // Yellow star
+	15: { type: 'question', symbol: '❓' }, // Question mark
+	17: { type: 'danger', symbol: '❗' }, // High priority (red exclamation mark)
+	21: { type: 'tip', symbol: '💡' }, // Light bulb
+	111: { type: 'question', symbol: '❓' }, // Question balloon (desktop files only)
 };
 
 interface Callout {
 	type: string;
 	title?: string;
+	symbol: string;
 }
 
 function calloutFor(tags: Tag[] | undefined): Callout | undefined {
 	for (const tag of tags ?? []) {
 		if (tag.checkable || tag.shape === undefined) continue;
-		const type = CALLOUT_SHAPES[tag.shape];
-		if (type) return { type, title: tag.label };
+		const shape = CALLOUT_SHAPES[tag.shape];
+		if (shape) return { type: shape.type, title: tag.label, symbol: shape.symbol };
 	}
 	return undefined;
 }
@@ -115,6 +116,22 @@ interface Block {
 	callout?: string;
 	/** A position comment; printout runs look through these. */
 	marker?: boolean;
+	/** Pictures without data in a row, shown as one notice, and the list depth it was written at. */
+	missing?: MissingRun;
+	depth?: number;
+}
+
+type MissingRun = { kind: 'images', count: number, names: string[] } | { kind: 'printout', document: string, first: number, last: number };
+
+/** The notice for pictures without data (one, or a run of them). */
+function missingNotice(run: MissingRun, strings: Strings): string {
+	return run.kind === 'printout' ? strings.missingPrintoutPages(run.document, run.first, run.last) : strings.missingImages(run.count, run.names);
+}
+
+function missingRunOf(image: Image): MissingRun {
+	return image.printoutName && image.printoutPage
+		? { kind: 'printout', document: image.printoutName, first: image.printoutPage, last: image.printoutPage }
+		: { kind: 'images', count: 1, names: image.fileName ? [image.fileName] : [] };
 }
 
 function containsTable(elements: Element[]): boolean {
@@ -208,6 +225,11 @@ class PageWriter {
 						break;
 					}
 				}
+				if (!hasData(element.data)) {
+					this.options.onSkipped?.(describe(imageHint(element)), 'no-data');
+					this.pushMissing(element);
+					break;
+				}
 				await this.writeAsset(element.data, imageHint(element), '', true);
 				break;
 			}
@@ -235,9 +257,12 @@ class PageWriter {
 		if (text !== '') {
 			const indent = '\t'.repeat(this.depth);
 			const escaped = text.split('\n').map(escapeLineStart);
-			const body = indent + (marker || heading) + escaped.join('  \n' + indent + (marker ? '\t' : ''));
 			const callout = calloutFor(paragraph.tags);
-			if (callout && !marker && this.depth === 0) this.pushCallout(callout, body);
+			// A tagged heading stays a heading, so it is in Obsidian's outline and can be linked to;
+			// its tag becomes a symbol before the text instead of a callout around it.
+			const symbol = callout && heading && !marker ? `${callout.symbol} ` : '';
+			const body = indent + (marker || heading) + symbol + escaped.join('  \n' + indent + (marker ? '\t' : ''));
+			if (callout && !marker && !heading && this.depth === 0) this.pushCallout(callout, body);
 			else this.pushRaw(body, marker !== '');
 		}
 
@@ -308,6 +333,32 @@ class PageWriter {
 		if (recognizedText !== '') this.push(recognizedText);
 	}
 
+	/** A notice in place of a picture without data; pictures in a row (pages of one printout in order) share one. */
+	private pushMissing(image: Image): void {
+		const run = missingRunOf(image);
+		const previous = this.blocks[this.blocks.length - 1];
+		const last = previous?.missing;
+		const indent = '\t'.repeat(this.depth);
+		if (last && previous.depth === this.depth) {
+			if (last.kind === 'images' && run.kind === 'images') {
+				last.count++;
+				last.names.push(...run.names);
+				previous.text = indent + this.notice(last);
+				return;
+			}
+			if (last.kind === 'printout' && run.kind === 'printout' && last.document === run.document && run.first === last.last + 1) {
+				last.last = run.first;
+				previous.text = indent + this.notice(last);
+				return;
+			}
+		}
+		this.blocks.push({ text: indent + this.notice(run), listItem: false, missing: run, depth: this.depth });
+	}
+
+	private notice(run: MissingRun): string {
+		return renderRuns([{ text: missingNotice(run, this.options.strings), italic: true }], this.options);
+	}
+
 	private async writeAsset(data: AssetData | undefined, hint: AttachmentHint, label: string, embed: boolean): Promise<void> {
 		const link = await this.renderAsset(data, hint, label, embed);
 		if (link) this.push(link);
@@ -340,7 +391,11 @@ class PageWriter {
 					parts.push(await this.renderCell(child.children));
 					break;
 				case 'image':
-					parts.push(await this.renderAsset(child.data, imageHint(child), '', true) ?? '');
+					if (!hasData(child.data)) {
+						this.options.onSkipped?.(describe(imageHint(child)), 'no-data');
+						parts.push(this.notice(missingRunOf(child)));
+					}
+					else parts.push(await this.renderAsset(child.data, imageHint(child), '', true) ?? '');
 					break;
 				case 'embedded-file': {
 					const hint = fileHint(child);

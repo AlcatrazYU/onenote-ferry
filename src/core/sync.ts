@@ -8,7 +8,7 @@
 // - a page counts as modified when its title or last-modified time differs.
 
 import type { Sink } from './io.ts';
-import { joinPath, safeName } from './names.ts';
+import { composedText, joinPath, safeName } from './names.ts';
 import type { Strings } from './strings.ts';
 
 export interface PageInfo {
@@ -56,7 +56,7 @@ export function sectionDir(section: Pick<ScannedSection, 'groups' | 'label'>, st
 	return joinPath(...section.groups.map(group => safeName(group, strings.untitledPage)), safeName(section.label, strings.untitledPage, 120));
 }
 
-const nfc = (text: string) => text.normalize('NFC');
+const nfc = composedText;
 
 /**
  * The plan for one notebook. `partial` means the download holds only some sections, so sections
@@ -102,7 +102,7 @@ export function planNotebook(notebook: string, scanned: ScannedSection[], existi
 		const added = [...section.pages].filter(([id]) => !before.has(id)).map(([, page]) => page.title);
 		const removed = [...before].filter(([id]) => !section.pages!.has(id)).map(([, page]) => page.title);
 		const modified = [...section.pages]
-			.filter(([id, page]) => before.has(id) && (before.get(id)!.title !== page.title || before.get(id)!.modified !== page.modified))
+			.filter(([id, page]) => before.has(id) && (nfc(before.get(id)!.title) !== page.title || before.get(id)!.modified !== page.modified))
 			.map(([, page]) => page.title);
 		const changed = added.length > 0 || removed.length > 0 || modified.length > 0 || nfc(old) !== nfc(fresh);
 		items.push({ key: section.key, status: changed ? 'changed' : 'same', old, new: fresh, added, removed, modified });
@@ -120,7 +120,7 @@ export function scannedPages(json: { pages: { id: string, title?: string | null,
 	const pages = new Map<string, PageInfo>();
 	for (const page of json.pages) {
 		pages.set(page.id.toUpperCase(), {
-			title: page.title || '',
+			title: composedText(page.title || ''),
 			modified: page.updated ? new Date(page.updated * 1000).toISOString() : null,
 		});
 	}
