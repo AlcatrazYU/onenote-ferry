@@ -1,0 +1,20 @@
+# tests/samples/interop/OneWithoutFileData.one
+
+```json
+{
+ "parserErrors": [],
+ "pages": [
+  {
+   "title": "The OneNote file without file data",
+   "level": 0,
+   "file": "The OneNote file without file data.md"
+  }
+ ],
+ "attachments": []
+}
+```
+
+## The OneNote file without file data.md
+
+This is a test file which does not contain the file data.
+

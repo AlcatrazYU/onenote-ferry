@@ -1,0 +1,22 @@
+# tests/samples/aspose/ImageWithTag.one
+
+```json
+{
+ "parserErrors": [],
+ "pages": [
+  {
+   "title": "tyty",
+   "level": 0,
+   "file": "tyty.md"
+  }
+ ],
+ "attachments": [
+  "Section/_attachments/tyty - image001.png (2900 bytes)"
+ ]
+}
+```
+
+## tyty.md
+
+![](<_attachments/tyty - image001.png>)
+

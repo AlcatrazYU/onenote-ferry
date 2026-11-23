@@ -1,0 +1,10 @@
+# tests/samples/interop/Encryption.one
+
+```json
+{
+ "error": "PARSE_ERROR: Malformed OneStore data: unexpected property type: 0x16",
+ "parserErrors": [],
+ "pages": [],
+ "attachments": []
+}
+```

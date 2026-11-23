@@ -39,3 +39,14 @@ SOFTWARE.
 - License: Mozilla Public License 2.0, full text in `parser/LICENSE`. The files keep that license; their source is published in this repository.
 - `parser/test-data/onenote-2016` carries its own license file.
 
+## Microsoft Interop Test Suites (sample files)
+
+- Source: https://github.com/OfficeDev/Interop-TestSuites (commit `fe87ed3253de01804a2ae6e1d0015943da6023f8`)
+- Used in: `tests/samples/interop` (test input only, see `tests/samples/README.md`)
+- License: MIT, full text in `tests/samples/interop/LICENSE`
+
+## Aspose.Note FOSS for Python (sample files)
+
+- Source: https://github.com/aspose-note-foss/Aspose.Note-FOSS-for-Python (commit `0fd1cf7bcadb279a6dd73ddcba3d5241376badd3`)
+- Used in: `tests/samples/aspose` (test input only, see `tests/samples/README.md`)
+- License: MIT, full text in `tests/samples/aspose/LICENSE`

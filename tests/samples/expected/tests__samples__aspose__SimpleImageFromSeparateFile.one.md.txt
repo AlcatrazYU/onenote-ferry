@@ -1,0 +1,22 @@
+# tests/samples/aspose/SimpleImageFromSeparateFile.one
+
+```json
+{
+ "parserErrors": [],
+ "pages": [
+  {
+   "title": "",
+   "level": 0,
+   "file": "Untitled.md"
+  }
+ ],
+ "attachments": [
+  "Section/_attachments/Untitled - image001.jpg (620888 bytes)"
+ ]
+}
+```
+
+## Untitled.md
+
+![](<_attachments/Untitled - image001.jpg>)
+

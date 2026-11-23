@@ -1,0 +1,20 @@
+# tests/samples/aspose/FormattedRichText.one
+
+```json
+{
+ "parserErrors": [],
+ "pages": [
+  {
+   "title": "One hyperlink",
+   "level": 0,
+   "file": "One hyperlink.md"
+  }
+ ],
+ "attachments": []
+}
+```
+
+## One hyperlink.md
+
+This <span style="color:#e84c22">is</span> [hyperlink](www.google.com). ==🟡This== **<span style="color:#00b050">text</span>** ==🔵<span style="color:#c00000">is</span> *<span style="color:#c00000">not</span>* a== **<u>hyperlink</u>**.
+

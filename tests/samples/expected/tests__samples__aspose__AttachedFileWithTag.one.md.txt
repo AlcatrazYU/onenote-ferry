@@ -1,0 +1,22 @@
+# tests/samples/aspose/AttachedFileWithTag.one
+
+```json
+{
+ "parserErrors": [],
+ "pages": [
+  {
+   "title": "tyty",
+   "level": 0,
+   "file": "tyty.md"
+  }
+ ],
+ "attachments": [
+  "Section/_attachments/TestOneNoteSaveAsTiffByFormat.tiff (474222 bytes)"
+ ]
+}
+```
+
+## tyty.md
+
+[TestOneNoteSaveAsTiffByFormat.tiff](<_attachments/TestOneNoteSaveAsTiffByFormat.tiff>)
+
