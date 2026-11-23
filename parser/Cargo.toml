@@ -1,0 +1,5 @@
+# OneNote Ferry's copy of the Joplin OneNote parser (MPL-2.0) plus its own bridge crate `ferry`.
+# See UPSTREAM.md for the origin of the parser crates and every change made to them.
+[workspace]
+resolver = "3"
+members = ["parser", "parser-utils", "parser-macros", "ferry"]

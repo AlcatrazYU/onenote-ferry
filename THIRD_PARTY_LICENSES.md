@@ -31,3 +31,11 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Joplin OneNote converter (onenote.rs)
+
+- Source: npm package `@joplin/onenote-converter` 3.7.4 (https://github.com/laurent22/joplin, `packages/onenote-converter`, commit `898d2999f93fbedf0ce5f6626feb63e1a732ce0a`), based on https://github.com/msiemens/onenote.rs
+- Used in: `parser/parser`, `parser/parser-utils`, `parser/parser-macros`, `parser/test-data` (with the changes listed in `parser/UPSTREAM.md`)
+- License: Mozilla Public License 2.0, full text in `parser/LICENSE`. The files keep that license; their source is published in this repository.
+- `parser/test-data/onenote-2016` carries its own license file.
+

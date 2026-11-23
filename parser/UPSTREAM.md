@@ -1,0 +1,43 @@
+# Where the parser comes from
+
+The crates `parser`, `parser-utils` and `parser-macros`, the `test-data` folder, `LICENSE` and the
+starting `Cargo.lock` come from the npm package `@joplin/onenote-converter` version 3.7.4
+(Joplin repository commit `898d2999f93fbedf0ce5f6626feb63e1a732ce0a`), which is based on
+Markus Siemens' [onenote.rs](https://github.com/msiemens/onenote.rs). They are licensed under the
+Mozilla Public License 2.0 (see `LICENSE`).
+
+Not included: Joplin's HTML renderer (`renderer`), its build tools and its npm packaging.
+
+`ferry` is OneNote Ferry's own crate (also MPL-2.0): it turns a parsed section into the JSON the
+TypeScript core reads, as a native `dump` binary and as WebAssembly.
+
+## Changes made to the upstream code
+
+1. `parser/src/onenote/table.rs`, `parser/src/onenote/outline.rs`: a table cell that holds a group
+   of outlines (object type 0x60019) no longer fails the whole page; the group is flattened into
+   the cell. Reported upstream in laurent22/joplin#16569.
+2. `parser/src/one/property_set/embedded_file_container.rs`: an embedded file container that has
+   no data is read as an empty file instead of failing the whole page. Reported upstream in
+   laurent22/joplin#17178.
+3. `parser/src/onenote/mod.rs`: adds `Parser::parse_toc_names`, which reads the ordered entry names
+   of a `.onetoc2` table of contents.
+4. `parser-utils/src/reader.rs`, `parser-utils/src/file_api/api.rs`,
+   `parser-utils/src/file_api/native_driver.rs`, `parser-utils/src/file_api/wasm_driver.rs`: a new
+   `FileHandle::seek_to` keeps the read buffer when seeking to a position inside it, instead of
+   discarding it and reading the same block again. Parsing results are unchanged. On a 1.7 GB
+   section the WebAssembly build makes about 137 times fewer file reads (739,634 down to 5,393).
+
+5. `parser/src/local_onestore/objects/revision_manifest_list.rs`, `objects/revision.rs`,
+   `objects/object_space.rs`, `file_node/file_node.rs` (desktop files only): an object space's
+   content now comes from its current revision, the last one assigned revision role 0x1 in the
+   default context (by its manifest start or by a later role declaration), and the revisions it
+   builds on. Before, the first revision with a root was used, which in files with page history is
+   often an old version or the version history itself: such pages failed with "unexpected object
+   type: 0x20046" and were dropped, or an old version of the page was converted. Checked against the
+   expectations in the Aspose.Note FOSS test suite (see `tests/samples`); files in the OneDrive
+   download format use other code and are unchanged.
+
+Changes 4 and 5 are marked in the code with comments that start with "OneNote Ferry patch"; changes 2 and 3
+and the table part of change 1 carry comments that explain them, and the outline part of change 1
+only makes `parse_outline_item` visible to the crate. To see every change, compare this folder with
+the files of the npm package named above.

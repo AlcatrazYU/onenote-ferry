@@ -30,6 +30,15 @@ test('core files import only other core files', () => {
 	assert.deepEqual(offenders, []);
 });
 
+/** Text sources under a folder (Rust, Markdown, TOML, JavaScript), skipping build output and test data. */
+function textFiles(dir: string): string[] {
+	return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+		const path = join(dir, entry.name);
+		if (entry.isDirectory()) return ['target', 'test-data', 'node_modules'].includes(entry.name) ? [] : textFiles(path);
+		return /\.(rs|md|toml|js)$/.test(entry.name) ? [path] : [];
+	});
+}
+
 // Public content uses no dashes (U+2013, U+2014, U+2015); commas, colons or brackets instead.
 test('public files contain no dash characters', () => {
 	const ROOT = join(import.meta.dirname, '..');
@@ -39,6 +48,7 @@ test('public files contain no dash characters', () => {
 		...readdirSync(join(ROOT, 'docs')).filter(name => name.endsWith('.md')).map(name => join(ROOT, 'docs', name)),
 		join(ROOT, 'README.md'),
 		join(ROOT, 'THIRD_PARTY_LICENSES.md'),
+		...textFiles(join(ROOT, 'parser')),
 	];
 	const offenders = files.filter(file => /[\u2013\u2014\u2015]/.test(readFileSync(file, 'utf8')));
 	assert.deepEqual(offenders, []);
