@@ -9,7 +9,8 @@
 // Options:
 //   --dump <path>        use the native parser binary instead of WebAssembly
 //   --parser-wasm <dir>  where the WebAssembly build is (default: build/parser-wasm)
-//   --tmp <dir>          scratch folder for parser output (default: the system temp folder)
+//   --tmp <dir>          where to make this run's private scratch folder (default: the system temp
+//                        folder); the scratch folder is removed at the end
 //   --only "A|B"         convert only these notebooks (exact names)
 //   --language <code>    language of inserted marks and folder names: en, zh-Hans, zh-Hant, ja, ko
 //                        (default: the system's language, English when it has no marks of its own),
@@ -26,7 +27,7 @@
 // missing ones are not gone), --only, --language (by default each notebook's, read from the
 // earlier conversion's folder names), --json <file>, --dump, --parser-wasm, --tmp.
 
-import { closeSync, createReadStream, createWriteStream, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { closeSync, createReadStream, createWriteStream, existsSync, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { createInflateRaw } from 'node:zlib';
@@ -69,7 +70,7 @@ function parseArgs(argv: string[]) {
 	const parsed = {
 		dump: option('--dump'),
 		parserWasm: option('--parser-wasm') ?? fileURLToPath(new URL('../../build/parser-wasm', import.meta.url)),
-		tmp: option('--tmp') ?? join(tmpdir(), 'onenote-ferry'),
+		tmp: option('--tmp') ?? tmpdir(),
 		only: option('--only')?.split('|').filter(Boolean),
 		language: option('--language') ?? SYSTEM_LANGUAGE,
 		languageGiven: false,
@@ -264,8 +265,9 @@ async function openDownload(input: string, tmp: string, inPlace: boolean): Promi
 		const copy = join(folder, basename(section.path));
 		mkdirSync(folder, { recursive: true });
 		const source = createReadStream(input, { start: offset, end: offset + entry.compressedSize - 1 });
-		if (entry.method === 0) await pipeline(source, createWriteStream(copy));
-		else if (entry.method === 8) await pipeline(source, createInflateRaw(), createWriteStream(copy));
+		// Never into a file that is already there (or a link someone left in its place).
+		if (entry.method === 0) await pipeline(source, createWriteStream(copy, { flags: 'wx' }));
+		else if (entry.method === 8) await pipeline(source, createInflateRaw(), createWriteStream(copy, { flags: 'wx' }));
 		else throw new Error(`zip entry ${entry.name} uses compression method ${entry.method}`);
 		copies.set(section.path, copy);
 		return copy;
@@ -294,6 +296,17 @@ async function openDownload(input: string, tmp: string, inPlace: boolean): Promi
 	};
 }
 
+/**
+ * This run's scratch folder: new, with a random name and only the user's own access (mkdtemp), so
+ * nobody else on the machine can put files or links in it beforehand. Removed when the run ends.
+ */
+function scratchFolder(base: string): string {
+	mkdirSync(base, { recursive: true });
+	const folder = mkdtempSync(join(base, 'onenote-ferry-'));
+	process.on('exit', () => rmSync(folder, { recursive: true, force: true }));
+	return folder;
+}
+
 /** Whether a section file is password protected (see core/encryption.ts). */
 async function passwordProtected(download: Download, section: DownloadSection): Promise<boolean> {
 	return isPasswordProtected(await download.head(section, ENCRYPTION_MARKER_WINDOW));
@@ -314,11 +327,11 @@ async function main() {
 	const strings = STRINGS[fixed ?? SYSTEM_LANGUAGE];
 	const sink = fileSink(options.output);
 	const wasm = options.dump ? undefined : loadWasmParser(options.parserWasm);
-	mkdirSync(options.tmp, { recursive: true });
-	const rawDir = join(options.tmp, 'raw');
-	const jsonPath = join(options.tmp, 'section.json');
+	const scratch = scratchFolder(options.tmp);
+	const rawDir = join(scratch, 'raw');
+	const jsonPath = join(scratch, 'section.json');
 	const started = Date.now();
-	const download = await openDownload(options.input, join(options.tmp, 'zip'), !!wasm);
+	const download = await openDownload(options.input, join(scratch, 'zip'), !!wasm);
 	try {
 		const notebooks = download.notebooks.filter(notebook => !options.only || options.only.includes(notebook.name));
 		if (notebooks.length === 0) {
@@ -428,9 +441,9 @@ async function plan(argv: string[]) {
 	const given = options.languageGiven && options.language !== 'auto' ? options.language as Language : undefined;
 	const sink = fileSink(options.output);
 	const wasm = options.dump ? undefined : loadWasmParser(options.parserWasm);
-	mkdirSync(options.tmp, { recursive: true });
-	const jsonPath = join(options.tmp, 'scan.json');
-	const download = await openDownload(options.input, join(options.tmp, 'zip'), !!wasm);
+	const scratch = scratchFolder(options.tmp);
+	const jsonPath = join(scratch, 'scan.json');
+	const download = await openDownload(options.input, join(scratch, 'zip'), !!wasm);
 	try {
 
 		// Page ids, titles and modification times only: attachments are not read out.
