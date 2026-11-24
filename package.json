@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.plugin.json",
     "build:plugin": "node scripts/build-plugin.mjs",
     "convert": "node src/cli/main.ts",
-    "build:parser": "cd parser/ferry && wasm-pack build --target nodejs --release --out-dir ../../build/parser-wasm --out-name ferry",
+    "build:parser": "cd parser/ferry && CARGO_ENCODED_RUSTFLAGS=\"--remap-path-prefix=$HOME/.cargo=/cargo\" wasm-pack build --target nodejs --release --out-dir ../../build/parser-wasm --out-name ferry",
     "build:dump": "cargo build --release --manifest-path parser/Cargo.toml -p ferry --bin dump"
   },
   "devDependencies": {

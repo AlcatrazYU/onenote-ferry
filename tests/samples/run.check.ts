@@ -8,13 +8,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Adapter } from '../../src/core/adapter.ts';
 import { en } from '../../src/core/strings.ts';
 import { writeSection } from '../../src/core/write.ts';
 import { memorySink } from '../helpers.ts';
+import { makeZip } from '../zip-writer.ts';
+import { entryDataOffset, readZipDirectory } from '../../src/core/zip.ts';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const EXPECTED = join(ROOT, 'tests/samples/expected');
@@ -135,5 +139,40 @@ test('every sample converts to the expected output', async () => {
 		}
 		assert.ok(existsSync(expectedFile), `no expected output for ${name}: review the output, then run UPDATE=1 npm run test:samples`);
 		assert.equal(text, readFileSync(expectedFile, 'utf8'), name);
+	}
+});
+
+// Parser change 6 (parser/UPSTREAM.md): a section stored in a zip is read in place, from its byte
+// range, and gives exactly what the same file gives.
+test('sections read in place from a zip give the same result as the files', async () => {
+	const files = SAMPLES.filter(path => !/Encryption/.test(path));
+	const zip = makeZip(files.map(path => ({ name: `Documents/Samples/${relative(ROOT, path).replace(/[\\/]/g, '__')}`, data: readFileSync(path) })), { descriptors: 'both', zip64: 'offset' });
+	const zipPath = join(mkdtempSync(join(tmpdir(), 'onenote-ferry-samples-')), 'samples.zip');
+	writeFileSync(zipPath, zip);
+	const file = { size: zip.length, async read(offset: number, length: number) { return zip.slice(offset, offset + length); } };
+	const ranges: Map<string, unknown> = (globalThis as any).__ONENOTE_FERRY_RANGES__ ??= new Map();
+	const sha = (b: Uint8Array) => createHash('sha1').update(b).digest('hex');
+	try {
+		for (const entry of await readZipDirectory(file)) {
+			const path = files.find(p => entry.name.endsWith(relative(ROOT, p).replace(/[\\/]/g, '__')))!;
+			const name = `${zipPath}/${entry.name}`;
+			ranges.set(name, { file: zipPath, offset: await entryDataOffset(file, entry), length: entry.size });
+			const read = (source: string) => {
+				const parsed = ferry!.parseSection(source);
+				try {
+					const json = parsed.takeJson();
+					const keys = [...new Set([...json.matchAll(/"asset":"([0-9a-f]{40}\.[a-z0-9]+)"/g)].map(m => m[1]))];
+					return { json: json.replace(/"name":"[^"]*"/, '"name":""'), assets: keys.map(key => sha(parsed.readAsset(key))) };
+				}
+				finally {
+					parsed.free();
+				}
+			};
+			assert.deepEqual(read(name), read(path), entry.name);
+			ranges.delete(name);
+		}
+	}
+	finally {
+		rmSync(dirname(zipPath), { recursive: true, force: true });
 	}
 });

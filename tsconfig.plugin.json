@@ -4,5 +4,6 @@
 		"lib": ["ES2022", "DOM", "DOM.Iterable"],
 		"types": []
 	},
-	"include": ["src/plugin", "src/core"]
+	"include": ["src/plugin", "src/core"],
+	"exclude": []
 }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LANGUAGES, STRINGS, zhHans, isLanguage } from '../src/core/strings.ts';
+import { LANGUAGES, STRINGS, zhHans, isLanguage, markerLanguageFor } from '../src/core/strings.ts';
 import type { Strings } from '../src/core/strings.ts';
 import { safeName } from '../src/core/names.ts';
 import { Adapter } from '../src/core/adapter.ts';
@@ -110,4 +110,17 @@ test('a section written in English uses English folder names and marks', async (
 		'',
 	].join('\n\n').replace(/\n\n$/, '\n'));
 	assert.match(sink.files.get('NB/Section/_contents.md') as string, /^---\ntitle: "Section contents"\n---\n\n# Section\n/);
+});
+
+test('marks follow the reader\'s interface language', () => {
+	const cases: [string | undefined, string][] = [
+		['zh', 'zh-Hans'], ['zh-CN', 'zh-Hans'], ['zh_CN.UTF-8', 'zh-Hans'], ['zh-Hans-CN', 'zh-Hans'],
+		['zh-TW', 'zh-Hant'], ['zh_HK.UTF-8', 'zh-Hant'], ['zh-Hant-TW', 'zh-Hant'],
+		['ja', 'ja'], ['ja_JP.UTF-8', 'ja'], ['ko', 'ko'], ['ko-KR', 'ko'],
+		['en', 'en'], ['de', 'en'], ['', 'en'], [undefined, 'en'],
+		// Other languages that start with the same letters, and other Chinese languages.
+		['kok_IN.UTF-8', 'en'], ['jam', 'en'], ['zh_SG.UTF-8', 'zh-Hans'], ['yue_HK.UTF-8', 'zh-Hant'], ['yue-Hant-HK', 'zh-Hant'],
+		['yue-Hans-CN', 'zh-Hans'], ['nan_TW', 'zh-Hant'], ['lzh_TW', 'zh-Hant'], ['sr_RS@latin', 'en'], ['C', 'en'], ['POSIX', 'en'],
+	];
+	for (const [locale, language] of cases) assert.equal(markerLanguageFor(locale), language, String(locale));
 });

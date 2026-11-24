@@ -6,6 +6,7 @@ import { escapeInline, escapeLineStart } from './markdown.ts';
 import { composedText, joinPath, safeName } from './names.ts';
 import { renderPage } from './render/page.ts';
 import type { AttachmentHint, ResolvedAttachment } from './render/page.ts';
+import { LANGUAGES, STRINGS } from './strings.ts';
 import type { Strings } from './strings.ts';
 
 export interface SectionWriteOptions {
@@ -41,6 +42,12 @@ export interface SectionReport {
 }
 
 const yaml = (value: string) => JSON.stringify(value);
+/**
+ * A page never takes a table of contents' name, in any marker language and any case: on a disk
+ * that ignores case the table of contents would overwrite it, and links between notebooks of
+ * different languages would take it for one.
+ */
+const TOC_NAMES = new Set(LANGUAGES.map(language => STRINGS[language].tocFileName.toLowerCase()));
 const pad = (n: number, width: number) => String(n).padStart(width, '0');
 
 /** The extension a suggested attachment name ends with, as the original converter read it. */
@@ -68,7 +75,7 @@ export async function writeSection(section: Section, source: SectionSource, sink
 	for (const page of pages) {
 		const base = safeName(page.title || strings.untitledPage, strings.untitledPage) + (page.isConflictPage ? strings.conflictPageSuffix : '');
 		let name = base, n = 2;
-		while (used.has(name.toLowerCase()) || name === strings.tocFileName) name = `${base} (${n++})`;
+		while (used.has(name.toLowerCase()) || TOC_NAMES.has(name.toLowerCase())) name = `${base} (${n++})`;
 		used.add(name.toLowerCase());
 		fileOf.set(page.id, name);
 		if (!titleToFile.has(page.title)) titleToFile.set(page.title, name);
@@ -179,6 +186,8 @@ export interface NotebookTocEntry {
 	failed?: boolean;
 	/** The section is password protected (and so not converted). */
 	locked?: boolean;
+	/** The import was cancelled before this section: listed, not converted, no link. */
+	cancelled?: boolean;
 }
 
 /** Folder of a section inside its notebook folder. */
@@ -209,6 +218,10 @@ export function notebookToc(notebookName: string, entries: NotebookTocEntry[], s
 		while (shared < groups.length && shared < open.length && groups[shared] === open[shared]) shared++;
 		for (let level = shared; level < groups.length; level++) lines.push(`${'\t'.repeat(level)}- ${groups[level]}`);
 		open = groups;
+		if (entry.cancelled) {
+			lines.push(`${'\t'.repeat(groups.length)}- ${escapeLineStart(escapeInline(composedText(entry.section)))}${strings.cancelledSuffix}`);
+			continue;
+		}
 		const suffix = entry.locked ? strings.passwordProtectedSuffix : entry.failed ? strings.conversionFailedSuffix : '';
 		lines.push(`${'\t'.repeat(groups.length)}- [${composedText(entry.section)}](<${sectionFolder(entry.groups, entry.section, strings)}/${strings.tocFileName}.md>)${suffix}`);
 	}

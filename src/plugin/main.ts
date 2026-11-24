@@ -30,6 +30,8 @@ export default class OneNoteFerryPlugin extends Plugin {
 	private worker?: Worker;
 	private workerUrl?: string;
 	private nextId = 1;
+	/** Requests sent to the worker and not answered yet; all are rejected when it stops or fails. */
+	private readonly pending = new Map<number, { resolve(value: any): void, reject(error: Error): void }>();
 
 	/** What the last validation pick returned (validation three). */
 	lastPick?: string;
@@ -45,12 +47,20 @@ export default class OneNoteFerryPlugin extends Plugin {
 	 * Shows the paths it gives back and whether Node can read them.
 	 */
 	async validatePick(): Promise<void> {
-		const { remote } = require('electron');
 		const fs = require('fs');
-		const result = await remote.dialog.showOpenDialog({
-			title: 'OneNote Ferry: pick a OneDrive download (zip or folder)',
-			properties: ['openFile', 'openDirectory', 'multiSelections'],
-		});
+		let result: { canceled: boolean, filePaths: string[] };
+		try {
+			const { remote } = require('electron');
+			result = await remote.dialog.showOpenDialog({
+				title: 'OneNote Ferry: pick a OneDrive download (zip or folder)',
+				properties: ['openFile', 'openDirectory', 'multiSelections'],
+			});
+		}
+		catch (error) {
+			this.lastPick = JSON.stringify({ error: String(error) });
+			new Notice(`The system's open dialog is not available: ${String(error)}`, 15000);
+			return;
+		}
 		const picked = (result.filePaths as string[]).map(path => {
 			try {
 				const stat = fs.statSync(path);
@@ -68,11 +78,32 @@ export default class OneNoteFerryPlugin extends Plugin {
 		this.stopWorker();
 	}
 
-	private stopWorker(): void {
+	private stopWorker(reason = 'the worker was stopped'): void {
 		this.worker?.terminate();
 		this.worker = undefined;
 		if (this.workerUrl) URL.revokeObjectURL(this.workerUrl);
 		this.workerUrl = undefined;
+		for (const request of this.pending.values()) request.reject(new Error(reason));
+		this.pending.clear();
+	}
+
+	/** Sends a request to the worker and waits for its answer (or its failure). */
+	private request<T>(message: Record<string, unknown>, transfer: Transferable[] = []): Promise<T> {
+		const worker = this.worker;
+		if (!worker) return Promise.reject(new Error('the worker is not running'));
+		const id = this.nextId++;
+		return new Promise<T>((resolve, reject) => {
+			this.pending.set(id, { resolve, reject });
+			worker.postMessage({ ...message, id }, transfer);
+		});
+	}
+
+	private onWorkerMessage(data: any): void {
+		const request = this.pending.get(data?.id);
+		if (!request) return;
+		this.pending.delete(data.id);
+		if (data.type === 'error') request.reject(new Error(data.message));
+		else request.resolve(data);
 	}
 
 	/** Starts the worker and the parser in it; answers how long each part took. */
@@ -84,20 +115,16 @@ export default class OneNoteFerryPlugin extends Plugin {
 		this.workerUrl = URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' }));
 		const worker = new Worker(this.workerUrl);
 		this.worker = worker;
-		const ready = new Promise<{ startMs: number }>((resolve, reject) => {
-			worker.onmessage = event => (event.data?.type === 'ready' ? resolve(event.data) : reject(new Error(JSON.stringify(event.data))));
-			worker.onerror = event => reject(new Error(event.message));
-		});
-		worker.postMessage({ type: 'init', wasm: wasm.buffer }, [wasm.buffer]);
-		const { startMs } = await ready;
+		worker.onmessage = event => this.onWorkerMessage(event.data);
+		// A worker that fails (or runs out of memory) answers nothing more: every waiting request fails with it.
+		worker.onerror = event => this.stopWorker(`the worker failed: ${event.message}`);
+		const { startMs } = await this.request<{ startMs: number }>({ type: 'init', wasm: wasm.buffer }, [wasm.buffer]);
 		return { decodeMs: Math.round(decodeMs), startMs: Math.round(startMs) };
 	}
 
 	/** Parses one section in the worker, and records the longest stall of Obsidian's window meanwhile. */
 	async parseInWorker(path: string): Promise<ParseResult & { longestStallMs: number }> {
 		if (!this.worker) await this.startWorker();
-		const worker = this.worker!;
-		const id = this.nextId++;
 		let last = performance.now(), longest = 0;
 		const timer = window.setInterval(() => {
 			const now = performance.now();
@@ -105,14 +132,7 @@ export default class OneNoteFerryPlugin extends Plugin {
 			last = now;
 		}, 50);
 		try {
-			const result = await new Promise<ParseResult>((resolve, reject) => {
-				worker.onmessage = event => {
-					if (event.data?.id !== id) return;
-					if (event.data.type === 'parsed') resolve(event.data);
-					else reject(new Error(event.data.message));
-				};
-				worker.postMessage({ type: 'parse', id, path });
-			});
+			const result = await this.request<ParseResult>({ type: 'parse', path });
 			return { ...result, longestStallMs: Math.round(Math.max(0, longest)) };
 		}
 		finally {
@@ -151,28 +171,33 @@ export default class OneNoteFerryPlugin extends Plugin {
 			longest = Math.max(longest, now - last - 50);
 			last = now;
 		}, 50);
-		const started = performance.now();
+		let writeMs: number;
 		const total = pages + pictures;
-		const subfolders = new Set<string>();
-		for (let i = 0; i < total; i++) {
-			const sub = `${root}/s${Math.floor(i / 500)}`;
-			if (!subfolders.has(sub)) {
-				subfolders.add(sub);
-				if (mode === 'vault') await vault.createFolder(sub).catch(() => undefined);
-				else await vault.adapter.mkdir(sub);
+		try {
+			const started = performance.now();
+			const subfolders = new Set<string>();
+			for (let i = 0; i < total; i++) {
+				const sub = `${root}/s${Math.floor(i / 500)}`;
+				if (!subfolders.has(sub)) {
+					subfolders.add(sub);
+					if (mode === 'vault') await vault.createFolder(sub).catch(() => undefined);
+					else await vault.adapter.mkdir(sub);
+				}
+				const isPage = i < pages;
+				const path = `${sub}/${isPage ? `page ${i}.md` : `picture ${i}.png`}`;
+				if (mode === 'vault') {
+					if (isPage) await vault.create(path, page, { mtime });
+					else await vault.createBinary(path, picture.buffer, { mtime });
+				}
+				else if (isPage) await vault.adapter.write(path, page, { mtime });
+				else await vault.adapter.writeBinary(path, picture.buffer, { mtime });
+				if ((i + 1) % batch === 0) await new Promise(resolve => window.setTimeout(resolve, 0));
 			}
-			const isPage = i < pages;
-			const path = `${sub}/${isPage ? `page ${i}.md` : `picture ${i}.png`}`;
-			if (mode === 'vault') {
-				if (isPage) await vault.create(path, page, { mtime });
-				else await vault.createBinary(path, picture.buffer, { mtime });
-			}
-			else if (isPage) await vault.adapter.write(path, page, { mtime });
-			else await vault.adapter.writeBinary(path, picture.buffer, { mtime });
-			if ((i + 1) % batch === 0) await new Promise(resolve => window.setTimeout(resolve, 0));
+			writeMs = performance.now() - started;
 		}
-		const writeMs = performance.now() - started;
-		window.clearInterval(timer);
+		finally {
+			window.clearInterval(timer);
+		}
 		const probe = `${root}/s0/page 0.md`;
 		const stat = await vault.adapter.stat(probe);
 		return JSON.stringify({

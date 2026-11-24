@@ -26,6 +26,13 @@ test('page files: unique names, untitled pages, illegal characters, never the ta
 	]);
 });
 
+test('a page never takes a table of contents\' name, in any language or case', async () => {
+	const { sink } = await write([textPage('_contents', 'a'), textPage('_目次', 'b'), textPage('_目录', 'c'), textPage('_Contents', 'd')]);
+	const names = [...sink.files.keys()].filter(p => p.endsWith('.md')).sort();
+	// '_Contents (2)' would clash with '_contents (2)' on a disk that ignores case.
+	assert.deepEqual(names, [`${DIR}/_Contents (3).md`, `${DIR}/_contents (2).md`, `${DIR}/_目录 (2).md`, `${DIR}/_目录.md`, `${DIR}/_目次 (2).md`]);
+});
+
 test('front matter and file time', async () => {
 	const { sink } = await write([textPage('Plan', 'body', { level: 2 })]);
 	assert.equal(text(sink, `${DIR}/Plan.md`), [

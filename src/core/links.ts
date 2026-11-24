@@ -123,15 +123,15 @@ export function rewriteLinks(markdown: string, fromPath: string, index: LinkInde
  * Builds the index from every page under the given notebook folders (their `onenote-id`), the
  * sections converted in this run, and every other section folder found there.
  */
-export async function buildLinkIndex(sink: Sink, notebookFolders: string[], converted: SectionRef[], options: { tocFileName: string, attachmentsFolder: string }): Promise<LinkIndex> {
+export async function buildLinkIndex(sink: Sink, notebookFolders: string[], converted: SectionRef[], options: { tocFileNames: string[], attachmentsFolders: string[] }): Promise<LinkIndex> {
 	const index: LinkIndex = { pages: new Map(), sections: [...converted], files: new Set() };
 	const known = new Set(converted.map(section => section.toc));
-	const tocName = `${options.tocFileName}.md`;
+	const tocNames = options.tocFileNames.map(name => `${name}.md`);
 	for (const folder of notebookFolders) {
 		const files = (await sink.listFiles(folder)).sort();
 		for (const path of files) {
-			if (!path.endsWith('.md') || path.split('/').includes(options.attachmentsFolder)) continue;
-			if (path.endsWith(`/${tocName}`)) {
+			if (!path.endsWith('.md') || path.split('/').some(part => options.attachmentsFolders.includes(part))) continue;
+			if (tocNames.some(name => path.endsWith(`/${name}`))) {
 				// A section from an earlier run: its folders stand for its source path.
 				const segments = path.split('/').slice(0, -1);
 				if (segments.length >= 2 && !known.has(path)) index.sections.push({ source: segments.map(nfc), toc: path });

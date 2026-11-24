@@ -49,6 +49,9 @@ test('public files contain no dash characters', () => {
 		join(ROOT, 'README.md'),
 		join(ROOT, 'THIRD_PARTY_LICENSES.md'),
 		...textFiles(join(ROOT, 'parser')),
+		// The plugin's store listing (manifest.json), build scripts and settings files.
+		...readdirSync(ROOT).filter(name => /\.(json|mjs)$|^\.npmrc$/.test(name)).map(name => join(ROOT, name)),
+		...readdirSync(join(ROOT, 'scripts')).map(name => join(ROOT, 'scripts', name)),
 	];
 	const offenders = files.filter(file => /[\u2013\u2014\u2015]/.test(readFileSync(file, 'utf8')));
 	assert.deepEqual(offenders, []);

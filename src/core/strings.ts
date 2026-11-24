@@ -30,8 +30,12 @@ export interface Strings {
 	conversionFailedSuffix: string;
 	/** After a section that is password protected (in the notebook's table of contents). */
 	passwordProtectedSuffix: string;
+	/** After a section left out because the import was cancelled (in the notebook's table of contents). */
+	cancelledSuffix: string;
 	/** Why a password-protected section was not converted (report and command line). */
 	passwordProtected: string;
+	/** Why a section the download stopped inside was not converted (its table of contents, report and command line). */
+	incompleteSection: string;
 	/** Title of the collapsed callout holding an image's alternative text. */
 	altTextTitle: string;
 	/** The note in a section that could not be converted, with the parser's message. */
@@ -65,7 +69,9 @@ export const en: Strings = {
 	sectionOrderNote: '> Sections are sorted by name (files downloaded from OneDrive do not record the section order in OneNote).',
 	conversionFailedSuffix: ' (conversion failed)',
 	passwordProtectedSuffix: ' (password protected, not converted)',
+	cancelledSuffix: ' (not converted: the import was cancelled)',
 	passwordProtected: 'This section is password protected and cannot be read. Remove its password protection in OneNote, then download it again.',
+	incompleteSection: 'This section was not completely downloaded (the download stopped part way). Download this notebook again.',
 	altTextTitle: 'Alt text',
 	conversionFailedNote: error => `This section could not be converted. The parser reported: ${error}`,
 	attachmentsFolder: '_attachments',
@@ -94,7 +100,9 @@ export const zhHans: Strings = {
 	sectionOrderNote: '> 分区按名称排序（OneDrive 下载的文件里没有 OneNote 中的分区顺序）。',
 	conversionFailedSuffix: '（转换失败）',
 	passwordProtectedSuffix: '（有密码保护，未转换）',
+	cancelledSuffix: '（未转换：导入已取消）',
 	passwordProtected: '这个分区设了密码，无法读取。请在 OneNote 里取消它的密码保护，再重新下载。',
+	incompleteSection: '这个分区没有下载完整（下载中途停止了）。请重新下载这本笔记本。',
 	altTextTitle: '替换文字',
 	conversionFailedNote: error => `这个分区没能转换。解析器报告：${error}`,
 	attachmentsFolder: '_附件',
@@ -123,7 +131,9 @@ export const zhHant: Strings = {
 	sectionOrderNote: '> 分區按名稱排序（OneDrive 下載的檔案裡沒有 OneNote 中的分區順序）。',
 	conversionFailedSuffix: '（轉換失敗）',
 	passwordProtectedSuffix: '（有密碼保護，未轉換）',
+	cancelledSuffix: '（未轉換：匯入已取消）',
 	passwordProtected: '這個分區設了密碼，無法讀取。請在 OneNote 裡取消它的密碼保護，再重新下載。',
+	incompleteSection: '這個分區沒有下載完整（下載中途停止了）。請重新下載這本筆記本。',
 	altTextTitle: '替代文字',
 	conversionFailedNote: error => `這個分區沒能轉換。解析器報告：${error}`,
 	attachmentsFolder: '_附件',
@@ -152,7 +162,9 @@ export const ja: Strings = {
 	sectionOrderNote: '> セクションは名前順です（OneDrive からダウンロードしたファイルには、OneNote でのセクションの並び順が含まれていません）。',
 	conversionFailedSuffix: '（変換失敗）',
 	passwordProtectedSuffix: '（パスワード保護のため未変換）',
+	cancelledSuffix: '（未変換：インポートを中止しました）',
 	passwordProtected: 'このセクションはパスワードで保護されているため読み取れません。OneNote でパスワード保護を解除してから、もう一度ダウンロードしてください。',
+	incompleteSection: 'このセクションは最後までダウンロードされていません（ダウンロードが途中で止まりました）。このノートブックをもう一度ダウンロードしてください。',
 	altTextTitle: '代替テキスト',
 	conversionFailedNote: error => `このセクションは変換できませんでした。解析器のメッセージ：${error}`,
 	attachmentsFolder: '_添付ファイル',
@@ -181,7 +193,9 @@ export const ko: Strings = {
 	sectionOrderNote: '> 섹션은 이름순으로 정렬됩니다 (OneDrive에서 내려받은 파일에는 OneNote의 섹션 순서가 들어 있지 않습니다).',
 	conversionFailedSuffix: ' (변환 실패)',
 	passwordProtectedSuffix: ' (암호로 보호되어 변환하지 않음)',
+	cancelledSuffix: ' (가져오기를 취소하여 변환하지 않음)',
 	passwordProtected: '이 섹션은 암호로 보호되어 있어 읽을 수 없습니다. OneNote에서 암호 보호를 해제한 뒤 다시 내려받으세요.',
+	incompleteSection: '이 섹션은 끝까지 다운로드되지 않았습니다(다운로드가 중간에 멈췄습니다). 이 전자 필기장을 다시 다운로드하세요.',
 	altTextTitle: '대체 텍스트',
 	conversionFailedNote: error => `이 섹션은 변환하지 못했습니다. 파서 메시지: ${error}`,
 	attachmentsFolder: '_첨부 파일',
@@ -197,4 +211,25 @@ export const STRINGS: Record<Language, Strings> = { 'en': en, 'zh-Hans': zhHans,
 
 export function isLanguage(value: string): value is Language {
 	return (LANGUAGES as readonly string[]).includes(value);
+}
+
+/**
+ * The marks for a reader whose interface is in `locale` (Obsidian's language setting, such as
+ * `zh` or `zh-TW`, or a system locale such as `ja_JP.UTF-8`): the reader's language, English
+ * when it has no marks of its own. Marks follow the reader, not each notebook's content (see the
+ * project notes, decision 37).
+ */
+export function markerLanguageFor(locale: string | undefined): Language {
+	const parts = (locale ?? '').toLowerCase().replace(/_/g, '-').replace(/[.@].*$/, '').split('-');
+	const [language, ...rest] = parts;
+	if (language === 'ja') return 'ja';
+	if (language === 'ko') return 'ko';
+	// Chinese, and the Chinese languages whose locales say so (Cantonese, Min Nan, Hakka, Classical...).
+	if (['zh', 'cmn', 'yue', 'nan', 'hak', 'lzh', 'wuu', 'gan', 'hsn'].includes(language)) {
+		if (rest.includes('hant') || rest.some(part => ['tw', 'hk', 'mo'].includes(part))) return 'zh-Hant';
+		if (rest.includes('hans') || rest.some(part => ['cn', 'sg', 'my'].includes(part))) return 'zh-Hans';
+		// Cantonese and Classical Chinese are mostly written in traditional characters.
+		return ['yue', 'lzh'].includes(language) ? 'zh-Hant' : 'zh-Hans';
+	}
+	return 'en';
 }

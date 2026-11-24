@@ -88,10 +88,21 @@ test('the index reads page ids from front matter, skips attachments and tables o
 	await sink.writeText('NB/S/_目录.md', '---\ntitle: "S 目录"\n---\n');
 	await sink.writeText('NB/Old/_目录.md', '---\ntitle: "Old 目录"\n---\n');
 	await sink.writeText('NB/S/_附件/notes.md', `onenote-id: "${PAGE_B}"\n`);
-	const ix = await buildLinkIndex(sink, ['NB'], [{ source: ['NB', 'S'], toc: 'NB/S/_目录.md' }], { tocFileName: '_目录', attachmentsFolder: '_附件' });
+	const ix = await buildLinkIndex(sink, ['NB'], [{ source: ['NB', 'S'], toc: 'NB/S/_目录.md' }], { tocFileNames: ['_目录'], attachmentsFolders: ['_附件'] });
 	assert.deepEqual([...ix.pages], [[PAGE_A, 'NB/S/Page.md']]);
 	assert.deepEqual(ix.sections.map(s => s.toc).sort(), ['NB/Old/_目录.md', 'NB/S/_目录.md']);
 	assert.deepEqual([...ix.files], ['NB/S/Page.md']);
+});
+
+test('the index reads tables of contents and attachments folders of every language given', async () => {
+	const sink = memorySink();
+	await sink.writeText('NB/S/_目录.md', '---\ntitle: "S"\n---\n');
+	await sink.writeText('Notes/T/_contents.md', '---\ntitle: "T"\n---\n');
+	await sink.writeText('Notes/T/_attachments/notes.md', `onenote-id: "${PAGE_B}"\n`);
+	await sink.writeText('Notes/T/Page.md', `---\nonenote-id: "${PAGE_A}"\n---\n`);
+	const ix = await buildLinkIndex(sink, ['NB', 'Notes'], [], { tocFileNames: ['_目录', '_contents'], attachmentsFolders: ['_附件', '_attachments'] });
+	assert.deepEqual(ix.sections.map(s => s.toc).sort(), ['NB/S/_目录.md', 'Notes/T/_contents.md']);
+	assert.deepEqual([...ix.pages], [[PAGE_A, 'Notes/T/Page.md']]);
 });
 
 test('relinking rewrites only pages that change and keeps their modification time', async () => {
@@ -99,7 +110,7 @@ test('relinking rewrites only pages that change and keeps their modification tim
 	const url = `onenote:https://d.docs.live.net/0/F/NB/T.one#Target&section-id=${SECTION}&page-id=${PAGE_B}&end`;
 	await sink.writeText('NB/S/From.md', `---\nmodified: 2024-01-02T03:04:05.000Z\nonenote-id: "${PAGE_A}"\n---\n\n[t](${url})\n`);
 	await sink.writeText('NB/T/Target.md', `---\nonenote-id: "${PAGE_B}"\n---\n\nno links\n`);
-	const ix = await buildLinkIndex(sink, ['NB'], [], { tocFileName: '_目录', attachmentsFolder: '_附件' });
+	const ix = await buildLinkIndex(sink, ['NB'], [], { tocFileNames: ['_目录'], attachmentsFolders: ['_附件'] });
 	const result = await relinkPages(sink, ['NB/S/From.md', 'NB/T/Target.md'], ix);
 	assert.deepEqual([result.links, result.resolved, result.filesChanged], [1, 1, 1]);
 	assert.match(sink.files.get('NB/S/From.md') as string, /\[t\]\(<\.\.\/T\/Target\.md>\)/);

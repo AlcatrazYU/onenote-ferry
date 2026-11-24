@@ -9,7 +9,7 @@ interface Ferry {
 declare const require: (id: string) => any;
 
 type Request =
-	| { type: 'init', wasm: ArrayBuffer }
+	| { type: 'init', id: number, wasm: ArrayBuffer }
 	| { type: 'parse', id: number, path: string };
 
 let ferry: Ferry | undefined;
@@ -30,7 +30,7 @@ self.onmessage = (event: MessageEvent<Request>) => {
 		(globalThis as { __ONENOTE_FERRY_WASM__?: Uint8Array }).__ONENOTE_FERRY_WASM__ = new Uint8Array(request.wasm);
 		const started = performance.now();
 		parser();
-		reply({ type: 'ready', startMs: performance.now() - started });
+		reply({ type: 'ready', id: request.id, startMs: performance.now() - started });
 		return;
 	}
 	if (request.type === 'parse') {

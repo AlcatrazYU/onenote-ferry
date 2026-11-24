@@ -9,7 +9,8 @@
 
 import type { Sink } from './io.ts';
 import { composedText, joinPath, safeName } from './names.ts';
-import type { Strings } from './strings.ts';
+import { LANGUAGES, STRINGS } from './strings.ts';
+import type { Language, Strings } from './strings.ts';
 
 export interface PageInfo {
 	title: string;
@@ -151,6 +152,14 @@ export function frontMatter(text: string): Record<string, string> {
 }
 
 /** The section folders of a converted notebook and their pages, read back from the output. */
+/** The marker language an earlier conversion of a notebook used, from its table of contents' name; undefined when there is none. */
+export async function archiveLanguage(sink: Sink, notebookFolder: string): Promise<Language | undefined> {
+	for (const language of LANGUAGES) {
+		if (await sink.readText(`${notebookFolder}/${STRINGS[language].tocFileName}.md`) !== undefined) return language;
+	}
+	return undefined;
+}
+
 export async function readArchive(sink: Sink, notebookFolder: string, strings: Strings): Promise<ArchivedSections> {
 	const sections: ArchivedSections = new Map();
 	const tocName = `${strings.tocFileName}.md`;
