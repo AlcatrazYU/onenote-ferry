@@ -33,7 +33,29 @@ function normalizeAndAppendFile(filePath, data) {
 	fs.appendFileSync(filePath, data);
 }
 
+// OneNote Ferry: a section stored uncompressed inside a zip is read in place. The caller registers
+// globalThis.__ONENOTE_FERRY_RANGES__.set(name, { file, offset, length }) and parses `name`
+// (whose last path segment is the section's file name).
+function rangeReader(range) {
+	const fd = fs.openSync(range.file);
+	return {
+		read: (bigPosition, bigLength) => {
+			const position = Number(bigPosition);
+			const length = Math.max(0, Math.min(Number(bigLength), range.length - position));
+			const data = Buffer.alloc(length);
+			const sizeRead = length ? fs.readSync(fd, data, { length, position: range.offset + position }) : 0;
+			return data.subarray(0, sizeRead);
+		},
+		size: () => BigInt(range.length),
+		close: () => {
+			fs.closeSync(fd);
+		},
+	};
+}
+
 function fileReader(path) {
+	const range = globalThis.__ONENOTE_FERRY_RANGES__ && globalThis.__ONENOTE_FERRY_RANGES__.get(path);
+	if (range) return rangeReader(range);
 	const fd = fs.openSync(path);
 	// TODO: When Node v20 is EOL, replace this with the { bigint: true }
 	// parameter variant.

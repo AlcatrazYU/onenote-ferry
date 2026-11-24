@@ -37,7 +37,14 @@ TypeScript core reads, as a native `dump` binary and as WebAssembly.
    expectations in the Aspose.Note FOSS test suite (see `tests/samples`); files in the OneDrive
    download format use other code and are unchanged.
 
+6. `parser-utils/node_functions.js` (the WebAssembly build's file access): `fileReader` can read a
+   section stored uncompressed inside a zip in place. When the caller has registered
+   `globalThis.__ONENOTE_FERRY_RANGES__.set(name, { file, offset, length })`, parsing `name` reads
+   that byte range of `file`. Other paths are read as before. Checked on a 17.5 GB OneDrive
+   download: sections read in place give the same JSON and attachment bytes as copies of them.
+
 Changes 4 and 5 are marked in the code with comments that start with "OneNote Ferry patch"; changes 2 and 3
 and the table part of change 1 carry comments that explain them, and the outline part of change 1
-only makes `parse_outline_item` visible to the crate. To see every change, compare this folder with
+only makes `parse_outline_item` visible to the crate. Change 6 carries a comment starting with
+"OneNote Ferry". To see every change, compare this folder with
 the files of the npm package named above.
