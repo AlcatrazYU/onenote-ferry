@@ -6,6 +6,7 @@ import { composedText } from './names.ts';
 import type { Strings } from './strings.ts';
 import { emphasisColor } from './render/color.ts';
 import { strokesToSvg } from './render/ink-svg.ts';
+import { officeMathToLatex } from './render/math.ts';
 
 /** Ink at page level is in HIMETRIC (1/2540 inch); the model uses half inches. */
 const HIMETRIC_PER_HALF_INCH = 1270;
@@ -150,7 +151,8 @@ function run(r: Json): RawRun {
 		superscript: r.sup || undefined,
 		subscript: r.sub || undefined,
 		hyperlinkUrl: r.href ?? undefined,
-		math: r.latex ? true : undefined,
+		// An empty piece of an equation (an empty argument) is still part of it.
+		math: r.latex !== null && r.latex !== undefined ? true : undefined,
 		// A white background is the page, not a highlight.
 		highlight: colorOf(r.highlight, ['#ffffff']),
 		color: emphasisColor(r.color ?? undefined),
@@ -247,6 +249,7 @@ export class Adapter {
 				// File names are names: composed like the others (the parser gives them as stored).
 				const fileName: string | undefined = c.fileName ? composedText(c.fileName) : undefined;
 				const image: Image = { kind: 'image', fileName, extension, data: stored(c.asset) };
+				if (typeof c.alt === 'string' && c.alt.trim() !== '') image.alt = composedText(c.alt);
 				if (typeof c.page === 'number' && /^(xps|pdf)$/i.test(extension ?? '')) {
 					// Windows: a printout keeps the whole document (XPS or PDF) and shows one page of it (0-based).
 					image.printoutPage = c.page + 1;
@@ -298,7 +301,14 @@ export class Adapter {
 	}
 
 	private paragraph(c: Json): Paragraph {
-		const runs = (c.runs as Json[]).map(run);
+		// An equation arrives as one run per piece of it: joined, then translated to LaTeX once.
+		const runs: RawRun[] = [];
+		for (const r of (c.runs as Json[]).map(run)) {
+			const last = runs[runs.length - 1];
+			if (r.math && last?.math) last.text += r.text;
+			else runs.push(r);
+		}
+		for (const r of runs) if (r.math) r.text = officeMathToLatex(r.text);
 		for (const r of runs) r.text = r.text.replace(OBJECT_REPLACEMENT, '');
 		liftHyperlinkFields(runs);
 		// Shown text in composed form; link targets (now in hyperlinkUrl) stay as written. A combining

@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { renderPage } from '../src/core/render/page.ts';
+import { Adapter } from '../src/core/adapter.ts';
+import { asset, element, outline, pageJson, sectionJson } from './helpers.ts';
 import type { AttachmentHint, PageRenderOptions } from '../src/core/render/page.ts';
 import { zhHans } from '../src/core/strings.ts';
 import type { AssetData, Element, EmbeddedFile, Image, ListInfo, Outline, Page, Paragraph, Placement, Tag } from '../src/core/model.ts';
@@ -179,4 +181,28 @@ test('a tagged heading stays a heading, with the tag as a symbol before its text
 	const heading = p('Chapter 3', { styleId: 'h2', list: bullet, tags: [star], children: [p('detail')] });
 	assert.equal(await md(page([box([heading, p('note', { tags: [star] }), p('Plan', { styleId: 'h3', tags: [bulb] })])])),
 		'## ⭐ Chapter 3\n\ndetail\n\n> [!important] Important\n> note\n\n### 💡 Plan');
+});
+
+test('tags on list items, inside list items and in table cells become symbols before the text', async () => {
+	const star: Tag = { checkable: false, completed: false, shape: 13, label: 'Important' };
+	const question: Tag = { checkable: false, completed: false, shape: 15, label: 'Question' };
+	const todo: Tag = { checkable: true, completed: false };
+	const done: Tag = { checkable: true, completed: true };
+	const item = p('item', { list: bullet, tags: [star], children: [p('inner note', { tags: [question] })] });
+	assert.equal(await md(page([box([item, p('task', { tags: [todo, star] })])])),
+		'- \u2b50 item\n\n\t\u2753 inner note\n\n- [ ] \u2b50 task');
+	const cell = (paragraph: Paragraph) => ({ children: [paragraph] as Element[] });
+	const table: Element = { kind: 'table', rows: [
+		{ cells: [cell(p('Stop')), cell(p('Note'))] },
+		{ cells: [cell(p('East', { tags: [star] })), cell(p('Check pier', { tags: [done] }))] },
+		{ cells: [cell(p('West', { tags: [question] })), cell(p('Ask', { tags: [todo] }))] },
+	] };
+	assert.equal(await md(page([box([table])])),
+		'| Stop | Note |\n| --- | --- |\n| \u2b50 East | \u2611 Check pier |\n| \u2753 West | \u2610 Ask |');
+});
+
+test('the adapter keeps the alternative text of an image in the model', () => {
+	const adapted = new Adapter(zhHans).section(sectionJson('S', [pageJson('P', [outline([element([{ type: 'image', asset: asset('m.png'), fileName: 'm.png', alt: 'Title\n\nDescription', x: null, y: null, w: null }])])])]));
+	const first = adapted.pages[0].outlines[0].children[0] as Image | Outline;
+	assert.equal((first.kind === 'image' ? first : first.children[0] as Image).alt, 'Title\n\nDescription');
 });

@@ -26,6 +26,12 @@ export interface Strings {
 	tocTitle(name: string): string;
 	sectionOrderNote: string;
 	conversionFailedSuffix: string;
+	/** After a section that is password protected (in the notebook's table of contents). */
+	passwordProtectedSuffix: string;
+	/** Why a password-protected section was not converted (report and command line). */
+	passwordProtected: string;
+	/** The note in a section that could not be converted, with the parser's message. */
+	conversionFailedNote(error: string): string;
 	attachmentsFolder: string;
 	/** File name of a table of contents, without the `.md` extension. */
 	tocFileName: string;
@@ -53,6 +59,9 @@ export const en: Strings = {
 	tocTitle: name => `${name} contents`,
 	sectionOrderNote: '> Sections are sorted by name (files downloaded from OneDrive do not record the section order in OneNote).',
 	conversionFailedSuffix: ' (conversion failed)',
+	passwordProtectedSuffix: ' (password protected, not converted)',
+	passwordProtected: 'This section is password protected and cannot be read. Remove its password protection in OneNote, then download it again.',
+	conversionFailedNote: error => `This section could not be converted. The parser reported: ${error}`,
 	attachmentsFolder: '_attachments',
 	tocFileName: '_contents',
 	oldVersionsFolder: '_previous versions',
@@ -77,6 +86,9 @@ export const zhHans: Strings = {
 	tocTitle: name => `${name} 目录`,
 	sectionOrderNote: '> 分区按名称排序（OneDrive 下载的文件里没有 OneNote 中的分区顺序）。',
 	conversionFailedSuffix: '（转换失败）',
+	passwordProtectedSuffix: '（有密码保护，未转换）',
+	passwordProtected: '这个分区设了密码，无法读取。请在 OneNote 里取消它的密码保护，再重新下载。',
+	conversionFailedNote: error => `这个分区没能转换。解析器报告：${error}`,
 	attachmentsFolder: '_附件',
 	tocFileName: '_目录',
 	oldVersionsFolder: '_旧版本',
@@ -101,6 +113,9 @@ export const zhHant: Strings = {
 	tocTitle: name => `${name} 目錄`,
 	sectionOrderNote: '> 分區按名稱排序（OneDrive 下載的檔案裡沒有 OneNote 中的分區順序）。',
 	conversionFailedSuffix: '（轉換失敗）',
+	passwordProtectedSuffix: '（有密碼保護，未轉換）',
+	passwordProtected: '這個分區設了密碼，無法讀取。請在 OneNote 裡取消它的密碼保護，再重新下載。',
+	conversionFailedNote: error => `這個分區沒能轉換。解析器報告：${error}`,
 	attachmentsFolder: '_附件',
 	tocFileName: '_目錄',
 	oldVersionsFolder: '_舊版本',
@@ -125,6 +140,9 @@ export const ja: Strings = {
 	tocTitle: name => `${name} 目次`,
 	sectionOrderNote: '> セクションは名前順です（OneDrive からダウンロードしたファイルには、OneNote でのセクションの並び順が含まれていません）。',
 	conversionFailedSuffix: '（変換失敗）',
+	passwordProtectedSuffix: '（パスワード保護のため未変換）',
+	passwordProtected: 'このセクションはパスワードで保護されているため読み取れません。OneNote でパスワード保護を解除してから、もう一度ダウンロードしてください。',
+	conversionFailedNote: error => `このセクションは変換できませんでした。解析器のメッセージ：${error}`,
 	attachmentsFolder: '_添付ファイル',
 	tocFileName: '_目次',
 	oldVersionsFolder: '_旧バージョン',
@@ -149,6 +167,9 @@ export const ko: Strings = {
 	tocTitle: name => `${name} 목차`,
 	sectionOrderNote: '> 섹션은 이름순으로 정렬됩니다 (OneDrive에서 내려받은 파일에는 OneNote의 섹션 순서가 들어 있지 않습니다).',
 	conversionFailedSuffix: ' (변환 실패)',
+	passwordProtectedSuffix: ' (암호로 보호되어 변환하지 않음)',
+	passwordProtected: '이 섹션은 암호로 보호되어 있어 읽을 수 없습니다. OneNote에서 암호 보호를 해제한 뒤 다시 내려받으세요.',
+	conversionFailedNote: error => `이 섹션은 변환하지 못했습니다. 파서 메시지: ${error}`,
 	attachmentsFolder: '_첨부 파일',
 	tocFileName: '_목차',
 	oldVersionsFolder: '_이전 버전',

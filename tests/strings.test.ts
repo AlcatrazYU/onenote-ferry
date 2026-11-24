@@ -15,6 +15,7 @@ function allTexts(s: Strings): Record<string, string> {
 	}
 	texts.boxMarker = s.boxMarker(2, 12, '22.2', '3.7');
 	texts.missingAttachment = s.missingAttachment('Sample.pdf');
+	texts.conversionFailedNote = s.conversionFailedNote('PARSE_ERROR: sample');
 	texts.missingImage = s.missingImages(1, ['Sample.png']);
 	texts.missingUnnamedImage = s.missingImages(1, []);
 	texts.missingImages = s.missingImages(3, ['a.png', 'b.png']);

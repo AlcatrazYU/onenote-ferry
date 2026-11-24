@@ -23,13 +23,14 @@
 // missing ones are not gone), --only, --language (as used for the conversion), --json <file>,
 // --dump, --parser-wasm, --tmp.
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Adapter } from '../core/adapter.ts';
+import { ENCRYPTION_MARKER_WINDOW, isPasswordProtected } from '../core/encryption.ts';
 import type { SectionSource, Sink } from '../core/io.ts';
 import { joinPath, nameCollator } from '../core/names.ts';
 import { STRINGS, isLanguage, LANGUAGES } from '../core/strings.ts';
@@ -37,7 +38,7 @@ import { buildLinkIndex, relinkPages } from '../core/links.ts';
 import type { SectionRef } from '../core/links.ts';
 import { planNotebook, readArchive, scannedPages } from '../core/sync.ts';
 import type { PlanItem, ScannedSection } from '../core/sync.ts';
-import { notebookFolder, notebookToc, sectionFolder, writeSection } from '../core/write.ts';
+import { failedSectionToc, notebookFolder, notebookToc, sectionFolder, writeSection } from '../core/write.ts';
 import type { NotebookTocEntry, SectionReport } from '../core/write.ts';
 
 const RECYCLE_BIN = 'OneNote_RecycleBin';
@@ -110,6 +111,19 @@ function fileSink(root: string): Sink {
 	};
 }
 
+/** Whether a section file is password protected (see core/encryption.ts). */
+function passwordProtected(onePath: string): boolean {
+	const head = Buffer.alloc(Math.min(ENCRYPTION_MARKER_WINDOW, statSync(onePath).size));
+	const fd = openSync(onePath, 'r');
+	try {
+		readSync(fd, head, 0, head.length, 0);
+	}
+	finally {
+		closeSync(fd);
+	}
+	return isPasswordProtected(head);
+}
+
 /** The WebAssembly parser (`parser/ferry`, built for Node). */
 interface WasmParser {
 	parseSection(path: string): { takeJson(): string; readAsset(key: string): Uint8Array; free(): void };
@@ -175,6 +189,19 @@ async function main() {
 	const jsonPath = join(options.tmp, 'section.json');
 	const started = Date.now();
 
+	/**
+	 * A section that could not be parsed: password protected (a clear message) or another failure.
+	 * Its table of contents says why, so the notebook's link to it leads somewhere.
+	 */
+	async function failure(onePath: string, dir: string, groups: string[], label: string, error: string): Promise<SectionResult> {
+		const result: SectionResult = passwordProtected(onePath)
+			? { groups, section: label, failed: true, locked: true, error: strings.passwordProtected }
+			: { groups, section: label, failed: true, error: error.slice(0, 500) };
+		const reason = result.locked ? strings.passwordProtected : strings.conversionFailedNote(result.error!);
+		await sink.writeText(joinPath(dir, `${strings.tocFileName}.md`), failedSectionToc(label, reason, strings));
+		return result;
+	}
+
 	async function convertSection(onePath: string, notebookDir: string, groups: string[]): Promise<SectionResult> {
 		const label = basename(onePath).replace(/\.one$/i, '');
 		const dir = joinPath(notebookDir, sectionFolder(groups, label, strings));
@@ -188,7 +215,7 @@ async function main() {
 				parsed = wasm.parseSection(onePath);
 			}
 			catch (error) {
-				return { groups, section: label, failed: true, error: String((error as Error)?.message ?? error).slice(0, 500) };
+				return failure(onePath, dir, groups, label, String((error as Error)?.message ?? error));
 			}
 			json = JSON.parse(parsed.takeJson());
 			source = { async readAsset(key) { return parsed.readAsset(key); } };
@@ -199,7 +226,7 @@ async function main() {
 			mkdirSync(rawDir, { recursive: true });
 			const result = spawnSync(options.dump!, [onePath, jsonPath, rawDir], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 			if (result.status !== 0) {
-				return { groups, section: label, failed: true, error: (result.stderr || String(result.error)).trim().slice(0, 500) };
+				return failure(onePath, dir, groups, label, (result.stderr || String(result.error)).trim());
 			}
 			json = JSON.parse(readFileSync(jsonPath, 'utf8'));
 			source = folderSource(rawDir);
@@ -221,7 +248,7 @@ async function main() {
 		for (const file of sectionFiles(dir)) {
 			const result = await convertSection(join(dir, file), notebookDir, groups);
 			out.push(result);
-			const state = result.error ? `failed: ${result.error}` : `${result.report!.pageCount} pages, ${result.report!.attachments} attachments`;
+			const state = result.locked ? result.error : result.error ? `failed: ${result.error}` : `${result.report!.pageCount} pages, ${result.report!.attachments} attachments`;
 			console.log(`  ${[...groups, file].join(' / ')}: ${state}`);
 		}
 		for (const group of groupFolders(dir)) await walk(join(dir, group), notebookDir, [...groups, group], out);
@@ -306,7 +333,8 @@ async function plan(argv: string[]) {
 					scanned.push({ key, groups, label, pages: scannedPages(readSection(join(dir, file))) });
 				}
 				catch (error) {
-					scanned.push({ key, groups, label, error: String((error as Error)?.message ?? error).slice(0, 500) });
+					const message = passwordProtected(join(dir, file)) ? strings.passwordProtected : String((error as Error)?.message ?? error).slice(0, 500);
+					scanned.push({ key, groups, label, error: message });
 				}
 			}
 			for (const group of groupFolders(dir)) walk(join(dir, group), [...groups, group]);

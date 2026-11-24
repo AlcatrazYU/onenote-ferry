@@ -2,6 +2,7 @@
 
 import type { SectionSource, Sink } from './io.ts';
 import type { AssetData, Section } from './model.ts';
+import { escapeInline, escapeLineStart } from './markdown.ts';
 import { composedText, joinPath, safeName } from './names.ts';
 import { renderPage } from './render/page.ts';
 import type { AttachmentHint, ResolvedAttachment } from './render/page.ts';
@@ -165,6 +166,8 @@ export interface NotebookTocEntry {
 	/** The section's name as listed (its file name without `.one`). */
 	section: string;
 	failed?: boolean;
+	/** The section is password protected (and so not converted). */
+	locked?: boolean;
 }
 
 /** Folder of a section inside its notebook folder. */
@@ -177,12 +180,26 @@ export function notebookFolder(name: string, strings: Strings): string {
 	return safeName(name, strings.untitledPage, 120);
 }
 
+/** The table of contents of a section that could not be converted: the reason, in place of its pages. */
+export function failedSectionToc(label: string, reason: string, strings: Strings): string {
+	const name = composedText(label);
+	const note = escapeLineStart(escapeInline(reason.replace(/\s+/g, ' ').trim()));
+	return ['---', `title: ${yaml(strings.tocTitle(name))}`, '---', '', `# ${name}`, '', `> ${note}`, ''].join('\n');
+}
+
 export function notebookToc(notebookName: string, entries: NotebookTocEntry[], strings: Strings): string {
 	const name = composedText(notebookName);
 	const lines = ['---', `title: ${yaml(strings.tocTitle(name))}`, '---', '', `# ${name}`, '', strings.sectionOrderNote, ''];
+	// Sections come group by group; each group's name is a line above its sections.
+	let open: string[] = [];
 	for (const entry of entries) {
-		const indent = '\t'.repeat(entry.groups.length);
-		lines.push(`${indent}- [${composedText(entry.section)}](<${sectionFolder(entry.groups, entry.section, strings)}/${strings.tocFileName}.md>)${entry.failed ? strings.conversionFailedSuffix : ''}`);
+		const groups = entry.groups.map(composedText);
+		let shared = 0;
+		while (shared < groups.length && shared < open.length && groups[shared] === open[shared]) shared++;
+		for (let level = shared; level < groups.length; level++) lines.push(`${'\t'.repeat(level)}- ${groups[level]}`);
+		open = groups;
+		const suffix = entry.locked ? strings.passwordProtectedSuffix : entry.failed ? strings.conversionFailedSuffix : '';
+		lines.push(`${'\t'.repeat(groups.length)}- [${composedText(entry.section)}](<${sectionFolder(entry.groups, entry.section, strings)}/${strings.tocFileName}.md>)${suffix}`);
 	}
 	return lines.join('\n') + '\n';
 }

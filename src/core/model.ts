@@ -87,6 +87,11 @@ export interface Image extends Placed {
 	data?: AssetData;
 	/** An ink drawing written inside a line of text, rendered to SVG. */
 	inkSvg?: boolean;
+	/**
+	 * The alternative text set in OneNote (its title and description). Kept in the model but not
+	 * written yet: in real notes most of it is clipped or generated text (see the project notes).
+	 */
+	alt?: string;
 	/** A printout shows one page (1-based) of a whole document. */
 	printoutPage?: number;
 	/** The printed document's file name (`<name>.pdf` on the Mac, where each page image is named `<name>_<page>.pdf`). */

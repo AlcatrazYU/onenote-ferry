@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Adapter } from '../src/core/adapter.ts';
 import { zhHans } from '../src/core/strings.ts';
-import { notebookToc, sectionFolder, writeSection } from '../src/core/write.ts';
+import { failedSectionToc, notebookToc, sectionFolder, writeSection } from '../src/core/write.ts';
 import { composedText } from '../src/core/names.ts';
 import { asset, element, memorySink, memorySource, outline, pageJson, rich, run, sectionJson, stroke } from './helpers.ts';
 
@@ -101,6 +101,7 @@ test('notebook table of contents lists sections and groups, marks failures', () 
 		'---', 'title: "Notebook 目录"', '---', '', '# Notebook', '',
 		'> 分区按名称排序（OneDrive 下载的文件里没有 OneNote 中的分区顺序）。', '',
 		'- [Intro](<Intro/_目录.md>)',
+		'- Group',
 		'\t- [Inner: part](<Group/Inner： part/_目录.md>)（转换失败）',
 		'',
 	].join('\n'));
@@ -152,4 +153,35 @@ test('a link to a page by a title written decomposed still finds the page, whose
 	const link = '\uFDDFHYPERLINK "onenote:#ヘ\u309Aージ&section-id={S}&end"';
 	const { sink } = await write([textPage('ページ', 'target'), pageJson('From', [outline([element([rich([run(`${link}to it`)])])])], { id: '{F}' })]);
 	assert.match(text(sink, `${DIR}/From.md`), /\[to it\]\(<ページ\.md>\)/);
+});
+
+test('the notebook table of contents names section groups above their sections and marks locked sections', () => {
+	const toc = notebookToc('NB', [
+		{ groups: [], section: 'Top' },
+		{ groups: [], section: 'Locked', failed: true, locked: true },
+		{ groups: ['Pier'], section: 'Inside' },
+		{ groups: ['Pier', 'Inner'], section: 'Deep' },
+		{ groups: ['Pier'], section: 'After' },
+		{ groups: ['Harbour'], section: 'Other' },
+	], zhHans);
+	assert.equal(toc.split('\n').slice(8).join('\n'), [
+		'- [Top](<Top/_目录.md>)',
+		'- [Locked](<Locked/_目录.md>)（有密码保护，未转换）',
+		'- Pier',
+		'\t- [Inside](<Pier/Inside/_目录.md>)',
+		'\t- Inner',
+		'\t\t- [Deep](<Pier/Inner/Deep/_目录.md>)',
+		'\t- [After](<Pier/After/_目录.md>)',
+		'- Harbour',
+		'\t- [Other](<Harbour/Other/_目录.md>)',
+		'',
+	].join('\n'));
+});
+
+test('a section that could not be converted gets a table of contents saying why', () => {
+	assert.equal(failedSectionToc('Locked', zhHans.passwordProtected, zhHans), [
+		'---', 'title: "Locked 目录"', '---', '', '# Locked', '', `> ${zhHans.passwordProtected}`, '',
+	].join('\n'));
+	assert.equal(failedSectionToc('Broken', zhHans.conversionFailedNote('PARSE_ERROR: bad\n  [data]'), zhHans).split('\n')[6],
+		'> 这个分区没能转换。解析器报告：PARSE_ERROR: bad \\[data\\]');
 });

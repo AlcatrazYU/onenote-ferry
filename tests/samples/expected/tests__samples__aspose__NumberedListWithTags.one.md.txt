@@ -18,17 +18,17 @@
 
 <!-- Box 1 of 2, position on page: left 3.8 cm, top 3.0 cm -->
 
-1. 66(6-9)
-2. 10(10-17)
-3. 18(18-23)
-4. 24(242-…)
+1. ⭐ 66(6-9)
+2. ⭐ 10(10-17)
+3. ⭐ 18(18-23)
+4. ⭐ 24(242-…)
 
 <!-- Box 2 of 2, position on page: left 10.2 cm, top 11.3 cm -->
 
-1. First
-	1. First-first
-	2. First-second
-		1. First-second-first
+1. ❓ First
+	1. ❓ First-first
+	2. ⭐ First-second
+		1. ❓ First-second-first
 		- [ ] First-second-second
 	- [ ] First-third
 - [ ] Second

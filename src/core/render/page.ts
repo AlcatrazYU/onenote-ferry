@@ -101,6 +101,13 @@ interface Callout {
 	symbol: string;
 }
 
+/** Tags in a table cell, where neither a callout nor a task box fits: symbols before the text. */
+function cellTagPrefix(tags: Tag[] | undefined): string {
+	const task = tags?.find(tag => tag.checkable);
+	const callout = calloutFor(tags);
+	return (task ? (task.completed ? '\u2611 ' : '\u2610 ') : '') + (callout ? `${callout.symbol} ` : '');
+}
+
 function calloutFor(tags: Tag[] | undefined): Callout | undefined {
 	for (const tag of tags ?? []) {
 		if (tag.checkable || tag.shape === undefined) continue;
@@ -258,11 +265,13 @@ class PageWriter {
 			const indent = '\t'.repeat(this.depth);
 			const escaped = text.split('\n').map(escapeLineStart);
 			const callout = calloutFor(paragraph.tags);
-			// A tagged heading stays a heading, so it is in Obsidian's outline and can be linked to;
-			// its tag becomes a symbol before the text instead of a callout around it.
-			const symbol = callout && heading && !marker ? `${callout.symbol} ` : '';
+			// Only a plain paragraph at the top becomes a callout. Anywhere else (a heading, which must
+			// stay a heading for the outline and links; a list item or a paragraph inside one, which a
+			// callout would break) the tag becomes a symbol before the text.
+			const asCallout = callout !== undefined && !marker && !heading && this.depth === 0;
+			const symbol = callout && !asCallout ? `${callout.symbol} ` : '';
 			const body = indent + (marker || heading) + symbol + escaped.join('  \n' + indent + (marker ? '\t' : ''));
-			if (callout && !marker && !heading && this.depth === 0) this.pushCallout(callout, body);
+			if (callout && asCallout) this.pushCallout(callout, body);
 			else this.pushRaw(body, marker !== '');
 		}
 
@@ -383,10 +392,12 @@ class PageWriter {
 		const parts: string[] = [];
 		for (const child of children) {
 			switch (child.kind) {
-				case 'paragraph':
-					parts.push(renderRuns(child.runs, this.options));
+				case 'paragraph': {
+					const text = renderRuns(child.runs, this.options);
+					parts.push(text === '' ? '' : cellTagPrefix(child.tags) + text);
 					parts.push(await this.renderCell(child.children));
 					break;
+				}
 				case 'outline':
 					parts.push(await this.renderCell(child.children));
 					break;
