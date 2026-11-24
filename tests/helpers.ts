@@ -32,6 +32,11 @@ export function memorySink(): MemorySink {
 		async writeBinary(path, bytes) { files.set(path, bytes); },
 		async readText(path) { const v = files.get(path); return typeof v === 'string' ? v : undefined; },
 		async listFiles(folder) { return [...files.keys()].filter(p => folder === '' || p.startsWith(`${folder}/`)); },
+		async stat(path) {
+			const v = files.get(path);
+			if (v === undefined) return undefined;
+			return { mtime: times.get(path)?.getTime() ?? 0, size: typeof v === 'string' ? new TextEncoder().encode(v).length : v.length };
+		},
 	};
 }
 

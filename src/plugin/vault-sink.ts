@@ -109,6 +109,12 @@ export class VaultSink implements Sink {
 		return files;
 	}
 
+	/** From the vault's own record of the file: nothing is read from disk. */
+	async stat(path: string): Promise<{ mtime: number, size: number } | undefined> {
+		const file = this.app.vault.getFileByPath(this.full(path));
+		return file ? { mtime: file.stat.mtime, size: file.stat.size } : undefined;
+	}
+
 	/** Folders directly under the root. */
 	listFolders(): string[] {
 		const root = this.rootFolder();

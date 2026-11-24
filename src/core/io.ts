@@ -20,4 +20,6 @@ export interface Sink {
 	readText(path: string): Promise<string | undefined>;
 	/** Every file below a folder, as paths from the output root. */
 	listFiles(folder: string): Promise<string[]>;
+	/** A file's modification time (milliseconds) and size, or undefined when there is none; not every sink can tell. */
+	stat?(path: string): Promise<{ mtime: number, size: number } | undefined>;
 }

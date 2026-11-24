@@ -40,8 +40,8 @@ import type { SectionSource, Sink } from '../core/io.ts';
 import { writeReport } from '../core/report.ts';
 import { STRINGS, isLanguage, LANGUAGES, markerLanguageFor } from '../core/strings.ts';
 import type { Language } from '../core/strings.ts';
-import { archiveLanguage, planNotebook, readArchive, scannedPages } from '../core/sync.ts';
-import type { PlanItem, ScannedSection } from '../core/sync.ts';
+import { planNotebook, readArchive, scannedPages } from '../core/sync.ts';
+import type { Archive, NotebookPlan, PagePlan, PlanItem, ScannedSection } from '../core/sync.ts';
 import { notebookFolder } from '../core/write.ts';
 import { incompleteZipMessage, openDownload, parseWithWasm, passwordProtected } from '../node/download.ts';
 import type { WasmParser } from '../node/download.ts';
@@ -114,6 +114,15 @@ function fileSink(root: string): Sink {
 			return (readdirSync(start, { recursive: true, withFileTypes: true }) as import('node:fs').Dirent[])
 				.filter(entry => entry.isFile())
 				.map(entry => relative(root, join(entry.parentPath, entry.name)).split(sep).join('/'));
+		},
+		async stat(path) {
+			try {
+				const info = statSync(resolve(path));
+				return info.isFile() ? { mtime: info.mtimeMs, size: info.size } : undefined;
+			}
+			catch {
+				return undefined;
+			}
 		},
 	};
 }
@@ -280,11 +289,17 @@ async function plan(argv: string[]) {
 			}
 		}
 
-		const plans: { notebook: string, items: PlanItem[] }[] = [];
+		const plans: { notebook: string, identity: NotebookPlan['identity'], items: PlanItem[] }[] = [];
 		for (const notebook of download.notebooks) {
 			const name = notebook.name;
 			if (options.only && !options.only.includes(name)) continue;
-			const strings = STRINGS[given ?? await archiveLanguage(sink, notebookFolder(name, STRINGS[SYSTEM_LANGUAGE])) ?? SYSTEM_LANGUAGE];
+			// The notebook's folder in the language it was imported in (its contents page says which).
+			let archive: Archive | undefined;
+			for (const language of given ? [given] : [SYSTEM_LANGUAGE, ...LANGUAGES]) {
+				archive = await readArchive(sink, notebookFolder(name, STRINGS[language]));
+				if (archive) break;
+			}
+			const strings = STRINGS[given ?? archive?.language ?? SYSTEM_LANGUAGE];
 			const scanned: ScannedSection[] = [];
 			for (const section of notebook.sections) {
 				const key = [name, ...section.groups, section.label].join('/');
@@ -300,14 +315,17 @@ async function plan(argv: string[]) {
 					scanned.push({ key, groups: section.groups, label: section.label, error: locked ? strings.passwordProtected : String((error as Error)?.message ?? error).slice(0, 500) });
 				}
 			}
-			const archive = await readArchive(sink, notebookFolder(name, strings), strings);
-			const items = planNotebook(name, scanned, archive, strings, options.partial);
-			plans.push({ notebook: name, items });
+			const { identity, items } = planNotebook(name, scanned, archive, strings, { partial: options.partial });
+			plans.push({ notebook: name, identity, items });
+			if (identity === 'different') console.log(`  [different notebook] ${name}: a notebook of this name is in the folder, with no page in common`);
 			for (const item of items) {
 				if (item.status === 'same') continue;
-				const detail = [['added', item.added], ['modified', item.modified], ['removed', item.removed]]
-					.filter(([, list]) => list && (list as string[]).length > 0).map(([label, list]) => `${label} ${(list as string[]).length}`).join(', ');
-				console.log(`  [${item.status}] ${item.key}${item.old && item.new && item.old.normalize('NFC') !== item.new.normalize('NFC') ? ` (was ${item.old})` : ''}${detail ? `: ${detail}` : ''}${item.error ? `: ${item.error}` : ''}`);
+				const edited = [...item.modified, ...item.removed, ...item.reordered].filter(page => page.userEdited).length;
+				const detail = [['added', item.added], ['modified', item.modified], ['removed', item.removed], ['reordered', item.reordered]]
+					.filter(([, list]) => (list as PagePlan[]).length > 0).map(([label, list]) => `${label} ${(list as PagePlan[]).length}`)
+					.concat(edited ? [`edited in the vault ${edited}`] : [], item.older ? ['older than the vault'] : []).join(', ');
+				const moved = item.old && item.new && item.old.normalize('NFC').toLowerCase() !== item.new.normalize('NFC').toLowerCase();
+				console.log(`  [${item.status}] ${item.key}${moved ? ` (was ${item.old})` : ''}${detail ? `: ${detail}` : ''}${item.error ? `: ${item.error}` : ''}`);
 			}
 		}
 		const totals: Record<string, number> = {};
