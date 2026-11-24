@@ -22,12 +22,30 @@ export function composedText(text: string): string {
 	return text.split(COMPATIBILITY_IDEOGRAPH).map((part, i) => i % 2 ? part : part.normalize('NFC')).join('');
 }
 
-/** A name safe for files on every system, at most `max` characters, never empty, composed (NFC). */
+/** Names Windows keeps for devices, alone or before an extension (`CON`, `nul.txt`). */
+const DEVICE_NAME = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?=\.|$)/i;
+
+/**
+ * A name safe for files on every system, at most `max` characters, never empty, composed (NFC).
+ * Windows refuses names that end with a dot or a space, and device names: the dots go, and a
+ * device name gets an underscore (`CON` becomes `CON_`).
+ */
 export function safeName(name: string, fallback: string, max = 80): string {
 	let s = composedText(name).replace(ILLEGAL, c => FULLWIDTH[c] ?? '');
 	s = s.replace(/\s+/g, ' ').trim().replace(/^\.+/, '');
 	if ([...s].length > max) s = [...s].slice(0, max).join('').trim();
+	s = s.replace(/[. ]+$/, '').replace(DEVICE_NAME, '$1_');
 	return s || fallback;
+}
+
+/**
+ * `name (n)`, shortened first when needed so that the number survives `safeName`'s limit of `max`
+ * characters (otherwise a long name and its numbered twin would get the same folder).
+ */
+export function numberedName(name: string, n: number, max = 120): string {
+	const suffix = ` (${n})`;
+	const base = [...name.replace(/\s+/g, ' ').trim()];
+	return `${base.slice(0, Math.max(1, max - suffix.length)).join('').trim()}${suffix}`;
 }
 
 /** Joins path parts with `/`. */

@@ -59,6 +59,8 @@ export interface Paragraph extends Placed {
 	list?: ListInfo;
 	styleId?: string;
 	tags?: Tag[];
+	/** The notice in place of an attached file the download has no data for: that file's name. */
+	missingFile?: string;
 }
 
 export interface Outline extends Placed {

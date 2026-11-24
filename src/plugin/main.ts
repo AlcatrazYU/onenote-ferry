@@ -1,20 +1,20 @@
-// The Obsidian plugin. M2 step 3: a plain import command (pick a download, convert it into the
-// vault, see progress in the status bar, stop between sections). The wizard comes in step 4.
+// The Obsidian plugin: an import wizard (from the ribbon, the command palette or the settings
+// page) that converts OneDrive-downloaded OneNote notebooks into the vault, with progress in the
+// status bar and a report at the end.
 
 import { Notice, Plugin } from 'obsidian';
 import * as obsidian from 'obsidian';
-import type { ImportProgress } from '../core/importer.ts';
 import { markerLanguageFor } from '../core/strings.ts';
-import type { Language } from '../core/strings.ts';
+import { ICON, registerIcon } from './icon.ts';
 import { uiStrings } from './i18n.ts';
+import type { UiStrings } from './i18n.ts';
 import { ProgressDisplay } from './progress.ts';
-import { existingNotebooks, runImport } from './run-import.ts';
+import { ImportSession } from './session.ts';
+import { cleanFolder, DEFAULT_SETTINGS, FerrySettingTab, folderProblem } from './settings.ts';
+import type { Settings, SettingsHost } from './settings.ts';
+import { ImportWizard } from './wizard.ts';
+import type { WizardHost } from './wizard.ts';
 import { WorkerClient } from './worker-client.ts';
-
-declare const require: (id: string) => any;
-
-/** Where imported notebooks go by default (a setting in step 4). */
-const DEFAULT_ROOT = 'OneNote';
 
 /** Obsidian's interface language: getLanguage() from 1.8.7, the same setting read directly before. */
 function interfaceLanguage(): string {
@@ -28,116 +28,152 @@ function interfaceLanguage(): string {
 	}
 }
 
-export default class OneNoteFerryPlugin extends Plugin {
+export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, WizardHost {
+	settings: Settings = { ...DEFAULT_SETTINGS };
+	ui: UiStrings = uiStrings('en');
 	private readonly client = new WorkerClient();
-	private importing = false;
-	private cancelRequested = false;
+	/** The import being set up, running, or finished and not looked at yet. */
+	private session?: ImportSession;
+	private wizard?: ImportWizard;
 	private progress?: ProgressDisplay;
+	/** The notice that an import ended while the wizard was hidden (gone once the result is seen). */
+	private resultNotice?: Notice;
+	/** Turned off: an import that is still winding down shows nothing more. */
+	private unloaded = false;
 
 	async onload(): Promise<void> {
-		this.addCommand({ id: 'import', name: 'Import from OneNote (test)', callback: () => void this.pickAndImport() });
+		this.ui = uiStrings(interfaceLanguage());
+		await this.loadSettings();
+		registerIcon();
+		this.addRibbonIcon(ICON, this.ui.commandImport, () => this.openWizard());
+		this.addCommand({ id: 'import', name: this.ui.commandImport, callback: () => this.openWizard() });
 		this.addCommand({
-			id: 'cancel-import',
-			name: 'Stop the OneNote import after the current section',
+			id: 'stop-import',
+			name: this.ui.commandStop,
 			checkCallback: checking => {
-				if (!this.importing) return false;
-				if (!checking) this.cancelRequested = true;
+				const session = this.session;
+				if (session?.phase !== 'running' || session.stopRequested) return false;
+				if (!checking) session.requestStop();
 				return true;
 			},
 		});
+		this.addSettingTab(new FerrySettingTab(this.app, this));
+		// Scratch folders an earlier run could not remove (Obsidian quit during an import), once Obsidian has started.
+		this.app.workspace.onLayoutReady(() => WorkerClient.sweep());
 	}
 
 	onunload(): void {
-		this.cancelRequested = true;
-		this.client.stop('the plugin was turned off');
+		this.unloaded = true;
+		this.session?.requestStop();
+		this.client.stop('unloaded');
 		this.progress?.finish();
+		this.resultNotice?.hide();
+		this.wizard?.close();
 	}
 
-	/** The system's own open dialog: a zip or a folder outside the vault. */
-	private async pick(): Promise<string | undefined> {
-		try {
-			const { remote } = require('electron');
-			const result = await remote.dialog.showOpenDialog({
-				title: 'Pick a OneDrive download (zip or folder)',
-				// Only macOS lets one dialog pick either a file or a folder (step 4 offers both elsewhere).
-				properties: process.platform === 'darwin' ? ['openFile', 'openDirectory'] : ['openDirectory'],
-			});
-			return result.canceled ? undefined : result.filePaths[0];
-		}
-		catch (error) {
-			new Notice(`The open dialog is not available: ${String(error)}`);
-			return undefined;
+	/** The saved settings, each kept only when it is of the right kind (the file may have been edited by hand). */
+	async loadSettings(): Promise<void> {
+		const saved = ((await this.loadData()) ?? {}) as Record<string, unknown>;
+		const flag = (key: 'boxMarkers' | 'keepFontColor' | 'imageAltText') => typeof saved[key] === 'boolean' ? saved[key] as boolean : DEFAULT_SETTINGS[key];
+		const folder = typeof saved.folder === 'string' ? cleanFolder(saved.folder) : DEFAULT_SETTINGS.folder;
+		this.settings = {
+			folder: folderProblem(folder) ? DEFAULT_SETTINGS.folder : folder,
+			boxMarkers: flag('boxMarkers'),
+			keepFontColor: flag('keepFontColor'),
+			imageAltText: flag('imageAltText'),
+		};
+	}
+
+	async saveSettings(): Promise<void> {
+		await this.saveData(this.settings);
+	}
+
+	/** Opens the wizard: on the import that is running or just finished, or for a new one. */
+	openWizard(): void {
+		if (this.wizard || this.unloaded) return;
+		this.resultNotice?.hide();
+		this.resultNotice = undefined;
+		this.session ??= new ImportSession(this.app, this.client, this.settings, markerLanguageFor(interfaceLanguage()));
+		this.wizard = new ImportWizard(this.app, this, this.session);
+		this.wizard.open();
+	}
+
+	wizardClosed(wizard: ImportWizard): void {
+		if (this.wizard === wizard) this.wizard = undefined;
+		// Closed before the import, or after looking at its result: start afresh next time.
+		if (this.session === wizard.session && this.session.phase !== 'running') {
+			this.session.dispose();
+			this.session = undefined;
 		}
 	}
 
-	private async pickAndImport(): Promise<void> {
-		const input = await this.pick();
-		if (!input) return;
-		try {
-			const summary = await this.importFrom(input);
-			new Notice(summary.cancelled
-				? `OneNote import stopped: ${summary.sections} sections converted.`
-				: `OneNote import done: ${summary.sections} sections, ${summary.pages} pages, ${summary.failed} not converted.`, 0);
-		}
-		catch (error) {
-			new Notice(`OneNote import failed: ${String((error as Error)?.message ?? error)}`, 0);
-		}
+	startImport(session: ImportSession): void {
+		if (session !== this.session || session.phase !== 'setup' || !session.ready) return;
+		const progress = new ProgressDisplay(this, this.ui, () => this.openWizard());
+		this.progress = progress;
+		const off = session.onChange(() => {
+			const p = session.progress;
+			if (p) progress.update({ done: p.done, total: p.total, notebook: p.notebook, section: p.section.label, startedAt: session.startedAt });
+		});
+		void session.start().finally(() => {
+			off();
+			progress.finish();
+			this.progress = undefined;
+			// Not started after all (the target folder changed as it was looked at once more), or seen in the window.
+			if (this.unloaded || this.wizard || this.session !== session || session.phase !== 'finished') return;
+			// Finished while the wizard was hidden: a notice that leads to the result.
+			const outcome = session.error ? this.ui.failed : session.outcome?.result.cancelled ? this.ui.stopped : this.ui.finished;
+			const notice = new Notice(this.ui.finishedNotice(outcome), 0);
+			this.resultNotice = notice;
+			const el = (notice as { containerEl?: HTMLElement }).containerEl ?? notice.noticeEl;
+			el.addEventListener('click', () => this.openWizard());
+		});
 	}
 
 	/**
-	 * Imports a download into the vault folder `root`. Also used from the developer console to test
-	 * the plugin; answers counts, time and the longest stall of Obsidian's window meanwhile.
+	 * For testing from the developer console: imports every notebook of some downloads into `root`,
+	 * with the default options and no wizard, and answers what the wizard would show at the end.
 	 */
-	async importFrom(input: string, root = DEFAULT_ROOT) {
-		if (this.importing) throw new Error('An import is already running.');
-		this.importing = true;
-		this.cancelRequested = false;
-		const started = performance.now();
-		const startedAt = Date.now();
-		const progress = new ProgressDisplay(this, uiStrings(interfaceLanguage()));
-		this.progress = progress;
-		let last = performance.now(), longest = 0;
-		const timer = window.setInterval(() => {
-			const now = performance.now();
-			longest = Math.max(longest, now - last - 100);
-			last = now;
-		}, 100);
+	async importFrom(inputs: string[], root = this.settings.folder) {
+		if (this.session) throw new Error(this.session.phase === 'running' ? this.ui.alreadyRunning : 'Close the import wizard (or open the finished import) first.');
+		const session = new ImportSession(this.app, this.client, { ...this.settings, folder: root }, markerLanguageFor(interfaceLanguage()));
+		this.session = session;
 		try {
-			const language: Language = markerLanguageFor(interfaceLanguage());
-			await this.client.start();
-			const notebooks = await this.client.open(input);
-			await this.client.close();
-			this.client.stop();
-			const clash = existingNotebooks(this.app, { notebooks, root, language });
-			if (clash.length) throw new Error(`already in ${root}: ${clash.join(', ')} (nothing was written)`);
-			const result = await runImport(this.app, this.client, {
-				input, notebooks, root, language,
-				options: { boxMarkers: true, keepFontColor: true, imageAltText: false },
-				isCancelled: () => this.cancelRequested,
-				onProgress: (p: ImportProgress) => progress.update({ done: p.done, total: p.total, notebook: p.notebook, section: p.section.label, startedAt }),
+			await session.add(inputs);
+			await session.whenSettled();
+			if (!session.ready) throw new Error(session.included().length ? 'Two notebooks would get the same folder, or the folder name starts with a dot.' : 'Nothing to import: every notebook is in the folder already, or no download could be read.');
+			const finished = new Promise<void>(resolve => {
+				const off = session.onChange(() => {
+					if (session.phase !== 'finished') return;
+					off();
+					resolve();
+				});
 			});
-			const sections = result.notebooks.flatMap(n => n.sections);
+			this.startImport(session);
+			await finished;
+			if (session.error) throw new Error(session.error);
+			const result = session.outcome!.result;
+			const sections = result.notebooks.flatMap(notebook => notebook.sections);
 			return {
-				seconds: Math.round((performance.now() - started) / 100) / 10,
-				longestStallMs: Math.round(Math.max(0, longest)),
+				seconds: Math.round((Date.now() - session.startedAt) / 100) / 10,
 				cancelled: result.cancelled,
 				notebooks: result.notebooks.length,
-				sections: sections.filter(s => s.report).length,
-				pages: sections.reduce((n, s) => n + (s.report?.pageCount ?? 0), 0),
-				failed: sections.filter(s => s.failed).length,
-				links: result.links,
+				sections: sections.filter(section => section.report).length,
+				pages: sections.reduce((n, section) => n + (section.report?.pageCount ?? 0), 0),
+				failed: sections.filter(section => section.failed).length,
+				report: session.outcome!.reportPath,
 			};
 		}
 		finally {
-			window.clearInterval(timer);
-			this.importing = false;
-			progress.finish();
-			this.progress = undefined;
+			if (this.session === session) {
+				session.dispose();
+				this.session = undefined;
+			}
 		}
 	}
 
 	/** For testing from the developer console: ask the running import to stop after its current section. */
 	requestStop(): void {
-		this.cancelRequested = true;
+		this.session?.requestStop();
 	}
 }

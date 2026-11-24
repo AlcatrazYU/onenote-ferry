@@ -279,6 +279,7 @@ export class Adapter {
 						kind: 'paragraph',
 						children: [],
 						runs: [{ text: this.strings.missingAttachment(fileName ?? this.strings.unnamedFile), italic: true }],
+						missingFile: fileName ?? this.strings.unnamedFile,
 					};
 					return missing;
 				}

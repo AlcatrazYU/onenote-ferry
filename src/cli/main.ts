@@ -2,7 +2,7 @@
 //
 //   node src/cli/main.ts <download> <output folder> [options]
 //
-// <download> is the zip OneDrive gives (no need to unzip it), or a folder: one that holds notebook
+// <download> is the zip OneDrive gives, or a folder: one that holds notebook
 // folders (as downloaded from OneDrive, unzipped), or one notebook folder.
 // Sections are parsed by the WebAssembly build of the parser (npm run build:parser), or by the
 // native `dump` binary when --dump is given (folders only).
@@ -28,7 +28,7 @@
 // earlier conversion's folder names), --json <file>, --dump, --parser-wasm, --tmp.
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, sep } from 'node:path';
+import { basename, dirname, join, relative, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -37,12 +37,13 @@ import type { DownloadSection } from '../core/download.ts';
 import { importNotebooks, scanNotebook } from '../core/importer.ts';
 import type { ImportHost, ParsedSection } from '../core/importer.ts';
 import type { SectionSource, Sink } from '../core/io.ts';
+import { writeReport } from '../core/report.ts';
 import { STRINGS, isLanguage, LANGUAGES, markerLanguageFor } from '../core/strings.ts';
 import type { Language } from '../core/strings.ts';
 import { archiveLanguage, planNotebook, readArchive, scannedPages } from '../core/sync.ts';
 import type { PlanItem, ScannedSection } from '../core/sync.ts';
 import { notebookFolder } from '../core/write.ts';
-import { openDownload, parseWithWasm, passwordProtected } from '../node/download.ts';
+import { incompleteZipMessage, openDownload, parseWithWasm, passwordProtected } from '../node/download.ts';
 import type { WasmParser } from '../node/download.ts';
 
 /** The marks for the person running the command: the system's language. */
@@ -165,6 +166,7 @@ async function main() {
 	const jsonPath = join(scratch, 'section.json');
 	const started = Date.now();
 	const download = await openDownload(options.input, join(scratch, 'zip'), !!wasm);
+	if (download.incomplete) console.warn(incompleteZipMessage(download.incomplete));
 	try {
 		const notebooks = download.notebooks.filter(notebook => !options.only || options.only.includes(notebook.name));
 		if (notebooks.length === 0) {
@@ -222,14 +224,12 @@ async function main() {
 				console.log(`Notebook "${notebook.name}": ${scan.language ?? 'too little text to tell'}`);
 			}
 		}
-		const result = await importNotebooks(notebooks, host, {
-			languageFor: notebook => fixed ?? languages.get(notebook.name)!,
-			boxMarkers: options.boxMarkers, keepFontColor: options.keepFontColor, imageAltText: options.imageAltText, links: options.links,
-		});
+		const sectionOptions = { boxMarkers: options.boxMarkers, keepFontColor: options.keepFontColor, imageAltText: options.imageAltText };
+		const result = await importNotebooks(notebooks, host, { languageFor: notebook => fixed ?? languages.get(notebook.name)!, ...sectionOptions, links: options.links });
 		if (result.links) console.log(`Links: ${result.links.resolved} of ${result.links.links} rewritten, ${result.links.unresolved} left as they were`);
 		if (existsSync(jsonPath)) rmSync(jsonPath);
-		const summary = result.notebooks.map(notebook => ({ notebook: notebook.notebook, sections: notebook.sections }));
-		await sink.writeText(strings.reportFileName, JSON.stringify({ seconds: Math.round((Date.now() - started) / 1000), links: result.links, notebooks: summary }, null, 2));
+		const seconds = Math.round((Date.now() - started) / 1000);
+		await writeReport(sink, strings, result, { at: new Date(started), sources: [basename(options.input)], seconds, options: sectionOptions }, await host.listFolders());
 		console.log(`Done in ${Math.round((Date.now() - started) / 1000)} s`);
 	}
 	finally {
@@ -255,6 +255,7 @@ async function plan(argv: string[]) {
 	const scratch = scratchFolder(options.tmp);
 	const jsonPath = join(scratch, 'scan.json');
 	const download = await openDownload(options.input, join(scratch, 'zip'), !!wasm);
+	if (download.incomplete) console.warn(incompleteZipMessage(download.incomplete));
 	try {
 
 		// Page ids, titles and modification times only: attachments are not read out.

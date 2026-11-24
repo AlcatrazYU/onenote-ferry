@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Adapter } from '../src/core/adapter.ts';
 import { zhHans } from '../src/core/strings.ts';
-import { failedSectionToc, notebookToc, sectionFolder, writeSection } from '../src/core/write.ts';
+import { failedSectionToc, importStatusOf, notebookToc, sectionFolder, writeSection } from '../src/core/write.ts';
 import { composedText } from '../src/core/names.ts';
 import { asset, element, memorySink, memorySource, outline, pageJson, rich, run, sectionJson, stroke } from './helpers.ts';
 
@@ -45,7 +45,7 @@ test('front matter and file time', async () => {
 test('section table of contents: OneNote order, sub-page indentation, brackets escaped', async () => {
 	const { sink } = await write([textPage('Top [1]', 'a'), textPage('Child', 'b', { level: 2 })]);
 	assert.equal(text(sink, `${DIR}/_目录.md`), [
-		'---', 'title: "Section 目录"', '---', '', '# Section', '',
+		'---', 'title: "Section 目录"', 'onenote-import: complete', '---', '', '# Section', '',
 		'- [Top \\[1\\]](<Top \uFF3B1\uFF3D.md>)', '\t- [Child](<Child.md>)', '',
 	].join('\n'));
 });
@@ -105,7 +105,7 @@ test('notebook table of contents lists sections and groups, marks failures', () 
 		{ groups: ['Group'], section: 'Inner: part', failed: true },
 	], zhHans);
 	assert.equal(toc, [
-		'---', 'title: "Notebook 目录"', '---', '', '# Notebook', '',
+		'---', 'title: "Notebook 目录"', 'onenote-import: complete', '---', '', '# Notebook', '',
 		'> 分区按名称排序（OneDrive 下载的文件里没有 OneNote 中的分区顺序）。', '',
 		'- [Intro](<Intro/_目录.md>)',
 		'- Group',
@@ -171,7 +171,7 @@ test('the notebook table of contents names section groups above their sections a
 		{ groups: ['Pier'], section: 'After' },
 		{ groups: ['Harbour'], section: 'Other' },
 	], zhHans);
-	assert.equal(toc.split('\n').slice(8).join('\n'), [
+	assert.equal(toc.split('\n').slice(9).join('\n'), [
 		'- [Top](<Top/_目录.md>)',
 		'- [Locked](<Locked/_目录.md>)（有密码保护，未转换）',
 		'- Pier',
@@ -187,8 +187,47 @@ test('the notebook table of contents names section groups above their sections a
 
 test('a section that could not be converted gets a table of contents saying why', () => {
 	assert.equal(failedSectionToc('Locked', zhHans.passwordProtected, zhHans), [
-		'---', 'title: "Locked 目录"', '---', '', '# Locked', '', `> ${zhHans.passwordProtected}`, '',
+		'---', 'title: "Locked 目录"', 'onenote-import: failed', '---', '', '# Locked', '', `> ${zhHans.passwordProtected}`, '',
 	].join('\n'));
-	assert.equal(failedSectionToc('Broken', zhHans.conversionFailedNote('PARSE_ERROR: bad\n  [data]'), zhHans).split('\n')[6],
+	assert.equal(failedSectionToc('Broken', zhHans.conversionFailedNote('PARSE_ERROR: bad\n  [data]'), zhHans).split('\n')[7],
 		'> 这个分区没能转换。解析器报告：PARSE_ERROR: bad \\[data\\]');
+});
+
+test('our tables of contents say how far their import got; names in a notebook\'s are text', () => {
+	assert.equal(importStatusOf(notebookToc('NB', [], zhHans, 'importing')), 'importing');
+	assert.equal(importStatusOf(notebookToc('NB', [], zhHans)), 'complete');
+	assert.equal(importStatusOf(failedSectionToc('S', 'why', zhHans)), 'failed');
+	assert.equal(importStatusOf('---\ntitle: "my note"\n---\n\nonenote-import: complete\n'), undefined, 'only in the properties');
+	assert.equal(importStatusOf('my own index'), undefined);
+	const toc = notebookToc('NB', [{ groups: ['# Archive'], section: 'a]b' }, { groups: ['1. Lectures'], section: 'Intro' }], zhHans);
+	// The folder name has "＃" (a file name cannot hold "#" everywhere); the text keeps "#", escaped.
+	assert.match(toc, /\n- \\# Archive\n\t- \[a\\\]b\]\(<＃ Archive\/a］b\/_目录\.md>\)\n/);
+	assert.match(toc, /\n- 1\\\. Lectures\n/);
+});
+
+test('page and attachment names are told apart as Obsidian tells them apart (composed, any case)', async () => {
+	// U+F900 is a CJK compatibility ideograph: Obsidian composes it into U+8C48, so the two titles would share a file.
+	const { sink } = await write([textPage('\uF900', 'one', { id: '{T1}' }), textPage('\u8C48', 'two', { id: '{T2}' })]);
+	const pages = [...sink.files.keys()].filter(path => path.startsWith(`${DIR}/`) && path.endsWith('.md') && !path.endsWith('/_目录.md'));
+	assert.equal(pages.length, 2);
+	assert.equal(new Set(pages.map(path => path.normalize('NFC').toLowerCase())).size, 2);
+});
+
+test('a section\'s table of contents is the first thing written of it (saying importing) and the last (saying complete)', async () => {
+	const sink = memorySink();
+	const order: string[] = [];
+	const writeText = sink.writeText.bind(sink), writeBinary = sink.writeBinary.bind(sink);
+	sink.writeText = async (path, text, modified) => {
+		order.push(`${path} ${importStatusOf(text) ?? ''}`.trim());
+		return writeText(path, text, modified);
+	};
+	sink.writeBinary = async (path, bytes) => {
+		order.push(path);
+		return writeBinary(path, bytes);
+	};
+	const section = new Adapter(zhHans).section(sectionJson('Section', [textPage('Plan', 'invented'), textPage('Notes', 'invented', { id: '{N}' })]));
+	await writeSection(section, memorySource({}), sink, options);
+	assert.equal(order[0], `${DIR}/_目录.md importing`);
+	assert.equal(order[order.length - 1], `${DIR}/_目录.md complete`);
+	assert.ok(order.slice(1, -1).every(entry => !entry.endsWith('_目录.md')));
 });

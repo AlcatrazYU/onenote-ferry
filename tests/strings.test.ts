@@ -22,9 +22,27 @@ function allTexts(s: Strings): Record<string, string> {
 	texts.missingPrintoutPage = s.missingPrintoutPages('Sample.pdf', 4, 4);
 	texts.missingPrintoutPages = s.missingPrintoutPages('Sample.pdf', 1, 13);
 	texts.tocTitle = s.tocTitle('Sample notebook');
+	const r = s.report;
+	for (const [key, value] of Object.entries(r)) {
+		if (typeof value === 'string') texts[`report.${key}`] = value;
+	}
+	r.columns.forEach((column, i) => texts[`report.columns.${i}`] = column);
+	texts['report.time'] = r.time('2026-11-24 21:05');
+	texts['report.source'] = r.source(['Sample A.zip', 'Sample B.zip']);
+	texts['report.totals'] = r.totals(3, 37, 1700, 2345);
+	texts['report.totalsOne'] = r.totals(1, 1, 1, 1);
+	texts['report.notConverted'] = r.notConverted(2);
+	texts['report.links'] = r.links(120, 3);
+	texts['report.linksAll'] = r.links(120, 0);
+	texts['report.cancelled'] = r.cancelled(5);
+	texts['report.sectionNotConverted'] = r.sectionNotConverted('Sample section', s.passwordProtected);
+	texts['report.sectionsCancelled'] = r.sectionsCancelled(4);
+	texts['report.sectionCancelled'] = r.sectionsCancelled(1);
+	texts['report.notStarted'] = r.notStarted(['Sample A', 'Sample B']);
+	texts['report.missingItems'] = r.missingItems(2);
 	return texts;
 }
-const STRUCTURE = ['attachmentsFolder', 'tocFileName', 'oldVersionsFolder', 'updateLogFolder', 'reportFileName'] as const;
+const STRUCTURE = ['attachmentsFolder', 'tocFileName', 'oldVersionsFolder', 'updateLogFolder', 'reportName'] as const;
 
 test('five languages, each complete and non-empty', () => {
 	assert.deepEqual([...LANGUAGES], ['en', 'zh-Hans', 'zh-Hant', 'ja', 'ko']);
@@ -55,7 +73,7 @@ test('structure names are valid, distinct file names that sort first', () => {
 			assert.equal(safeName(name, 'x', 200), name, `${language}: ${name}`);
 		}
 		assert.equal(new Set(names.map(n => n.toLowerCase())).size, names.length, language);
-		assert.ok(s.reportFileName.endsWith('.json'), language);
+		assert.ok(!/\.[a-z]+$/i.test(s.reportName), `${language}: the report name has no extension`);
 		for (const word of [s.imageWord, s.inkWord, s.untitledPage, s.unnamedFile]) assert.equal(safeName(word, 'x'), word, `${language}: ${word}`);
 	}
 });
@@ -84,8 +102,8 @@ test('the Simplified Chinese column is the one the existing output uses', () => 
 	assert.equal(zhHans.tocTitle('X'), 'X 目录');
 	assert.equal(zhHans.sectionOrderNote, '> 分区按名称排序（OneDrive 下载的文件里没有 OneNote 中的分区顺序）。');
 	assert.deepEqual(
-		[zhHans.attachmentsFolder, zhHans.tocFileName, zhHans.oldVersionsFolder, zhHans.updateLogFolder, zhHans.reportFileName, zhHans.imageWord, zhHans.inkWord, zhHans.untitledPage, zhHans.unnamedFile, zhHans.conflictPageSuffix, zhHans.conversionFailedSuffix],
-		['_附件', '_目录', '_旧版本', '_更新记录', '_转换报告.json', '图', '手写', '无标题', '未命名文件', '（冲突版本）', '（转换失败）'],
+		[zhHans.attachmentsFolder, zhHans.tocFileName, zhHans.oldVersionsFolder, zhHans.updateLogFolder, zhHans.reportName, zhHans.imageWord, zhHans.inkWord, zhHans.untitledPage, zhHans.unnamedFile, zhHans.conflictPageSuffix, zhHans.conversionFailedSuffix],
+		['_附件', '_目录', '_旧版本', '_更新记录', '_转换报告', '图', '手写', '无标题', '未命名文件', '（冲突版本）', '（转换失败）'],
 	);
 });
 
@@ -109,7 +127,7 @@ test('a section written in English uses English folder names and marks', async (
 		'![](<_attachments/Plan - image001.png>)',
 		'',
 	].join('\n\n').replace(/\n\n$/, '\n'));
-	assert.match(sink.files.get('NB/Section/_contents.md') as string, /^---\ntitle: "Section contents"\n---\n\n# Section\n/);
+	assert.match(sink.files.get('NB/Section/_contents.md') as string, /^---\ntitle: "Section contents"\nonenote-import: complete\n---\n\n# Section\n/);
 });
 
 test('marks follow the reader\'s interface language', () => {

@@ -16,5 +16,5 @@
     "skipLibCheck": true
   },
   "include": ["src", "tests"],
-  "exclude": ["src/plugin"]
+  "exclude": ["src/plugin", "tests/session.test.ts"]
 }

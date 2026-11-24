@@ -1,7 +1,7 @@
 // What a OneDrive download holds: notebooks, their section groups and sections. Works on a list
 // of file paths, so a folder on disk and a zip are read the same way.
 
-import { nameCollator } from './names.ts';
+import { nameCollator, numberedName, safeName } from './names.ts';
 
 /** A file in the download, its path relative to the download's root with `/` between folders. */
 export interface DownloadFile {
@@ -25,6 +25,8 @@ export interface DownloadSection {
 
 export interface DownloadNotebook {
 	name: string;
+	/** Its name in OneNote, once it has been given another (see renameNotebook). */
+	sourceName?: string;
 	/** Path of the notebook's folder in the download ('' when the download is the notebook itself). */
 	path: string;
 	sections: DownloadSection[];
@@ -95,17 +97,35 @@ export function findNotebooks(files: DownloadFile[], rootName: string): Download
 		for (const sub of visibleFolders(folder)) visit(sub, sub.name);
 	};
 	visit(tree(files), rootName);
-	// Two notebooks of one name (in different folders of the download) would share an output
-	// folder: the later ones get " (2)" and so on, as pages of one name do.
+	return distinctNames(notebooks);
+}
+
+/**
+ * The folder a notebook name gets, as a key that two names share when they would get the same
+ * folder: on a disk that ignores case, and in Obsidian, which composes every path (full NFC).
+ */
+export const folderKey = (name: string) => safeName(name, '\u0000', 120).normalize('NFC').toLowerCase();
+
+/**
+ * Two notebooks whose names give one output folder (one name in different folders of a download,
+ * or in two downloads imported together, or names that differ only in what a file name cannot
+ * hold) would share it: the later ones get " (2)" and so on, as pages of one name do. Renames in
+ * place and answers the same list.
+ */
+export function distinctNames(notebooks: DownloadNotebook[]): DownloadNotebook[] {
 	const used = new Set<string>();
 	for (const notebook of notebooks) {
 		let name = notebook.name, n = 2;
-		while (used.has(name.normalize('NFC').toLowerCase())) name = `${notebook.name} (${n++})`;
-		used.add(name.normalize('NFC').toLowerCase());
-		if (name !== notebook.name) {
-			notebook.name = name;
-			for (const section of notebook.sections) section.notebook = name;
-		}
+		while (used.has(folderKey(name))) name = numberedName(notebook.name, n++);
+		used.add(folderKey(name));
+		if (name !== notebook.name) renameNotebook(notebook, name);
 	}
 	return notebooks;
+}
+
+/** Gives a notebook another name (and so another output folder); its OneNote name is kept as `sourceName`. */
+export function renameNotebook(notebook: DownloadNotebook, name: string): void {
+	notebook.sourceName ??= notebook.name;
+	notebook.name = name;
+	for (const section of notebook.sections) section.notebook = name;
 }

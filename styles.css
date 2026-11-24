@@ -1,34 +1,6 @@
-/* OneNote Ferry. Colours and sizes come from Obsidian's own variables, so themes apply. */
-
-/* The import's progress notice: a fixed width, so long notebook names never make it jump. */
-.onenote-ferry-progress {
-	width: 18rem;
-	display: flex;
-	flex-direction: column;
-	gap: var(--size-4-1);
-}
-
-.onenote-ferry-progress-title {
-	font-weight: var(--font-semibold);
-}
-
-.onenote-ferry-progress-count {
-	font-variant-numeric: tabular-nums;
-	font-size: var(--font-ui-small);
-}
-
-.onenote-ferry-progress-name {
-	font-size: var(--font-ui-small);
-	color: var(--text-muted);
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.onenote-ferry-progress-hint {
-	font-size: var(--font-ui-smaller);
-	color: var(--text-faint);
-}
+/* OneNote Ferry. The import window is made of Obsidian's own parts (setting groups, the file tree
+   of Obsidian Publish); what is here only lays them out. Colours and sizes come from Obsidian's own
+   variables, so themes apply. */
 
 /* The status bar item uses Obsidian's own loading look (status-bar-item mod-loading); digits of
    one width, so the counts never make it jump. */
@@ -40,4 +12,173 @@
 .onenote-ferry-status-fill {
 	transform: scaleX(var(--onenote-ferry-progress, 0));
 	transition: transform 0.15s ease-in-out;
+}
+
+/* The import window: the middle scrolls, the button at the bottom always shows. */
+.onenote-ferry-wizard {
+	width: min(40rem, 92vw);
+	max-height: min(85vh, 52rem);
+	display: flex;
+	flex-direction: column;
+}
+
+.onenote-ferry-wizard .modal-content {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.onenote-ferry-body {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+}
+
+.onenote-ferry-warning {
+	color: var(--text-error);
+}
+
+/* The notebooks and sections: in their group under the heading row, a tree that scrolls on its
+   own, so a long list never pushes the settings far away. */
+.onenote-ferry-tree-button {
+	min-width: 6rem;
+}
+
+.onenote-ferry-tree {
+	margin: 0;
+	/* In line with the group's rows (the tree rows have their own inner padding). */
+	padding: 0 calc(var(--setting-items-padding-x, var(--size-4-5)) - var(--size-4-2)) var(--size-4-2);
+}
+
+.onenote-ferry-tree .publish-change-list {
+	max-height: min(18rem, 36vh);
+	overflow-y: auto;
+	overflow-anchor: none;
+	padding-bottom: var(--size-4-2);
+}
+
+.onenote-ferry-tree .tree-item-self {
+	align-items: center;
+}
+
+.onenote-ferry-tree .file-tree-item-icon {
+	top: 0;
+}
+
+.onenote-ferry-tree .file-tree-item-icon svg {
+	display: block;
+}
+
+.onenote-ferry-tree .tree-item-flair {
+	color: var(--text-faint);
+	padding: 0;
+	font-variant-numeric: tabular-nums;
+}
+
+/* A row that cannot be ticked: dimmed, but its arrow still opens it. */
+.onenote-ferry-tree .tree-item-self.is-disabled {
+	opacity: 0.5;
+}
+
+.onenote-ferry-tree .tree-item-self.is-disabled .file-tree-item-checkbox {
+	pointer-events: none;
+}
+
+/* Before a download is chosen: what will come here, in the space it will take. */
+.onenote-ferry-tree-placeholder {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 7rem;
+	padding: var(--size-4-4);
+	color: var(--text-faint);
+	font-size: var(--font-ui-small);
+	text-align: center;
+}
+
+/* A row clicked with the mouse shows no focus ring; one reached with the keyboard does. */
+.onenote-ferry-wizard .setting-item.mod-action:focus:not(:focus-visible) {
+	outline: none;
+	box-shadow: none;
+}
+
+.onenote-ferry-tree-heading {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+	padding: var(--size-4-2) var(--size-4-1) var(--size-2-1);
+}
+
+/* The footer: what the import will do on the left, the button on the right. */
+.onenote-ferry-footer {
+	align-items: center;
+}
+
+.onenote-ferry-summary {
+	margin-inline-end: auto;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	font-variant-numeric: tabular-nums;
+}
+
+/* While the import runs. */
+.onenote-ferry-progress-view {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	padding-top: var(--size-4-2);
+}
+
+.onenote-ferry-progress-count {
+	font-variant-numeric: tabular-nums;
+}
+
+.onenote-ferry-progress-name {
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	min-height: 1.5em;
+}
+
+.onenote-ferry-progress-hint {
+	font-size: var(--font-ui-small);
+	color: var(--text-faint);
+	padding-top: var(--size-4-2);
+}
+
+/* Once it has ended. */
+.onenote-ferry-result {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	padding-top: var(--size-4-2);
+}
+
+.onenote-ferry-result-heading {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	font-size: var(--font-ui-medium);
+	font-weight: var(--font-semibold);
+}
+
+.onenote-ferry-result-icon {
+	display: flex;
+	color: var(--text-muted);
+}
+
+.onenote-ferry-result-line {
+	font-variant-numeric: tabular-nums;
+}
+
+.onenote-ferry-result-notes {
+	margin: 0;
+	padding-inline-start: var(--size-4-5);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.onenote-ferry-result-notes li + li {
+	margin-top: var(--size-4-1);
 }

@@ -3,13 +3,34 @@
 
 import workerSource from 'onenote-ferry:worker';
 import wasmBase64 from 'onenote-ferry:wasm';
-import type { DownloadNotebook, DownloadSection } from '../core/download.ts';
-import type { NotebookScan, SectionOptions, SectionResult } from '../core/importer.ts';
+import type { DownloadSection } from '../core/download.ts';
+import type { SectionOptions, SectionResult } from '../core/importer.ts';
 import type { Sink } from '../core/io.ts';
 import type { Language } from '../core/strings.ts';
-import type { FromWorker, SinkCall, ToWorker } from './protocol.ts';
+import type { FromWorker, OpenedDownload, SinkCall, ToWorker } from './protocol.ts';
 
 type Request = ToWorker extends infer T ? T extends { id: number } ? Omit<T, 'id'> : never : never;
+
+declare const require: (id: string) => any;
+
+/** The worker's scratch folders in the system's temporary folder (the command line names its own differently). */
+const SCRATCH_PREFIX = 'onenote-ferry-worker-';
+const DAY = 24 * 60 * 60 * 1000;
+
+/** Why the worker stopped: asked to (or replaced), failed, or the plugin was turned off. */
+export type StopReason = 'stopped' | 'crashed' | 'unloaded';
+
+/** A request that failed because the worker stopped, not because of what it was asked. */
+export class ConverterStopped extends Error {
+	readonly reason: StopReason;
+	readonly detail?: string;
+
+	constructor(reason: StopReason, detail?: string) {
+		super(detail ? `the converter ${reason}: ${detail}` : `the converter ${reason}`);
+		this.reason = reason;
+		this.detail = detail;
+	}
+}
 
 function decodeBase64(text: string): Uint8Array {
 	const binary = atob(text);
@@ -24,8 +45,31 @@ export class WorkerClient {
 	private nextId = 1;
 	/** Requests not answered yet; all are rejected when the worker stops or fails. */
 	private readonly pending = new Map<number, { resolve(value: any): void, reject(error: Error): void }>();
+	/** The worker's private folder for temporary copies, removed whenever the worker stops. */
+	private scratch?: string;
 	/** Where the worker's writes go while an import runs. */
 	sink?: Sink;
+
+	/** Removes scratch folders a worker left behind more than a day ago (Obsidian quit during an import, say). */
+	static sweep(): void {
+		try {
+			const fs = require('fs'), os = require('os'), path = require('path');
+			const dir: string = os.tmpdir();
+			for (const name of fs.readdirSync(dir) as string[]) {
+				if (!name.startsWith(SCRATCH_PREFIX)) continue;
+				const full = path.join(dir, name);
+				try {
+					if (Date.now() - fs.statSync(full).mtimeMs > DAY) fs.rmSync(full, { recursive: true, force: true });
+				}
+				catch {
+					// In use or gone: left for next time.
+				}
+			}
+		}
+		catch {
+			// No temporary folder to look at: nothing to do.
+		}
+	}
 
 	get running(): boolean {
 		return this.worker !== undefined;
@@ -34,29 +78,44 @@ export class WorkerClient {
 	/** Starts the worker and the parser in it. */
 	async start(): Promise<void> {
 		this.stop();
+		const fs = require('fs'), os = require('os'), path = require('path');
+		const scratch: string = fs.mkdtempSync(path.join(os.tmpdir(), SCRATCH_PREFIX));
+		this.scratch = scratch;
 		const wasm = decodeBase64(wasmBase64);
 		this.workerUrl = URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' }));
 		const worker = new Worker(this.workerUrl);
 		this.worker = worker;
 		worker.onmessage = event => this.onMessage(event.data as FromWorker);
 		// A worker that fails (or runs out of memory) answers nothing more: every waiting request fails with it.
-		worker.onerror = event => this.stop(`the converter stopped: ${event.message || 'unknown error'}`);
-		await this.request({ type: 'init', wasm: wasm.buffer as ArrayBuffer }, [wasm.buffer as ArrayBuffer]);
+		worker.onerror = event => this.stop('crashed', event.message || undefined);
+		await this.request({ type: 'init', wasm: wasm.buffer as ArrayBuffer, scratch }, [wasm.buffer as ArrayBuffer]);
 	}
 
-	/** Stops the worker, which hands all its memory back. */
-	stop(reason = 'the converter was stopped'): void {
+	/**
+	 * Stops the worker, which hands all its memory back, and removes its scratch folder (here, so
+	 * that no way of stopping it can leave the folder behind).
+	 */
+	stop(reason: StopReason = 'stopped', detail?: string): void {
 		this.worker?.terminate();
 		this.worker = undefined;
 		if (this.workerUrl) URL.revokeObjectURL(this.workerUrl);
 		this.workerUrl = undefined;
-		for (const request of this.pending.values()) request.reject(new Error(reason));
+		if (this.scratch) {
+			try {
+				require('fs').rmSync(this.scratch, { recursive: true, force: true });
+			}
+			catch {
+				// A file still held open (Windows): the sweep on a later start removes it.
+			}
+			this.scratch = undefined;
+		}
+		for (const request of this.pending.values()) request.reject(new ConverterStopped(reason, detail));
 		this.pending.clear();
 	}
 
 	private request<T>(message: Request, transfer: Transferable[] = []): Promise<T> {
 		const worker = this.worker;
-		if (!worker) return Promise.reject(new Error('the converter is not running'));
+		if (!worker) return Promise.reject(new ConverterStopped('stopped'));
 		const id = this.nextId++;
 		return new Promise<T>((resolve, reject) => {
 			this.pending.set(id, { resolve, reject });
@@ -97,23 +156,22 @@ export class WorkerClient {
 		}
 	}
 
-	open(input: string): Promise<DownloadNotebook[]> {
+	/** What a download holds (it stays open in the worker until close). */
+	open(input: string): Promise<OpenedDownload> {
 		return this.request({ type: 'open', input });
 	}
 
-	scan(notebook: string): Promise<NotebookScan> {
-		return this.request({ type: 'scan', notebook });
+	/** Paths of a download's password-protected sections. */
+	locked(input: string): Promise<string[]> {
+		return this.request({ type: 'locked', input });
 	}
 
-	convert(section: DownloadSection, notebookDir: string, language: Language, options: SectionOptions): Promise<SectionResult> {
-		return this.request({ type: 'convert', section, notebookDir, language, options });
+	convert(input: string, section: DownloadSection, dir: string, language: Language, options: SectionOptions): Promise<SectionResult> {
+		return this.request({ type: 'convert', input, section, dir, language, options });
 	}
 
+	/** Closes every open download (removing the worker's temporary copies). */
 	close(): Promise<void> {
 		return this.request({ type: 'close' });
-	}
-
-	memory(): Promise<{ wasmBytes: number }> {
-		return this.request({ type: 'memory' });
 	}
 }

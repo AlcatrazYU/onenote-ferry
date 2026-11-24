@@ -12,14 +12,34 @@ function arrayBuffer(bytes: Uint8Array): ArrayBuffer {
 		: bytes.slice().buffer as ArrayBuffer;
 }
 
+const key = (text: string) => text.normalize('NFC').toLowerCase();
+
+/**
+ * A vault folder path as the vault spells it: where a folder by another case or Unicode form is
+ * there already (`onenote` for `OneNote`), its spelling, since the disk would take it as the same.
+ */
+export function vaultSpelling(app: App, path: string): string {
+	if (!path) return '';
+	let node: TFolder = app.vault.getRoot();
+	const parts = path.split('/');
+	const found: string[] = [];
+	for (const [i, part] of parts.entries()) {
+		const match = node.children.find((child): child is TFolder => child instanceof TFolder && key(child.name) === key(part));
+		if (!match) return [...found, ...parts.slice(i)].join('/');
+		found.push(match.name);
+		node = match;
+	}
+	return found.join('/');
+}
+
 export class VaultSink implements Sink {
 	private readonly app: App;
-	/** The vault folder everything goes under ('' for the vault's root). */
+	/** The vault folder everything goes under ('' for the vault's root), as the vault spells it. */
 	readonly root: string;
 
 	constructor(app: App, root: string) {
 		this.app = app;
-		this.root = root === '' || root === '/' ? '' : normalizePath(root);
+		this.root = root === '' || root === '/' ? '' : vaultSpelling(app, normalizePath(root));
 	}
 
 	private full(path: string): string {
@@ -98,6 +118,20 @@ export class VaultSink implements Sink {
 	/** Whether something (a file or a folder) is at this path under the root. */
 	exists(path: string): boolean {
 		return this.app.vault.getAbstractFileByPath(this.full(path)) !== null;
+	}
+
+	/**
+	 * Whether something directly under the root has this name, ignoring case and Unicode form (as
+	 * the disks of macOS and Windows do), so an import never lands in a folder by another spelling.
+	 */
+	hasChild(name: string): boolean {
+		const root = this.rootFolder();
+		return !!root && root.children.some(child => key(child.name) === key(name));
+	}
+
+	/** The vault path of a path under the root. */
+	vaultPath(path: string): string {
+		return this.full(path);
 	}
 
 	private rootFolder(): TFolder | null {

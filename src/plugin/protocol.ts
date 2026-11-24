@@ -1,16 +1,29 @@
 // Messages between the plugin (Obsidian's window) and its worker.
 
+import type { DownloadNotebook } from '../core/download.ts';
+import type { IncompleteZip } from '../node/download.ts';
+
+/** What a download holds, as the worker reads it. */
+export interface OpenedDownload {
+	notebooks: DownloadNotebook[];
+	incomplete?: IncompleteZip;
+}
+
 /** What the window asks the worker; each carries an id the answer repeats. */
 export type ToWorker =
-	| { type: 'init', id: number, wasm: ArrayBuffer }
-	/** Opens a download (a zip or a folder) and answers its notebooks. */
+	| { type: 'init', id: number, wasm: ArrayBuffer, scratch: string }
+	/**
+	 * Opens a download (a zip or a folder) and answers what it holds. Every request below names
+	 * its download; one not open yet is opened first, so a fresh worker carries on where the
+	 * last one stopped.
+	 */
 	| { type: 'open', id: number, input: string }
-	/** The preview of one notebook of the open download. */
-	| { type: 'scan', id: number, notebook: string }
+	/** Paths of the sections that are password protected (a quick look at each section's first bytes). */
+	| { type: 'locked', id: number, input: string }
 	/** Converts one section; files come back as sink calls. */
-	| { type: 'convert', id: number, section: unknown, notebookDir: string, language: string, options: unknown }
-	| { type: 'close', id: number }
-	| { type: 'memory', id: number };
+	| { type: 'convert', id: number, input: string, section: unknown, dir: string, language: string, options: unknown }
+	/** Closes every open download. */
+	| { type: 'close', id: number };
 
 /** A write (or read) the worker asks the window to do in the vault. */
 export interface SinkCall {

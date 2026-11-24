@@ -3,7 +3,7 @@
 import type { SectionSource, Sink } from './io.ts';
 import type { AssetData, Section } from './model.ts';
 import { escapeInline, escapeLineStart } from './markdown.ts';
-import { composedText, joinPath, safeName } from './names.ts';
+import { composedText, joinPath, numberedName, safeName } from './names.ts';
 import { renderPage } from './render/page.ts';
 import type { AttachmentHint, ResolvedAttachment } from './render/page.ts';
 import { LANGUAGES, STRINGS } from './strings.ts';
@@ -43,12 +43,43 @@ export interface SectionReport {
 
 const yaml = (value: string) => JSON.stringify(value);
 /**
+ * Names as the disk and Obsidian tell them apart: Obsidian composes every path it writes (full NFC,
+ * which also turns CJK compatibility ideographs into their unified forms), and a disk may ignore case.
+ */
+const fold = (name: string) => name.normalize('NFC').toLowerCase();
+/**
  * A page never takes a table of contents' name, in any marker language and any case: on a disk
  * that ignores case the table of contents would overwrite it, and links between notebooks of
  * different languages would take it for one.
  */
-const TOC_NAMES = new Set(LANGUAGES.map(language => STRINGS[language].tocFileName.toLowerCase()));
+const TOC_NAMES = new Set(LANGUAGES.map(language => fold(STRINGS[language].tocFileName)));
 const pad = (n: number, width: number) => String(n).padStart(width, '0');
+
+/**
+ * The property each table of contents of ours carries (§11.5 item 47): it marks the folder as ours,
+ * and says how far the import of it got. A section's is written as `importing` before anything else
+ * of it and becomes `complete` once all its pages are written (`failed` when it could not be
+ * converted); a notebook's is `importing` until all its chosen sections are done. Only a table of
+ * contents with it is ours: a folder without one is never written into.
+ */
+export const IMPORT_PROPERTY = 'onenote-import';
+export type ImportStatus = 'importing' | 'complete' | 'failed';
+
+/** The import status a table of contents records, or undefined when it is not one of ours. */
+export function importStatusOf(text: string | undefined): ImportStatus | undefined {
+	if (!text?.startsWith('---\n')) return undefined;
+	const end = text.indexOf('\n---', 3);
+	if (end < 0) return undefined;
+	return text.slice(4, end).match(/^onenote-import: (importing|complete|failed)$/m)?.[1] as ImportStatus | undefined;
+}
+
+/** The name heading a table of contents (its first `# ` line), or undefined. */
+export function tocHeading(text: string | undefined): string | undefined {
+	return text?.match(/^# (.+)$/m)?.[1];
+}
+
+const tocHead = (name: string, strings: Strings, status: ImportStatus) =>
+	['---', `title: ${yaml(strings.tocTitle(name))}`, `${IMPORT_PROPERTY}: ${status}`, '---', '', `# ${name}`, ''];
 
 /** The extension a suggested attachment name ends with, as the original converter read it. */
 function extensionOf(name: string): string {
@@ -65,9 +96,14 @@ function keyOf(data: AssetData, hint: AttachmentHint): string {
 export async function writeSection(section: Section, source: SectionSource, sink: Sink, options: SectionWriteOptions): Promise<SectionReport> {
 	const { strings, dir } = options;
 	const attachmentsFolder = strings.attachmentsFolder;
+	const label = composedText(options.label);
+	const tocPath = joinPath(dir, `${strings.tocFileName}.md`);
+	// First of all, the table of contents saying the section is being written: cut off half way (the
+	// plugin turned off, Obsidian quit), the folder is still known for ours and may be written again.
+	await sink.writeText(tocPath, tocHead(label, strings, 'importing').join('\n'));
 	await sink.ensureFolder(joinPath(dir, attachmentsFolder));
 
-	// Page file names: unique within the section (case-insensitive), never the table of contents.
+	// Page file names: unique within the section (as Obsidian and the disk compare names), never the table of contents.
 	const pages = section.pages.filter(page => !page.isDeleted);
 	const used = new Set<string>();
 	const fileOf = new Map<string, string>();
@@ -75,8 +111,8 @@ export async function writeSection(section: Section, source: SectionSource, sink
 	for (const page of pages) {
 		const base = safeName(page.title || strings.untitledPage, strings.untitledPage) + (page.isConflictPage ? strings.conflictPageSuffix : '');
 		let name = base, n = 2;
-		while (used.has(name.toLowerCase()) || TOC_NAMES.has(name.toLowerCase())) name = `${base} (${n++})`;
-		used.add(name.toLowerCase());
+		while (used.has(fold(name)) || TOC_NAMES.has(fold(name))) name = `${base} (${n++})`;
+		used.add(fold(name));
 		fileOf.set(page.id, name);
 		if (!titleToFile.has(page.title)) titleToFile.set(page.title, name);
 	}
@@ -84,7 +120,6 @@ export async function writeSection(section: Section, source: SectionSource, sink
 	const byKey = new Map<string, string>();
 	const usedAttachments = new Set<string>();
 	let attachmentCount = 0, reused = 0;
-	const label = composedText(options.label);
 	const report: SectionReport = { section: label, dir, pages: [], pageCount: 0, attachments: 0, reusedAttachments: 0 };
 
 	for (const [order, page] of pages.entries()) {
@@ -107,8 +142,8 @@ export async function writeSection(section: Section, source: SectionSource, sink
 				case 'file': file = safeName(hint.fileName, strings.untitledPage, 100); break;
 			}
 			let candidate = file, k = 2;
-			while (usedAttachments.has(candidate.toLowerCase())) candidate = file.replace(/(\.[^.]+)?$/, m => ` (${k++})${m}`);
-			usedAttachments.add(candidate.toLowerCase());
+			while (usedAttachments.has(fold(candidate))) candidate = file.replace(/(\.[^.]+)?$/, m => ` (${k++})${m}`);
+			usedAttachments.add(fold(candidate));
 
 			let bytes: Uint8Array;
 			if (data.kind === 'inline') bytes = data.bytes;
@@ -165,11 +200,12 @@ export async function writeSection(section: Section, source: SectionSource, sink
 		report.pages.push({ title: page.title, file: `${noteName}.md`, level: page.level, chars: rendered.markdown.length, assets: rendered.attachments.length, skipped });
 	}
 
+	// Last, the table of contents with every page: the section is complete.
 	const toc = [
-		'---', `title: ${yaml(strings.tocTitle(label))}`, '---', '', `# ${label}`, '',
+		...tocHead(label, strings, 'complete'),
 		...pages.map(page => `${'\t'.repeat(page.level)}- [${(page.title || strings.untitledPage).replace(/[[\]]/g, '\\$&')}](<${fileOf.get(page.id)}.md>)`),
 	].join('\n');
-	await sink.writeText(joinPath(dir, `${strings.tocFileName}.md`), toc + '\n');
+	await sink.writeText(tocPath, toc + '\n');
 
 	report.pageCount = pages.length;
 	report.attachments = attachmentCount;
@@ -187,11 +223,48 @@ export interface NotebookTocEntry {
 	locked?: boolean;
 	/** The import was cancelled before this section: listed, not converted, no link. */
 	cancelled?: boolean;
+	/** Not chosen for import: listed, no link. */
+	skipped?: boolean;
+	/** Its folder inside the notebook's folder, when known (see sectionFolders). */
+	folder?: string;
 }
 
-/** Folder of a section inside its notebook folder. */
+/** A section's place in its notebook (section groups and name), for matching it across imports. */
+export const sectionKey = (groups: string[], section: string) => [...groups, section].map(part => part.normalize('NFC')).join('/');
+
+/** Folder of a section inside its notebook folder, before telling it apart from the others (see sectionFolders). */
 export function sectionFolder(groups: string[], section: string, strings: Strings): string {
 	return joinPath(...groups.map(group => safeName(group, strings.untitledPage)), safeName(section, strings.untitledPage, 120));
+}
+
+/**
+ * The folders of a notebook's sections, by sectionKey. Two sections whose names give one folder (they
+ * differ only in what a file name cannot hold, in case, or after 120 characters), or a section that
+ * would take a section group's folder, would write into one: the later one gets " (2)" and so on,
+ * as notebooks and pages of one name do. Section groups of one folder name share it.
+ */
+export function sectionFolders(sections: readonly { groups: string[], label: string }[], strings: Strings): Map<string, string> {
+	const groupPath = (groups: string[]) => joinPath(...groups.map(group => safeName(group, strings.untitledPage)));
+	// Names taken at each place (by the folder they are in): the groups' first, so no section takes one.
+	const taken = new Map<string, Set<string>>();
+	const take = (parent: string, name: string) => {
+		const names = taken.get(fold(parent)) ?? new Set<string>();
+		taken.set(fold(parent), names);
+		const free = !names.has(fold(name));
+		names.add(fold(name));
+		return free;
+	};
+	for (const section of sections) {
+		for (let i = 0; i < section.groups.length; i++) take(groupPath(section.groups.slice(0, i)), safeName(section.groups[i]!, strings.untitledPage));
+	}
+	const folders = new Map<string, string>();
+	for (const section of sections) {
+		const parent = groupPath(section.groups);
+		let name = safeName(section.label, strings.untitledPage, 120), n = 2;
+		while (!take(parent, name)) name = safeName(numberedName(section.label, n++), strings.untitledPage, 120);
+		folders.set(sectionKey(section.groups, section.label), joinPath(parent, name));
+	}
+	return folders;
 }
 
 /** Folder of a notebook inside the output root. */
@@ -203,26 +276,29 @@ export function notebookFolder(name: string, strings: Strings): string {
 export function failedSectionToc(label: string, reason: string, strings: Strings): string {
 	const name = composedText(label);
 	const note = escapeLineStart(escapeInline(reason.replace(/\s+/g, ' ').trim()));
-	return ['---', `title: ${yaml(strings.tocTitle(name))}`, '---', '', `# ${name}`, '', `> ${note}`, ''].join('\n');
+	return [...tocHead(name, strings, 'failed'), `> ${note}`, ''].join('\n');
 }
 
-export function notebookToc(notebookName: string, entries: NotebookTocEntry[], strings: Strings): string {
+/** A notebook's table of contents: `importing` while its sections are written, `complete` once they are. */
+export function notebookToc(notebookName: string, entries: NotebookTocEntry[], strings: Strings, status: 'importing' | 'complete' = 'complete'): string {
 	const name = composedText(notebookName);
-	const lines = ['---', `title: ${yaml(strings.tocTitle(name))}`, '---', '', `# ${name}`, '', strings.sectionOrderNote, ''];
-	// Sections come group by group; each group's name is a line above its sections.
+	const lines = [...tocHead(name, strings, status), strings.sectionOrderNote, ''];
+	// Sections come group by group; each group's name is a line above its sections. Names are text:
+	// whatever Markdown or Obsidian would read as structure in them is escaped.
 	let open: string[] = [];
 	for (const entry of entries) {
 		const groups = entry.groups.map(composedText);
 		let shared = 0;
 		while (shared < groups.length && shared < open.length && groups[shared] === open[shared]) shared++;
-		for (let level = shared; level < groups.length; level++) lines.push(`${'\t'.repeat(level)}- ${groups[level]}`);
+		for (let level = shared; level < groups.length; level++) lines.push(`${'\t'.repeat(level)}- ${escapeLineStart(escapeInline(groups[level]!))}`);
 		open = groups;
-		if (entry.cancelled) {
-			lines.push(`${'\t'.repeat(groups.length)}- ${escapeLineStart(escapeInline(composedText(entry.section)))}${strings.cancelledSuffix}`);
+		if (entry.cancelled || entry.skipped) {
+			lines.push(`${'\t'.repeat(groups.length)}- ${escapeLineStart(escapeInline(composedText(entry.section)))}${entry.skipped ? strings.notImportedSuffix : strings.cancelledSuffix}`);
 			continue;
 		}
 		const suffix = entry.locked ? strings.passwordProtectedSuffix : entry.failed ? strings.conversionFailedSuffix : '';
-		lines.push(`${'\t'.repeat(groups.length)}- [${composedText(entry.section)}](<${sectionFolder(entry.groups, entry.section, strings)}/${strings.tocFileName}.md>)${suffix}`);
+		const folder = entry.folder ?? sectionFolder(entry.groups, entry.section, strings);
+		lines.push(`${'\t'.repeat(groups.length)}- [${escapeInline(composedText(entry.section))}](<${folder}/${strings.tocFileName}.md>)${suffix}`);
 	}
 	return lines.join('\n') + '\n';
 }

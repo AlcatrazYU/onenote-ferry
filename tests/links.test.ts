@@ -10,7 +10,7 @@ const SECTION = '{33333333-3333-3333-3333-333333333333}';
 
 function index(): LinkIndex {
 	return {
-		pages: new Map([[PAGE_A, 'Notebook A/Section 1/Page A.md'], [PAGE_B, 'Notebook B/Group/Section 2/Page B.md']]),
+		pages: new Map([[PAGE_A, ['Notebook A/Section 1/Page A.md']], [PAGE_B, ['Notebook B/Group/Section 2/Page B.md']]]),
 		sections: [
 			{ source: ['Notebook A', 'Section 1'], toc: 'Notebook A/Section 1/_目录.md' },
 			{ source: ['Notebook B', 'Group', 'Section 2'], toc: 'Notebook B/Group/Section 2/_目录.md' },
@@ -57,10 +57,50 @@ test('a relative section link is read against its base path', () => {
 	assert.equal(resolveLink(unquote(url), FROM, index()), 'Notebook B/Group/Section 2/_目录.md');
 });
 
-test('two converted sections with the same path are ambiguous and left alone', () => {
+test('two sections with the same path: each notebook links to its own, others find no single one', () => {
 	const ix = index();
 	ix.sections.push({ source: ['Notebook A', 'Section 1'], toc: 'Notebook A (2)/Section 1/_目录.md' });
-	assert.equal(resolveLink(unquote(`onenote:https://x.example/Notebook%20A/Section%201.one#section-id=${SECTION}&end`), FROM, ix), undefined);
+	const url = unquote(`onenote:https://x.example/Notebook%20A/Section%201.one#section-id=${SECTION}&end`);
+	assert.equal(resolveLink(url, FROM, ix), 'Notebook A/Section 1/_目录.md');
+	assert.equal(resolveLink(url, 'Notebook A (2)/Section 1/Page A.md', ix), 'Notebook A (2)/Section 1/_目录.md');
+	assert.equal(resolveLink(url, 'Notebook B/Group/Section 2/Page B.md', ix), undefined);
+});
+
+test('a copy links into itself; links from elsewhere keep going to the notebook imported first', () => {
+	// "Recipes" from an earlier import, and the same notebook again as "Recipes (2)": the same page ids.
+	const ix: LinkIndex = {
+		pages: new Map([[PAGE_A, ['Recipes/Soups/Tomato.md', 'Recipes (2)/Soups/Tomato.md']]]),
+		sections: [
+			{ source: ['Recipes', 'Soups'], toc: 'Recipes/Soups/_目录.md' },
+			{ source: ['Recipes (2)', 'Soups'], toc: 'Recipes (2)/Soups/_目录.md' },
+			{ source: ['Recipes', 'Soups'], toc: 'Recipes (2)/Soups/_目录.md', alias: true },
+		],
+		files: new Set(),
+	};
+	const page = `onenote:https://x.example/Recipes/Soups.one#Tomato&section-id=${SECTION}&page-id=${PAGE_A}&end`;
+	const section = `onenote:https://x.example/Recipes/Soups.one#section-id=${SECTION}&end`;
+	assert.equal(resolveLink(unquote(page), 'Recipes (2)/Soups/Index.md', ix), 'Recipes (2)/Soups/Tomato.md');
+	assert.equal(resolveLink(unquote(page), 'Other/Notes/Page.md', ix), 'Recipes/Soups/Tomato.md');
+	assert.equal(resolveLink(unquote(section), 'Recipes (2)/Soups/Index.md', ix), 'Recipes (2)/Soups/_目录.md');
+	assert.equal(resolveLink(unquote(section), 'Other/Notes/Page.md', ix), 'Recipes/Soups/_目录.md');
+});
+
+test('the index keeps every page with an id, and tables of contents compare composed (as Obsidian writes paths)', async () => {
+	const sink = memorySink();
+	await sink.writeText('Recipes/Soups/Tomato.md', `---
+onenote-id: "${PAGE_A}"
+---
+`);
+	await sink.writeText('Recipes (2)/Soups/Tomato.md', `---
+onenote-id: "${PAGE_A}"
+---
+`);
+	// A section name with a decomposed kana: the converted one says it composed, the vault has it decomposed.
+	const decomposed = 'ガイド'.normalize('NFD');
+	await sink.writeText(`Recipes/${decomposed}/_目录.md`, '---\n---\n');
+	const ix = await buildLinkIndex(sink, ['Recipes', 'Recipes (2)'], [{ source: ['Recipes', decomposed.normalize('NFC')], toc: `Recipes/${decomposed.normalize('NFC')}/_目录.md` }], { tocFileNames: ['_目录'], attachmentsFolders: ['_附件'] });
+	assert.deepEqual(ix.pages.get(PAGE_A), ['Recipes/Soups/Tomato.md', 'Recipes (2)/Soups/Tomato.md']);
+	assert.equal(ix.sections.length, 1, 'the converted section is not found a second time');
 });
 
 test('a link to a page of the same section by title resolves when that page exists', () => {
@@ -89,7 +129,7 @@ test('the index reads page ids from front matter, skips attachments and tables o
 	await sink.writeText('NB/Old/_目录.md', '---\ntitle: "Old 目录"\n---\n');
 	await sink.writeText('NB/S/_附件/notes.md', `onenote-id: "${PAGE_B}"\n`);
 	const ix = await buildLinkIndex(sink, ['NB'], [{ source: ['NB', 'S'], toc: 'NB/S/_目录.md' }], { tocFileNames: ['_目录'], attachmentsFolders: ['_附件'] });
-	assert.deepEqual([...ix.pages], [[PAGE_A, 'NB/S/Page.md']]);
+	assert.deepEqual([...ix.pages], [[PAGE_A, ['NB/S/Page.md']]]);
 	assert.deepEqual(ix.sections.map(s => s.toc).sort(), ['NB/Old/_目录.md', 'NB/S/_目录.md']);
 	assert.deepEqual([...ix.files], ['NB/S/Page.md']);
 });
@@ -102,7 +142,7 @@ test('the index reads tables of contents and attachments folders of every langua
 	await sink.writeText('Notes/T/Page.md', `---\nonenote-id: "${PAGE_A}"\n---\n`);
 	const ix = await buildLinkIndex(sink, ['NB', 'Notes'], [], { tocFileNames: ['_目录', '_contents'], attachmentsFolders: ['_附件', '_attachments'] });
 	assert.deepEqual(ix.sections.map(s => s.toc).sort(), ['NB/S/_目录.md', 'Notes/T/_contents.md']);
-	assert.deepEqual([...ix.pages], [[PAGE_A, 'Notes/T/Page.md']]);
+	assert.deepEqual([...ix.pages], [[PAGE_A, ['Notes/T/Page.md']]]);
 });
 
 test('relinking rewrites only pages that change and keeps their modification time', async () => {

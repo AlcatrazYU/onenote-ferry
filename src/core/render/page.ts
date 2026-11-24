@@ -322,6 +322,7 @@ class PageWriter {
 	}
 
 	private async writeParagraph(paragraph: Paragraph, ordinal = 0): Promise<void> {
+		if (paragraph.missingFile !== undefined) this.options.onSkipped?.(paragraph.missingFile, 'no-data');
 		const text = renderRuns(paragraph.runs, this.options);
 		const heading = headingPrefix(paragraph.styleId);
 		// Nesting comes from the outline tree, not from the parser's list level (always 1).
@@ -503,6 +504,7 @@ class PageWriter {
 		for (const child of children) {
 			switch (child.kind) {
 				case 'paragraph': {
+					if (child.missingFile !== undefined) this.options.onSkipped?.(child.missingFile, 'no-data');
 					const text = renderRuns(child.runs, this.options);
 					parts.push(text === '' ? '' : cellTagPrefix(child.tags) + text);
 					parts.push(await this.renderCell(child.children));

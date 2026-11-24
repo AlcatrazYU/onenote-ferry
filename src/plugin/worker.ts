@@ -3,18 +3,17 @@
 // window never waits for them. Files are written by the window (Obsidian's vault lives there):
 // every write is a message to it, answered when the file is written.
 
-import { tmpdir } from 'node:os';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import type { DownloadNotebook, DownloadSection } from '../core/download.ts';
-import { convertSection, scanNotebook } from '../core/importer.ts';
+import type { DownloadSection } from '../core/download.ts';
+import { convertSection } from '../core/importer.ts';
 import type { SectionHost, SectionOptions } from '../core/importer.ts';
 import type { Sink } from '../core/io.ts';
 import { STRINGS } from '../core/strings.ts';
 import type { Language } from '../core/strings.ts';
 import { openDownload, parseWithWasm, passwordProtected } from '../node/download.ts';
 import type { Download, WasmParser } from '../node/download.ts';
-import type { SinkCall, ToWorker } from './protocol.ts';
+import type { OpenedDownload, SinkCall, ToWorker } from './protocol.ts';
 
 declare const require: (id: string) => any;
 
@@ -54,49 +53,79 @@ const sink: Sink = {
 	listFiles: folder => callWindow('listFiles', [folder]),
 };
 
-let download: Download | undefined;
-let scratch: string | undefined;
+/**
+ * The private folder the window made for this worker (and removes when it stops it, however it
+ * stops). Each download gets a folder in it for its temporary copies, made only when one is needed.
+ */
+let scratchRoot = '';
+let scratchCount = 0;
 
-function closeDownload(): void {
-	download?.close();
-	download = undefined;
-	if (scratch) rmSync(scratch, { recursive: true, force: true });
-	scratch = undefined;
+/** Open downloads by their path, each with its scratch folder for temporary copies. */
+const downloads = new Map<string, { download: Download, scratch: string }>();
+
+async function opened(input: string): Promise<Download> {
+	const open = downloads.get(input);
+	if (open) return open.download;
+	if (!scratchRoot) throw new Error('the converter has no scratch folder');
+	const scratch = join(scratchRoot, String(scratchCount++));
+	try {
+		const download = await openDownload(input, join(scratch, 'zip'), true);
+		downloads.set(input, { download, scratch });
+		return download;
+	}
+	catch (error) {
+		rmSync(scratch, { recursive: true, force: true });
+		throw error;
+	}
 }
 
-const host: SectionHost = {
+function closeAll(): void {
+	for (const { download, scratch } of downloads.values()) {
+		try {
+			download.close();
+		}
+		finally {
+			rmSync(scratch, { recursive: true, force: true });
+		}
+	}
+	downloads.clear();
+}
+
+const hostFor = (download: Download): SectionHost => ({
 	sink,
-	parse: section => parseWithWasm(parser(), download!, section),
-	isPasswordProtected: section => passwordProtected(download!, section),
-};
+	parse: section => parseWithWasm(parser(), download, section),
+	isPasswordProtected: section => passwordProtected(download, section),
+});
 
 async function handle(message: ToWorker): Promise<unknown> {
 	switch (message.type) {
 		case 'init': {
+			scratchRoot = message.scratch;
 			(globalThis as { __ONENOTE_FERRY_WASM__?: Uint8Array }).__ONENOTE_FERRY_WASM__ = new Uint8Array(message.wasm);
 			const started = performance.now();
 			parser();
 			return { startMs: performance.now() - started };
 		}
 		case 'open': {
-			closeDownload();
-			// A private scratch folder for temporary copies of compressed sections.
-			scratch = mkdtempSync(join(tmpdir(), 'onenote-ferry-'));
-			download = await openDownload(message.input, join(scratch, 'zip'), true);
-			return download.notebooks satisfies DownloadNotebook[];
+			const download = await opened(message.input);
+			return { notebooks: download.notebooks, incomplete: download.incomplete } satisfies OpenedDownload;
 		}
-		case 'scan': {
-			const notebook = download!.notebooks.find(n => n.name === message.notebook);
-			if (!notebook) throw new Error(`no notebook named ${message.notebook}`);
-			return scanNotebook(notebook, host);
+		case 'locked': {
+			const download = await opened(message.input);
+			const locked: string[] = [];
+			for (const section of download.notebooks.flatMap(notebook => notebook.sections)) {
+				if (section.incomplete) continue;
+				if (await passwordProtected(download, section).catch(() => false)) locked.push(section.path);
+			}
+			return locked;
 		}
-		case 'convert':
-			return convertSection(message.section as DownloadSection, message.notebookDir, STRINGS[message.language as Language], host, message.options as SectionOptions);
+		case 'convert': {
+			const download = await opened(message.input);
+			return convertSection(message.section as DownloadSection, message.dir, STRINGS[message.language as Language], hostFor(download), message.options as SectionOptions);
+		}
 		case 'close':
-			closeDownload();
+			closeAll();
 			return null;
-		case 'memory':
-			return { wasmBytes: ferry ? ferry.memoryBytes() : 0 };
 	}
 }
 

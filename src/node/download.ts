@@ -16,6 +16,8 @@ import type { RandomAccessFile, ZipEntry } from '../core/zip.ts';
 /** Where the parser reads a section: a file, or (for a zip) a byte range the parser is told about. */
 export interface Download {
 	notebooks: DownloadNotebook[];
+	/** A zip whose download stopped part way: what arrived whole is read, the rest is missing. */
+	incomplete?: IncompleteZip;
 	/** A path the parser can open for this section (a temporary copy for a compressed zip entry). */
 	parserPath(section: DownloadSection): Promise<string>;
 	/** The first bytes of a section, to tell whether it is password protected. */
@@ -24,6 +26,20 @@ export interface Download {
 	done(section: DownloadSection): void;
 	/** Closes the download and removes every temporary copy. */
 	close(): void;
+}
+
+export interface IncompleteZip {
+	/** Files that arrived whole. */
+	files: number;
+	/** The file the download stopped inside. */
+	cutOff?: string;
+	/** Where the zip could no longer be read (a byte offset). */
+	lostAt?: number;
+}
+
+/** What to tell someone about an incomplete zip (the command line prints it). */
+export function incompleteZipMessage(zip: IncompleteZip): string {
+	return `The zip is incomplete (the download stopped part way): ${zip.files} ${zip.files === 1 ? 'file' : 'files'} arrived whole${zip.cutOff ? `, it ends inside ${zip.cutOff}` : ''}${zip.lostAt !== undefined ? `, and it could not be read past byte ${zip.lostAt}` : ''}. Sections and notebooks after that are missing; download the zip again to get them.`;
 }
 
 /** Byte ranges inside a zip that the WebAssembly parser reads in place (parser/UPSTREAM.md, change 6). */
@@ -102,16 +118,24 @@ export async function openDownload(input: string, tmp: string, inPlace: boolean)
 	const entries = new Map<string, ZipEntry>();
 	let listed: ZipEntry[];
 	let cutOff: string | undefined;
+	let incomplete: IncompleteZip | undefined;
 	try {
-		listed = await readZipDirectory(zip);
+		try {
+			listed = await readZipDirectory(zip);
+		}
+		catch (error) {
+			if (!(error instanceof ZipFormatError)) throw error;
+			// No table of contents: a download that stopped part way. Keep what arrived whole.
+			const scanned = await scanZipEntries(zip);
+			listed = scanned.entries;
+			cutOff = scanned.cutOff;
+			incomplete = { files: listed.filter(entry => !entry.name.endsWith('/')).length, cutOff, lostAt: scanned.lostAt };
+		}
 	}
 	catch (error) {
-		if (!(error instanceof ZipFormatError)) throw error;
-		// No table of contents: a download that stopped part way. Keep what arrived whole.
-		const scanned = await scanZipEntries(zip);
-		listed = scanned.entries;
-		cutOff = scanned.cutOff;
-		console.warn(`The zip is incomplete (the download stopped part way): ${listed.filter(entry => !entry.name.endsWith('/')).length} files arrived whole${cutOff ? `, it ends inside ${cutOff}` : ''}${scanned.lostAt !== undefined ? `, and it could not be read past byte ${scanned.lostAt}` : ''}. Sections and notebooks after that are missing: download them again.`);
+		// Not a zip that can be read at all: nothing stays open.
+		zip.close();
+		throw error;
 	}
 	for (const entry of listed) if (!entry.name.endsWith('/')) entries.set(entry.name, entry);
 	const files: DownloadFile[] = [...entries.values()].map(entry => ({ path: entry.name, size: entry.size }));
@@ -128,6 +152,7 @@ export async function openDownload(input: string, tmp: string, inPlace: boolean)
 			ranges.set(name, { file: input, offset, length: entry.size });
 			return name;
 		}
+		if (entry.method !== 0 && entry.method !== 8) throw new Error(`zip entry ${entry.name} uses compression method ${entry.method}`);
 		// A temporary copy, in a folder of its own so it keeps the section's file name.
 		const folder = join(tmp, String(copyCount++));
 		const copy = join(folder, basename(section.path));
@@ -135,13 +160,13 @@ export async function openDownload(input: string, tmp: string, inPlace: boolean)
 		const source = createReadStream(input, { start: offset, end: offset + entry.compressedSize - 1 });
 		// Never into a file that is already there (or a link someone left in its place).
 		if (entry.method === 0) await pipeline(source, createWriteStream(copy, { flags: 'wx' }));
-		else if (entry.method === 8) await pipeline(source, createInflateRaw(), createWriteStream(copy, { flags: 'wx' }));
-		else throw new Error(`zip entry ${entry.name} uses compression method ${entry.method}`);
+		else await pipeline(source, createInflateRaw(), createWriteStream(copy, { flags: 'wx' }));
 		copies.set(section.path, copy);
 		return copy;
 	};
 	return {
 		notebooks,
+		incomplete,
 		parserPath,
 		async head(section, length) {
 			const entry = entries.get(section.path);
