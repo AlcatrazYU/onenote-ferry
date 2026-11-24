@@ -11,14 +11,17 @@
   }
  ],
  "attachments": [
-  "Section/_attachments/Testing… - ink.svg (60684 bytes)"
+  "Section/_attachments/Testing… - ink01.svg (2514 bytes)",
+  "Section/_attachments/Testing… - ink02.svg (57346 bytes)"
  ]
 }
 ```
 
 ## Testing….md
 
+![](<_attachments/Testing… - ink01.svg>)
+
 Link to page: [Page 2](onenote:https://d.docs.live.net/4c230b31b0dfb50f/Documents/OneNote%20Notebooks/test/Another%20section.one#Page%202&section-id={C271F3B1-5F22-457F-9DEA-F2B938D9B3D7}&page-id={62800B88-EC08-4170-BDB6-885CBB47FF99}&end)
 
-![](<_attachments/Testing… - ink.svg>)
+![](<_attachments/Testing… - ink02.svg>)
 

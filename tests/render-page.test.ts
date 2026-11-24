@@ -27,7 +27,7 @@ interface Harness { options: PageRenderOptions; saved: { data: AssetData, hint: 
 function harness(overrides: Partial<PageRenderOptions> = {}): Harness {
 	const saved: Harness['saved'] = [];
 	const skipped: string[] = [];
-	let images = 0;
+	let images = 0, inks = 0;
 	const options: PageRenderOptions = {
 		keepFontColor: true,
 		boxMarkers: true,
@@ -36,7 +36,7 @@ function harness(overrides: Partial<PageRenderOptions> = {}): Harness {
 			saved.push({ data, hint });
 			const name = hint.role === 'file' ? hint.fileName
 				: hint.role === 'image' ? `img${++images}.${hint.extension ?? 'bin'}`
-				: hint.role === 'page-ink' ? 'ink.svg' : 'inline-ink.svg';
+				: `ink${++inks}.svg`;
 			return { path: `_附件/${name}`, name };
 		},
 		onSkipped: description => skipped.push(description),
@@ -162,15 +162,15 @@ test('embedded files are links named after the file; inline ink is an embedded d
 	const file: EmbeddedFile = { kind: 'embedded-file', fileName: 'notes', extension: 'docx', data: stored('n.docx') };
 	const ink: Image = { kind: 'image', extension: 'svg', inkSvg: true, data: { kind: 'inline', bytes: new TextEncoder().encode('<svg/>') } };
 	const result = await renderPage(page([box([file, p('text', { children: [ink] })])]), h.options);
-	assert.equal(result.markdown, '[notes.docx](<_附件/notes.docx>)\n\ntext\n\n![](<_附件/inline-ink.svg>)');
-	assert.deepEqual(h.saved.map(s => s.hint), [{ role: 'file', fileName: 'notes.docx' }, { role: 'inline-ink' }]);
+	assert.equal(result.markdown, '[notes.docx](<_附件/notes.docx>)\n\ntext\n\n![](<_附件/ink1.svg>)');
+	assert.deepEqual(h.saved.map(s => s.hint), [{ role: 'file', fileName: 'notes.docx' }, { role: 'ink' }]);
 });
 
-test('loose ink on the page becomes one drawing at the end', async () => {
+test('loose ink on a page without positions comes after its text', async () => {
 	const h = harness();
 	const ink: Element = { kind: 'ink', strokes: [{ points: [{ x: 0, y: 0 }, { x: 1, y: 1 }], color: '#ff0000', width: 0.02, opacity: 1 }] };
 	const result = await renderPage(page([box([p('text')])], [ink]), h.options);
-	assert.equal(result.markdown, 'text\n\n![](<_附件/ink.svg>)');
+	assert.equal(result.markdown, 'text\n\n![](<_附件/ink1.svg>)');
 	const saved = h.saved[0].data;
 	assert.ok(saved.kind === 'inline' && new TextDecoder().decode(saved.bytes).startsWith('<svg'));
 });

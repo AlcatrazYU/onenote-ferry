@@ -61,12 +61,12 @@ test('attachments: named after the page, written once per section, embedded file
 	assert.equal(report.reusedAttachments, 1);
 });
 
-test('handwriting: page ink is one drawing named after the page, inline ink is numbered', async () => {
+test('handwriting: every drawing is numbered in page order, loose ink and ink in a line alike', async () => {
 	// A different stroke from the inline one: identical drawings would be stored once.
 	const pageInk = { type: 'ink', strokes: [stroke(0, [[0, 0], [2540, 0]])], x: 0, y: 0 };
 	const { sink } = await write([pageJson('Ink', [outline([element([rich([run('text')], { inks: [{ strokes: [stroke(0)] }] })])]), pageInk])]);
 	const attachments = [...sink.files.keys()].filter(p => p.includes('/_附件/')).sort();
-	assert.deepEqual(attachments, [`${DIR}/_附件/Ink - 手写.svg`, `${DIR}/_附件/Ink - 手写01.svg`]);
+	assert.deepEqual(attachments, [`${DIR}/_附件/Ink - 手写01.svg`, `${DIR}/_附件/Ink - 手写02.svg`]);
 });
 
 test('an attachment whose bytes cannot be read is reported and not linked', async () => {

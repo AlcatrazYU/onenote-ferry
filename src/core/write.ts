@@ -95,8 +95,7 @@ export async function writeSection(section: Section, source: SectionSource, sink
 			}
 			let file: string;
 			switch (hint.role) {
-				case 'inline-ink': file = `${short} - ${strings.inkWord}${pad(++inkNo, 2)}.svg`; break;
-				case 'page-ink': file = `${short} - ${strings.inkWord}.svg`; break;
+				case 'ink': file = `${short} - ${strings.inkWord}${pad(++inkNo, 2)}.svg`; break;
 				case 'image': file = `${short} - ${strings.imageWord}${pad(++imageNo, 3)}.${(hint.extension ?? 'bin').toLowerCase()}`; break;
 				case 'file': file = safeName(hint.fileName, strings.untitledPage, 100); break;
 			}
@@ -131,6 +130,15 @@ export async function writeSection(section: Section, source: SectionSource, sink
 			resolveInternalLink: title => titleToFile.has(composedText(title)) ? `${titleToFile.get(composedText(title))}.md` : undefined,
 			onSkipped: (description, reason) => skipped.push(`${description}: ${reason}`),
 			saveAttachment,
+			readAsset: async data => {
+				if (data.kind === 'inline') return data.bytes;
+				try {
+					return await source.readAsset(data.key);
+				}
+				catch {
+					return undefined;
+				}
+			},
 		});
 
 		const frontMatter = [

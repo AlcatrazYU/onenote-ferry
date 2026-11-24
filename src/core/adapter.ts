@@ -114,7 +114,10 @@ function inkColor(value: number | null | undefined): string {
 	return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
 }
 
-/** Decodes strokes (points after the first are deltas) into `unit`s, offset by (dx, dy). Keeps highlighter strokes. */
+/**
+ * Decodes strokes (points after the first are deltas) into `unit`s, offset by (dx, dy). Keeps
+ * highlighter strokes, whose broad side is the larger of the tip's width and height.
+ */
 function inkStrokes(ink: Json, unit: number, dx = 0, dy = 0): InkStroke[] {
 	return (ink.strokes as Json[]).map(s => {
 		let x = 0, y = 0;
@@ -129,7 +132,9 @@ function inkStrokes(ink: Json, unit: number, dx = 0, dy = 0): InkStroke[] {
 			}
 			return { x: dx + x / unit, y: dy + y / unit };
 		});
-		return { points, color: inkColor(s.color), width: Math.max(s.width ?? 0, 1) / unit, opacity: (255 - (s.transparency ?? 0)) / 255 };
+		const opacity = (255 - (s.transparency ?? 0)) / 255;
+		const tip = opacity < MIN_PEN_OPACITY ? Math.max(s.width ?? 0, s.height ?? 0) : s.width ?? 0;
+		return { points, color: inkColor(s.color), width: Math.max(tip, 1) / unit, opacity };
 	});
 }
 
@@ -286,6 +291,12 @@ export class Adapter {
 			case 'ink': {
 				this.stats.ink++;
 				const ink: Ink = { kind: 'ink', strokes: inkStrokes(c, HIMETRIC_PER_HALF_INCH, c.x ?? 0, c.y ?? 0) };
+				// Where it sits on the page: the strokes are in page positions already.
+				const points = ink.strokes.flatMap(stroke => stroke.points);
+				if (page && points.length) {
+					const left = Math.min(...points.map(p => p.x)), right = Math.max(...points.map(p => p.x));
+					ink.place = { x: left, y: Math.min(...points.map(p => p.y)), width: right - left };
+				}
 				if (!ink.strokes.some(isPen)) {
 					// Only highlighter: draws nothing today, so it takes no place in the reading order,
 					// but it is kept on the page for a later "export highlighter ink" option.

@@ -4,12 +4,16 @@
 // See THIRD_PARTY_LICENSES.md.
 
 import type { AssetData, Element, EmbeddedFile, Image, Ink, InkStroke, Page, Paragraph, Table, Tag } from '../model.ts';
-import { MIN_PEN_OPACITY } from '../model.ts';
 import { escapeInline, escapeLineStart } from '../markdown.ts';
 import type { Strings } from '../strings.ts';
 import { renderRuns } from './inline.ts';
 import type { InlineOptions } from './inline.ts';
 import { strokesToSvg } from './ink-svg.ts';
+import type { DrawingParts } from './ink-svg.ts';
+import { assignToPictures, clusters, insertionPoint, isHighlighter, strokeBox, unionBox } from './ink-layout.ts';
+import type { Box, ColumnSpan } from './ink-layout.ts';
+import { base64, pictureInfo } from './picture.ts';
+import type { PictureInfo } from './picture.ts';
 
 /** Converts half-inch ink units to CSS pixels at 96 DPI. */
 const PIXELS_PER_INK_UNIT = 48;
@@ -19,8 +23,7 @@ const CM_PER_POSITION_UNIT = 1.27;
 /** What an attachment is, so the writer can name it. */
 export type AttachmentHint =
 	| { role: 'image'; extension?: string }
-	| { role: 'inline-ink' }
-	| { role: 'page-ink' }
+	| { role: 'ink' }
 	| { role: 'file'; fileName: string };
 
 export interface ResolvedAttachment {
@@ -42,6 +45,8 @@ export interface PageRenderOptions extends InlineOptions {
 	strings: Strings;
 	/** Stores one attachment and answers with its link target, or null to leave it out. */
 	saveAttachment: (data: AssetData, hint: AttachmentHint) => Promise<ResolvedAttachment | null>;
+	/** The bytes of a picture, to draw handwriting over it; undefined when they cannot be read. */
+	readAsset?: (data: AssetData) => Promise<Uint8Array | undefined>;
 	onSkipped?: (description: string, reason: 'no-data') => void;
 	isCancelled?: () => boolean;
 }
@@ -67,7 +72,7 @@ function fileHint(file: EmbeddedFile): AttachmentHint {
 }
 
 function imageHint(image: Image): AttachmentHint {
-	if (image.inkSvg) return { role: 'inline-ink' };
+	if (image.inkSvg) return { role: 'ink' };
 	return { role: 'image', extension: image.extension ?? extensionFromName(image.fileName) };
 }
 
@@ -75,9 +80,53 @@ function describe(hint: AttachmentHint): string {
 	switch (hint.role) {
 		case 'file': return hint.fileName;
 		case 'image': return `image${hint.extension ? '.' + hint.extension : ''}`;
-		case 'inline-ink': return 'ink.svg';
-		case 'page-ink': return 'page ink.svg';
+		case 'ink': return 'ink.svg';
 	}
+}
+
+/** One stroke of handwriting and the ink object it came from. */
+interface InkPiece {
+	stroke: InkStroke;
+	ink: Ink;
+}
+
+/** A picture placed on the page, where it sits (half inches) and, when readable, its bytes. */
+interface PlacedPicture {
+	box: Box;
+	bytes?: Uint8Array;
+	info?: PictureInfo;
+}
+
+/** A text box or paragraph with nothing in it at all (no text, no picture, no file, no table, no ink). */
+function isBlank(element: Element): boolean {
+	switch (element.kind) {
+		case 'outline': return element.children.every(isBlank);
+		case 'paragraph': return element.runs.every(run => run.text.trim() === '') && element.children.every(isBlank);
+		default: return false;
+	}
+}
+
+/** A Windows printout page keeps the whole document (XPS or PDF), not a picture of the page. */
+function isWholeDocument(image: Image): boolean {
+	return image.printoutPage !== undefined && /^(xps|pdf)$/i.test(image.extension ?? '');
+}
+
+function toPixels(stroke: InkStroke): InkStroke {
+	return {
+		points: stroke.points.map(point => ({ x: point.x * PIXELS_PER_INK_UNIT, y: point.y * PIXELS_PER_INK_UNIT })),
+		color: stroke.color,
+		width: Math.max(1, stroke.width * PIXELS_PER_INK_UNIT),
+		opacity: stroke.opacity,
+	};
+}
+
+function pixelRect(box: Box) {
+	return {
+		x: box.left * PIXELS_PER_INK_UNIT,
+		y: box.top * PIXELS_PER_INK_UNIT,
+		width: (box.right - box.left) * PIXELS_PER_INK_UNIT,
+		height: (box.bottom - box.top) * PIXELS_PER_INK_UNIT,
+	};
 }
 
 function hasData(data: AssetData | undefined): data is AssetData {
@@ -154,9 +203,12 @@ function containsTable(elements: Element[]): boolean {
 class PageWriter {
 	private readonly options: PageRenderOptions;
 	private readonly blocks: Block[] = [];
-	private readonly inkStrokes: InkStroke[] = [];
-	private readonly recognizedText: string[] = [];
 	readonly attachments: ResolvedAttachment[] = [];
+	/** Handwriting drawn on a picture placed on the page, and where that picture sits. */
+	readonly annotations = new Map<Image, InkPiece[]>();
+	readonly pictures = new Map<Image, PlacedPicture>();
+	/** Printed documents with handwriting on some page: shown page by page (Mac printouts) so the notes can be drawn on. */
+	readonly annotatedDocuments = new Set<EmbeddedFile>();
 	/** How many list items enclose what is being written; each adds one tab. */
 	private depth = 0;
 	/** The PDF whose embed was written last, so the following printout pages of it are not embedded again. */
@@ -224,16 +276,22 @@ class PageWriter {
 				await this.writeTable(element);
 				break;
 			case 'image': {
+				const notes = this.annotations.get(element);
 				const printout = element.printoutOf;
-				// Obsidian embeds the whole PDF as a scrollable viewer, so one embed stands for a run of printout pages.
-				if (printout && this.lastPrintout?.file === printout
-					&& this.blocks.slice(this.lastPrintout.index + 1).every(block => block.marker)) break;
-				if (printout) {
+				// A Mac printout page is a picture: when the document has handwriting on it, its pages are shown as pictures with the notes drawn on.
+				const pageByPage = printout && !isWholeDocument(element) && this.annotatedDocuments.has(printout);
+				if (printout && !pageByPage) {
+					// Obsidian embeds the whole PDF as a scrollable viewer, so one embed stands for a run of printout pages.
+					if (this.lastPrintout?.file === printout && this.blocks.slice(this.lastPrintout.index + 1).every(block => block.marker)) {
+						if (notes) await this.writeNotesBesidePage(element, notes);
+						break;
+					}
 					// Show that page of the original PDF instead of an XPS Obsidian cannot display.
 					const link = await this.renderAsset(printout.data, fileHint(printout), '', true);
 					if (link) {
 						this.push(link.replace(/>\)$/, `#page=${element.printoutPage}>)`));
 						this.lastPrintout = { file: printout, index: this.blocks.length - 1 };
+						if (notes) await this.writeNotesBesidePage(element, notes);
 						break;
 					}
 				}
@@ -242,7 +300,12 @@ class PageWriter {
 					this.pushMissing(element);
 					break;
 				}
+				if (notes && !isWholeDocument(element) && await this.writeAnnotatedPicture(element, notes)) {
+					if (this.options.imageAltText && element.alt) this.pushAltText(element.alt);
+					break;
+				}
 				await this.writeAsset(element.data, imageHint(element), '', true);
+				if (notes) await this.writeNotesBesidePage(element, notes);
 				if (this.options.imageAltText && element.alt) this.pushAltText(element.alt);
 				break;
 			}
@@ -252,7 +315,8 @@ class PageWriter {
 				break;
 			}
 			case 'ink':
-				this.collectInk(element);
+				// Handwriting on a line of its own in a text box: drawn in its place.
+				await this.writeDrawing(this.visible(element.strokes.map(stroke => ({ stroke, ink: element }))));
 				break;
 		}
 	}
@@ -323,29 +387,63 @@ class PageWriter {
 		this.push(lines.join('\n'));
 	}
 
-	private collectInk(ink: Ink): void {
-		for (const stroke of ink.strokes) {
-			if (stroke.opacity < MIN_PEN_OPACITY && !this.options.keepHighlighterInk) continue;
-			this.inkStrokes.push({
-				points: stroke.points.map(point => ({ x: point.x * PIXELS_PER_INK_UNIT, y: point.y * PIXELS_PER_INK_UNIT })),
-				color: stroke.color,
-				width: Math.max(1, stroke.width * PIXELS_PER_INK_UNIT),
-				opacity: stroke.opacity,
-			});
-		}
-		// Recognition text is repeated on every stroke in a word.
-		if (ink.recognizedText && ink.recognizedText !== this.recognizedText[this.recognizedText.length - 1]) {
-			this.recognizedText.push(ink.recognizedText);
-		}
+	/** Pen strokes, and highlighter strokes only when asked for: away from a picture they mark nothing. */
+	private visible(pieces: InkPiece[]): InkPiece[] {
+		return pieces.filter(piece => !isHighlighter(piece.stroke) || this.options.keepHighlighterInk);
 	}
 
-	/** Loose ink on the page becomes one drawing at the end of it. */
-	async writeCollectedInk(): Promise<void> {
-		const svg = strokesToSvg(this.inkStrokes);
-		if (!svg) return;
-		const recognizedText = this.recognizedText.join(' ');
-		await this.writeAsset({ kind: 'inline', bytes: new TextEncoder().encode(svg) }, { role: 'page-ink' }, '', true);
-		if (recognizedText !== '') this.push(recognizedText);
+	/** Handwriting as an embedded drawing (and the recognized text, when OneNote kept any). */
+	async writeDrawing(pieces: InkPiece[], parts: DrawingParts = {}): Promise<void> {
+		const link = await this.drawingLink(pieces, parts, { role: 'ink' });
+		if (!link) return;
+		this.push(link);
+		// Recognition text is repeated on every stroke in a word.
+		const texts: string[] = [];
+		for (const { ink } of pieces) {
+			if (ink.recognizedText && !texts.includes(ink.recognizedText)) texts.push(ink.recognizedText);
+		}
+		if (texts.length) this.push(texts.join(' '));
+	}
+
+	private async drawingLink(pieces: InkPiece[], parts: DrawingParts = {}, hint: AttachmentHint = { role: 'ink' }): Promise<string | undefined> {
+		const svg = strokesToSvg(pieces.map(piece => toPixels(piece.stroke)), parts);
+		if (!svg) return undefined;
+		return this.renderAsset({ kind: 'inline', bytes: new TextEncoder().encode(svg) }, hint, '', true);
+	}
+
+	/** A picture with the handwriting on it drawn over it, as one drawing. False when the picture cannot be drawn. */
+	private async writeAnnotatedPicture(image: Image, notes: InkPiece[]): Promise<boolean> {
+		const picture = this.pictures.get(image);
+		if (!picture?.bytes || !picture.info) return false;
+		const underlay = {
+			...pixelRect(picture.box),
+			href: `data:${picture.info.mime};base64,${base64(picture.bytes)}`,
+		};
+		const link = await this.drawingLink(notes, { underlays: [underlay] }, { role: 'image', extension: 'svg' });
+		if (!link) return false;
+		this.push(link);
+		return true;
+	}
+
+	/**
+	 * Handwriting on a printout page that cannot be drawn here (Windows printouts keep the whole
+	 * document, not a picture of the page): a note naming the page, then the notes on a blank sheet
+	 * of the page's size, where they sit on it.
+	 */
+	private async writeNotesBesidePage(image: Image, notes: InkPiece[]): Promise<void> {
+		const picture = this.pictures.get(image);
+		const pieces = picture ? notes : this.visible(notes);
+		if (!pieces.length) return;
+		const document = image.printoutName ?? image.fileName;
+		if (picture && document && image.printoutPage) {
+			this.push(renderRuns([{ text: this.options.strings.printoutNotes(document, image.printoutPage), italic: true }], this.options));
+		}
+		await this.writeDrawing(pieces, picture ? { sheets: [pixelRect(picture.box)] } : {});
+	}
+
+	/** Loose handwriting that falls between two blocks of the page. */
+	async writeLooseInk(pieces: InkPiece[]): Promise<void> {
+		if (pieces.length) await this.writeDrawing(pieces);
 	}
 
 	/** An image's alternative text as it was in OneNote, in a callout below the image that starts collapsed. */
@@ -426,7 +524,7 @@ class PageWriter {
 					break;
 				}
 				case 'ink':
-					this.collectInk(child);
+					parts.push(await this.drawingLink(this.visible(child.strokes.map(stroke => ({ stroke, ink: child })))) ?? '');
 					break;
 				case 'table':
 					// Unreachable: a table inside a cell makes the whole table layout (see writeTable).
@@ -449,7 +547,7 @@ interface Positioned {
  * Reading order: boxes that share at least half of the narrower one's width form a column;
  * columns go left to right, each column top to bottom. Unplaced content comes last.
  */
-export function readingOrder(page: Page): { items: Positioned[], columns: number } {
+export function readingOrder(page: Page): { items: Positioned[], columns: number, spans: ColumnSpan[] } {
 	const items: Positioned[] = [...page.outlines, ...page.directContent].map((element, index) => {
 		const place = element.place ?? {};
 		return { element, index, x: place.x, y: place.y, w: place.width ?? (element.kind === 'outline' ? 13 : 4) };
@@ -471,20 +569,92 @@ export function readingOrder(page: Page): { items: Positioned[], columns: number
 		...columns.flatMap(c => c.members.sort((a, b) => a.y! - b.y! || a.index - b.index)),
 		...items.filter(item => item.x === undefined || item.y === undefined),
 	];
-	return { items: ordered, columns: columns.length };
+	const spans = columns.map(c => ({ left: c.left, right: c.right, members: c.members.map(m => ({ order: ordered.indexOf(m), top: m.y! })) }));
+	return { items: ordered, columns: columns.length, spans };
+}
+
+/** Height over width of a Windows printout page that has no other page of its document below it (A4). */
+const PAGE_ASPECT = Math.SQRT2;
+
+/** Pictures placed straight on the page, with where they sit; only read when the page has loose handwriting. */
+async function placedPictures(items: Positioned[], options: PageRenderOptions): Promise<Map<Image, PlacedPicture>> {
+	const pictures = new Map<Image, PlacedPicture>();
+	const documents = new Map<string, { image: Image, left: number, top: number, width: number }[]>();
+	for (const { element } of items) {
+		if (element.kind !== 'image' || element.inkSvg || !hasData(element.data)) continue;
+		const place = element.place;
+		if (place?.x === undefined || place.y === undefined || !place.width) continue;
+		if (isWholeDocument(element)) {
+			const key = element.data.kind === 'stored' ? element.data.key : element.printoutName ?? '';
+			if (!documents.has(key)) documents.set(key, []);
+			documents.get(key)!.push({ image: element, left: place.x, top: place.y, width: place.width });
+			continue;
+		}
+		const bytes = await options.readAsset?.(element.data);
+		const info = bytes ? pictureInfo(bytes) : undefined;
+		if (!bytes || !info) continue;
+		const height = place.width * info.height / info.width;
+		pictures.set(element, { box: { left: place.x, top: place.y, right: place.x + place.width, bottom: place.y + height }, bytes, info });
+	}
+	for (const pages of documents.values()) {
+		pages.sort((a, b) => a.top - b.top);
+		pages.forEach((page, i) => {
+			const next = pages[i + 1], previous = pages[i - 1];
+			const height = next ? next.top - page.top : previous ? page.top - previous.top : page.width * PAGE_ASPECT;
+			pictures.set(page.image, { box: { left: page.left, top: page.top, right: page.left + page.width, bottom: page.top + height } });
+		});
+	}
+	return pictures;
 }
 
 export async function renderPage(page: Page, options: PageRenderOptions): Promise<RenderedPage> {
 	const writer = new PageWriter(options);
-	const { items, columns } = readingOrder(page);
-	const cm = (v: number | undefined) => v === undefined ? '?' : (v * CM_PER_POSITION_UNIT).toFixed(1);
-	for (const [k, item] of items.entries()) {
-		// Position comments only help when the page really has several columns.
-		if (options.boxMarkers && columns > 1 && items.length > 1) {
-			writer.marker(options.strings.boxMarker(k + 1, items.length, cm(item.x), cm(item.y)));
+	// Loose handwriting is laid out apart from the blocks of the page: onto the picture it was
+	// drawn on, or into the reading order between the blocks where it sits.
+	const loose = page.directContent.filter((element): element is Ink => element.kind === 'ink');
+	const { items, columns, spans } = readingOrder({ ...page, directContent: page.directContent.filter(element => element.kind !== 'ink') });
+	const slots = new Map<number, InkPiece[]>();
+	const slotted = new Map<number, { piece: InkPiece, index: number }[]>();
+	const pieces: InkPiece[] = [...loose, ...(page.highlighterInk ?? [])].flatMap(ink => ink.strokes.map(stroke => ({ stroke, ink })));
+	if (pieces.length) {
+		const pictures = await placedPictures(items, options);
+		const placed = [...pictures.entries()];
+		const owners = assignToPictures(pieces.map(piece => piece.stroke), placed.map(([, picture]) => picture.box));
+		const free: { piece: InkPiece, index: number }[] = [];
+		pieces.forEach((piece, index) => {
+			const owner = owners[index];
+			if (owner < 0) {
+				if (!isHighlighter(piece.stroke) || options.keepHighlighterInk) free.push({ piece, index });
+				return;
+			}
+			const [image, picture] = placed[owner];
+			if (!writer.annotations.has(image)) writer.annotations.set(image, []);
+			writer.annotations.get(image)!.push(piece);
+			writer.pictures.set(image, picture);
+			if (image.printoutOf && !isWholeDocument(image)) writer.annotatedDocuments.add(image.printoutOf);
+		});
+		for (const group of clusters(free, item => strokeBox(item.piece.stroke))) {
+			const slot = insertionPoint(unionBox(group.map(item => strokeBox(item.piece.stroke))), spans, items.length);
+			if (!slotted.has(slot)) slotted.set(slot, []);
+			slotted.get(slot)!.push(...group);
 		}
+		// Within one drawing, strokes keep the order they were written in.
+		for (const [slot, list] of slotted) slots.set(slot, list.sort((a, b) => a.index - b.index).map(item => item.piece));
+	}
+	const cm = (v: number | undefined) => v === undefined ? '?' : (v * CM_PER_POSITION_UNIT).toFixed(1);
+	// Position comments only help when the page really has several columns.
+	const markers = options.boxMarkers && columns > 1 && items.length > 1;
+	// Writing that falls on either side of an empty text box is one drawing.
+	let pending: InkPiece[] = [];
+	for (const [k, item] of items.entries()) {
+		pending.push(...slots.get(k) ?? []);
+		if (markers || !isBlank(item.element)) {
+			await writer.writeLooseInk(pending);
+			pending = [];
+		}
+		if (markers) writer.marker(options.strings.boxMarker(k + 1, items.length, cm(item.x), cm(item.y)));
 		await writer.writeElements([item.element]);
 	}
-	await writer.writeCollectedInk();
+	await writer.writeLooseInk([...pending, ...slots.get(items.length) ?? []]);
 	return { markdown: writer.markdown, attachments: writer.attachments };
 }
