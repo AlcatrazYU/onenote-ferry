@@ -155,9 +155,8 @@ export async function relinkPages(sink: Sink, pages: string[], index: LinkIndex)
 		const rewritten = rewriteLinks(text, path, index, stats);
 		if (rewritten === text) continue;
 		stats.filesChanged++;
-		await sink.writeText(path, rewritten);
 		const modified = text.match(FRONT_MATTER_MODIFIED)?.[1];
-		if (modified && !isNaN(Date.parse(modified))) await sink.setModifiedTime(path, new Date(modified));
+		await sink.writeText(path, rewritten, modified && !isNaN(Date.parse(modified)) ? new Date(modified) : undefined);
 	}
 	return stats;
 }

@@ -7,7 +7,7 @@ import { findNotebooks } from '../src/core/download.ts';
 import type { DownloadFile, DownloadSection } from '../src/core/download.ts';
 import { importNotebooks, scanNotebook } from '../src/core/importer.ts';
 import type { ImportHost } from '../src/core/importer.ts';
-import { en, zhHans } from '../src/core/strings.ts';
+import { zhHans } from '../src/core/strings.ts';
 import { notebookToc } from '../src/core/write.ts';
 import { element, memorySink, outline, pageJson, rich, run, sectionJson } from './helpers.ts';
 
@@ -69,7 +69,7 @@ const NOTEBOOKS = () => findNotebooks(files(
 	'Ferry log/Open Notebook.onetoc2', 'Ferry log/A.one', 'Ferry log/B.one', 'Ferry log/C.one',
 	'Tides/Open Notebook.onetoc2', 'Tides/Spring.one',
 ), 'Documents');
-const OPTIONS = { stringsFor: () => zhHans, boxMarkers: true, keepFontColor: true, links: true };
+const OPTIONS = { languageFor: () => 'zh-Hans' as const, boxMarkers: true, keepFontColor: true, links: true };
 
 test('every section is converted in order; a failure and a password-protected section get a page that says why', async () => {
 	const { host: h, sink, seen } = host({ B: 'fail', C: 'locked' });
@@ -97,7 +97,7 @@ test('cancelling stops between sections: what was written is whole, the rest is 
 
 test('each notebook gets the marks of its own language', async () => {
 	const { host: h, sink } = host({});
-	await importNotebooks(NOTEBOOKS(), h, { ...OPTIONS, stringsFor: notebook => (notebook.name === 'Tides' ? en : zhHans) });
+	await importNotebooks(NOTEBOOKS(), h, { ...OPTIONS, languageFor: notebook => (notebook.name === 'Tides' ? 'en' : 'zh-Hans') });
 	assert.ok(sink.files.has('Ferry log/_目录.md'));
 	assert.ok(sink.files.has('Tides/_contents.md'));
 	assert.ok(sink.files.has('Tides/Spring/_contents.md'));
@@ -180,4 +180,16 @@ test('downloads: what macOS adds to a zip is left out; notebooks of one name are
 	const twins = findNotebooks(files('School/Notes/Open Notebook.onetoc2', 'School/Notes/A.one', 'Work/Notes/Open Notebook.onetoc2', 'Work/Notes/B.one'), 'Docs');
 	assert.deepEqual(layout(twins), [['Notes', 'School/Notes', ['A']], ['Notes (2)', 'Work/Notes', ['B']]]);
 	assert.equal(twins[1].sections[0].notebook, 'Notes (2)');
+});
+
+test('sections can be converted elsewhere (the plugin\'s worker), given the notebook\'s folder and language', async () => {
+	const { host: h, sink } = host({});
+	const asked: string[] = [];
+	h.convertSection = async (section, notebookDir, language, options) => {
+		asked.push(`${section.label} ${notebookDir} ${language} ${options.boxMarkers}`);
+		return { groups: section.groups, section: section.label };
+	};
+	await importNotebooks(NOTEBOOKS(), h, { ...OPTIONS, languageFor: notebook => (notebook.name === 'Tides' ? 'ja' : 'zh-Hans') });
+	assert.deepEqual(asked, ['A Ferry log zh-Hans true', 'B Ferry log zh-Hans true', 'C Ferry log zh-Hans true', 'Spring Tides ja true']);
+	assert.ok(sink.files.has('Tides/_目次.md'));
 });

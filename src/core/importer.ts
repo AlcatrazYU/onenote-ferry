@@ -23,14 +23,30 @@ export interface ParsedSection {
 	release(): void;
 }
 
-export interface ImportHost {
+/** What converting one section needs. */
+export interface SectionHost {
 	sink: Sink;
 	/** Parses a section. Throws with the parser's message when it cannot. */
 	parse(section: DownloadSection): Promise<ParsedSection>;
 	/** Whether a section that could not be parsed is password protected. */
 	isPasswordProtected(section: DownloadSection): Promise<boolean>;
+}
+
+/** How each section is written: everything that is not about the notebook as a whole. */
+export interface SectionOptions {
+	boxMarkers: boolean;
+	keepFontColor: boolean;
+	imageAltText?: boolean;
+}
+
+export interface ImportHost extends SectionHost {
 	/** Folders directly under the output root: notebooks converted now or earlier, for links between them. */
 	listFolders(): Promise<string[]>;
+	/**
+	 * Converts one section somewhere else (the plugin does it in its worker, so Obsidian's window
+	 * never waits for the parser). Without it, sections are converted here with parse().
+	 */
+	convertSection?(section: DownloadSection, notebookDir: string, language: Language, options: SectionOptions): Promise<SectionResult>;
 	isCancelled?(): boolean;
 	/** Before each section. */
 	onProgress?(progress: ImportProgress): void;
@@ -46,12 +62,9 @@ export interface ImportProgress {
 	total: number;
 }
 
-export interface ImportOptions {
-	/** The marks and folder names for a notebook. */
-	stringsFor(notebook: DownloadNotebook): Strings;
-	boxMarkers: boolean;
-	keepFontColor: boolean;
-	imageAltText?: boolean;
+export interface ImportOptions extends SectionOptions {
+	/** The language of a notebook's marks and folder names. */
+	languageFor(notebook: DownloadNotebook): Language;
 	/** Rewrite links between pages (`onenote:` links) once everything is written. */
 	links: boolean;
 }
@@ -95,7 +108,8 @@ export async function importNotebooks(notebooks: DownloadNotebook[], host: Impor
 			cancelled = true;
 			break;
 		}
-		const strings = options.stringsFor(notebook);
+		const language = options.languageFor(notebook);
+		const strings = STRINGS[language];
 		const notebookDir = notebookFolder(notebook.name, strings);
 		await sink.ensureFolder(notebookDir);
 		const sections: SectionResult[] = [];
@@ -107,7 +121,10 @@ export async function importNotebooks(notebooks: DownloadNotebook[], host: Impor
 				continue;
 			}
 			host.onProgress?.({ notebook: notebook.name, section, done, total });
-			const result = await convertSection(section, notebookDir, strings, host, options);
+			const sectionOptions: SectionOptions = { boxMarkers: options.boxMarkers, keepFontColor: options.keepFontColor, imageAltText: options.imageAltText };
+			const result = host.convertSection
+				? await host.convertSection(section, notebookDir, language, sectionOptions)
+				: await convertSection(section, notebookDir, strings, host, sectionOptions);
 			sections.push(result);
 			host.onSectionDone?.(notebook.name, section, result);
 			done++;
@@ -132,7 +149,7 @@ export async function importNotebooks(notebooks: DownloadNotebook[], host: Impor
 }
 
 /** Whether a section that could not be parsed is password protected; no when even that cannot be read. */
-async function isLocked(host: Pick<ImportHost, 'isPasswordProtected'>, section: DownloadSection): Promise<boolean> {
+async function isLocked(host: Pick<SectionHost, 'isPasswordProtected'>, section: DownloadSection): Promise<boolean> {
 	try {
 		return await host.isPasswordProtected(section);
 	}
@@ -141,7 +158,8 @@ async function isLocked(host: Pick<ImportHost, 'isPasswordProtected'>, section: 
 	}
 }
 
-async function convertSection(section: DownloadSection, notebookDir: string, strings: Strings, host: ImportHost, options: ImportOptions): Promise<SectionResult> {
+/** Converts one section into its folder under the notebook's folder; a failed one gets a page that says why. */
+export async function convertSection(section: DownloadSection, notebookDir: string, strings: Strings, host: SectionHost, options: SectionOptions): Promise<SectionResult> {
 	const { groups, label } = section;
 	const dir = joinPath(notebookDir, sectionFolder(groups, label, strings));
 	await host.sink.ensureFolder(dir);
@@ -197,7 +215,7 @@ export interface NotebookScan {
 }
 
 /** What an import would bring: parses each section (without reading its attachments) for the preview and the notebook's language. */
-export async function scanNotebook(notebook: DownloadNotebook, host: Pick<ImportHost, 'parse' | 'isPasswordProtected' | 'isCancelled'>, onSection?: (section: DownloadSection) => void): Promise<NotebookScan> {
+export async function scanNotebook(notebook: DownloadNotebook, host: Pick<SectionHost, 'parse' | 'isPasswordProtected'> & { isCancelled?(): boolean }, onSection?: (section: DownloadSection) => void): Promise<NotebookScan> {
 	const counts = emptyCounts();
 	const sections: SectionScan[] = [];
 	for (const section of notebook.sections) {

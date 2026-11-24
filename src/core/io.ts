@@ -1,5 +1,5 @@
 // The only ways the core talks to the outside world. The command line implements them with
-// Node's file system; the plugin will implement them with Obsidian's vault.
+// Node's file system; the plugin implements them with Obsidian's vault.
 
 /** Where a parsed section's attachment bytes come from, one attachment at a time. */
 export interface SectionSource {
@@ -13,9 +13,9 @@ export interface SectionSource {
  */
 export interface Sink {
 	ensureFolder(path: string): Promise<void>;
-	writeText(path: string, text: string): Promise<void>;
+	/** Writes a text file (replacing one that is there), with `modified` as its modification time when given. */
+	writeText(path: string, text: string, modified?: Date): Promise<void>;
 	writeBinary(path: string, bytes: Uint8Array): Promise<void>;
-	setModifiedTime(path: string, time: Date): Promise<void>;
 	/** Text of a file written earlier, or undefined when there is none. */
 	readText(path: string): Promise<string | undefined>;
 	/** Every file below a folder, as paths from the output root. */

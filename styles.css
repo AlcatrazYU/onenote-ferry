@@ -1,0 +1,43 @@
+/* OneNote Ferry. Colours and sizes come from Obsidian's own variables, so themes apply. */
+
+/* The import's progress notice: a fixed width, so long notebook names never make it jump. */
+.onenote-ferry-progress {
+	width: 18rem;
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+}
+
+.onenote-ferry-progress-title {
+	font-weight: var(--font-semibold);
+}
+
+.onenote-ferry-progress-count {
+	font-variant-numeric: tabular-nums;
+	font-size: var(--font-ui-small);
+}
+
+.onenote-ferry-progress-name {
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.onenote-ferry-progress-hint {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+/* The status bar item uses Obsidian's own loading look (status-bar-item mod-loading); digits of
+   one width, so the counts never make it jump. */
+.onenote-ferry-status-text {
+	font-variant-numeric: tabular-nums;
+}
+
+/* Filled up to the share of sections done (set as --onenote-ferry-progress, 0 to 1). */
+.onenote-ferry-status-fill {
+	transform: scaleX(var(--onenote-ferry-progress, 0));
+	transition: transform 0.15s ease-in-out;
+}

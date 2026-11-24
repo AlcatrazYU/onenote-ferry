@@ -81,10 +81,11 @@ await build({
 	logLevel: 'warning',
 });
 copyFileSync(join(ROOT, 'manifest.json'), join(OUT, 'manifest.json'));
+copyFileSync(join(ROOT, 'styles.css'), join(OUT, 'styles.css'));
 console.log(`build/plugin/main.js: ${(statSync(join(OUT, 'main.js')).size / 1048576).toFixed(2)} MB (worker ${(workerSource.length / 1024).toFixed(0)} KB)`);
 
 if (install) {
 	mkdirSync(install, { recursive: true });
-	for (const file of ['main.js', 'manifest.json']) copyFileSync(join(OUT, file), join(install, file));
+	for (const file of ['main.js', 'manifest.json', 'styles.css']) copyFileSync(join(OUT, file), join(install, file));
 	console.log(`Installed into ${install}`);
 }

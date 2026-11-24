@@ -161,8 +161,7 @@ export async function writeSection(section: Section, source: SectionSource, sink
 			'---',
 		].filter(Boolean).join('\n');
 		const path = joinPath(dir, `${noteName}.md`);
-		await sink.writeText(path, `${frontMatter}\n\n${rendered.markdown}\n`);
-		if (page.lastModifiedUtc && !isNaN(+page.lastModifiedUtc)) await sink.setModifiedTime(path, page.lastModifiedUtc);
+		await sink.writeText(path, `${frontMatter}\n\n${rendered.markdown}\n`, page.lastModifiedUtc && !isNaN(+page.lastModifiedUtc) ? page.lastModifiedUtc : undefined);
 		report.pages.push({ title: page.title, file: `${noteName}.md`, level: page.level, chars: rendered.markdown.length, assets: rendered.attachments.length, skipped });
 	}
 
