@@ -5,7 +5,7 @@
 
 import type { AssetData, Element, EmbeddedFile, Image, Ink, InkStroke, Page, Paragraph, Table, Tag } from '../model.ts';
 import { MIN_PEN_OPACITY } from '../model.ts';
-import { escapeLineStart } from '../markdown.ts';
+import { escapeInline, escapeLineStart } from '../markdown.ts';
 import type { Strings } from '../strings.ts';
 import { renderRuns } from './inline.ts';
 import type { InlineOptions } from './inline.ts';
@@ -34,6 +34,11 @@ export interface PageRenderOptions extends InlineOptions {
 	boxMarkers: boolean;
 	/** Also draw highlighter strokes (semi-transparent ink). Off by default: they only make sense laid over the text. */
 	keepHighlighterInk?: boolean;
+	/**
+	 * Write an image's alternative text in a collapsed callout below it. Off by default: in real notes
+	 * most alternative text is clipped or generated (see the project notes).
+	 */
+	imageAltText?: boolean;
 	strings: Strings;
 	/** Stores one attachment and answers with its link target, or null to leave it out. */
 	saveAttachment: (data: AssetData, hint: AttachmentHint) => Promise<ResolvedAttachment | null>;
@@ -238,6 +243,7 @@ class PageWriter {
 					break;
 				}
 				await this.writeAsset(element.data, imageHint(element), '', true);
+				if (this.options.imageAltText && element.alt) this.pushAltText(element.alt);
 				break;
 			}
 			case 'embedded-file': {
@@ -340,6 +346,12 @@ class PageWriter {
 		const recognizedText = this.recognizedText.join(' ');
 		await this.writeAsset({ kind: 'inline', bytes: new TextEncoder().encode(svg) }, { role: 'page-ink' }, '', true);
 		if (recognizedText !== '') this.push(recognizedText);
+	}
+
+	/** An image's alternative text as it was in OneNote, in a callout below the image that starts collapsed. */
+	private pushAltText(alt: string): void {
+		const lines = alt.replace(/\r\n?/g, '\n').trim().split('\n').map(line => escapeLineStart(escapeInline(line.trim())));
+		this.push([`> [!info]- ${this.options.strings.altTextTitle}`, ...lines.map(line => (line === '' ? '>' : `> ${line}`))].join('\n'));
 	}
 
 	/** A notice in place of a picture without data; pictures in a row (pages of one printout in order) share one. */

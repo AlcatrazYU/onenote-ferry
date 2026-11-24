@@ -206,3 +206,13 @@ test('the adapter keeps the alternative text of an image in the model', () => {
 	const first = adapted.pages[0].outlines[0].children[0] as Image | Outline;
 	assert.equal((first.kind === 'image' ? first : first.children[0] as Image).alt, 'Title\n\nDescription');
 });
+
+test('with the option on, the alternative text of an image follows it in a collapsed callout, as written in OneNote', async () => {
+	const image: Image = { kind: 'image', extension: 'png', data: stored('a.png'), alt: 'Ferry map\n\n# Route [A]\n- dock' };
+	assert.equal(await md(page([box([image])])), '![](<_附件/img1.png>)');
+	assert.equal(await md(page([box([image])]), { imageAltText: true }),
+		'![](<_附件/img1.png>)\n\n> [!info]- 替换文字\n> Ferry map\n>\n> \\# Route \\[A\\]\n> \\- dock');
+	const item = p('item', { list: bullet, children: [image] });
+	assert.equal(await md(page([box([item])]), { imageAltText: true }),
+		'- item\n\n\t![](<_附件/img1.png>)\n\n\t> [!info]- 替换文字\n\t> Ferry map\n\t>\n\t> \\# Route \\[A\\]\n\t> \\- dock');
+});

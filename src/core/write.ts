@@ -17,6 +17,8 @@ export interface SectionWriteOptions {
 	boxMarkers: boolean;
 	keepFontColor: boolean;
 	keepHighlighterInk?: boolean;
+	/** Write images' alternative text in a collapsed callout below them (see PageRenderOptions). */
+	imageAltText?: boolean;
 	isCancelled?: () => boolean;
 }
 
@@ -124,6 +126,7 @@ export async function writeSection(section: Section, source: SectionSource, sink
 			boxMarkers: options.boxMarkers,
 			keepFontColor: options.keepFontColor,
 			keepHighlighterInk: options.keepHighlighterInk,
+			imageAltText: options.imageAltText,
 			isCancelled: options.isCancelled,
 			resolveInternalLink: title => titleToFile.has(composedText(title)) ? `${titleToFile.get(composedText(title))}.md` : undefined,
 			onSkipped: (description, reason) => skipped.push(`${description}: ${reason}`),

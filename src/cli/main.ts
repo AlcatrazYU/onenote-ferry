@@ -15,6 +15,7 @@
 //   --no-box-markers     no position comments before text boxes
 //   --no-links           leave onenote: links between pages as they are
 //   --no-font-color      drop font colours
+//   --image-alt-text     write images' alternative text in a collapsed callout below them
 //
 //   node src/cli/main.ts plan <new download folder> <converted output folder> [options]
 //
@@ -66,6 +67,7 @@ function parseArgs(argv: string[]) {
 		language: option('--language') ?? 'zh-Hans',
 		boxMarkers: !flag('--no-box-markers'),
 		keepFontColor: !flag('--no-font-color'),
+		imageAltText: flag('--image-alt-text'),
 		links: !flag('--no-links'),
 		partial: flag('--partial'),
 		json: option('--json'),
@@ -174,7 +176,7 @@ interface SectionResult extends NotebookTocEntry {
 async function main() {
 	const options = parseArgs(process.argv.slice(2));
 	if (!options.input || !options.output) {
-		console.error('Usage: node src/cli/main.ts <input folder> <output folder> [--dump <native parser>] [--parser-wasm DIR] [--tmp DIR] [--only "A|B"] [--language CODE] [--no-box-markers] [--no-font-color] [--no-links]');
+		console.error('Usage: node src/cli/main.ts <input folder> <output folder> [--dump <native parser>] [--parser-wasm DIR] [--tmp DIR] [--only "A|B"] [--language CODE] [--no-box-markers] [--no-font-color] [--no-links] [--image-alt-text]');
 		process.exit(2);
 	}
 	if (!isLanguage(options.language)) {
@@ -235,7 +237,7 @@ async function main() {
 		try {
 			const adapter = new Adapter(strings);
 			const report = await writeSection(adapter.section(json), source, sink, {
-				dir, label: json.name || label, strings, boxMarkers: options.boxMarkers, keepFontColor: options.keepFontColor,
+				dir, label: json.name || label, strings, boxMarkers: options.boxMarkers, keepFontColor: options.keepFontColor, imageAltText: options.imageAltText,
 			});
 			return { groups, section: label, dir, report, stats: { parser: json.stats, parserErrors: json.errors, ...adapter.stats } };
 		}
