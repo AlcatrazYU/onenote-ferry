@@ -1,6 +1,7 @@
 // The Obsidian plugin: an import wizard (from the ribbon, the command palette or the settings
 // page) that converts OneDrive-downloaded OneNote notebooks into the vault, with progress in the
-// status bar and a report at the end.
+// status bar and a report at the end. The same window updates notebooks imported before from a new
+// download (§11.5 item 49); an update cut off (Obsidian quit) is finished when Obsidian starts.
 
 import { Notice, Plugin } from 'obsidian';
 import * as obsidian from 'obsidian';
@@ -9,11 +10,14 @@ import { ICON, registerIcon } from './icon.ts';
 import { uiStrings } from './i18n.ts';
 import type { UiStrings } from './i18n.ts';
 import { ProgressDisplay } from './progress.ts';
+import { finishCutOff, sweepStagingFolders } from './run-update.ts';
 import { ImportSession } from './session.ts';
+import type { Entry, SessionHooks } from './session.ts';
 import { cleanFolder, DEFAULT_SETTINGS, FerrySettingTab, folderProblem } from './settings.ts';
 import type { Settings, SettingsHost } from './settings.ts';
 import { ImportWizard } from './wizard.ts';
 import type { WizardHost } from './wizard.ts';
+import { VaultSink } from './vault-sink.ts';
 import { WorkerClient } from './worker-client.ts';
 
 /** Obsidian's interface language: getLanguage() from 1.8.7, the same setting read directly before. */
@@ -40,6 +44,25 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 	private resultNotice?: Notice;
 	/** Turned off: an import that is still winding down shows nothing more. */
 	private unloaded = false;
+	/**
+	 * Target folders with an update under way (kept in the plugin's data): one cut off by Obsidian
+	 * quitting is finished when Obsidian starts again (§11.5 item 49.7).
+	 */
+	private pendingUpdates: string[] = [];
+	/** The updates cut off before, being finished (an import waits for it). */
+	private finishing: Promise<void> = Promise.resolve();
+	private readonly hooks: SessionHooks = {
+		beforeRun: () => this.finishing,
+		updateStarting: async root => {
+			if (this.pendingUpdates.includes(root)) return;
+			this.pendingUpdates.push(root);
+			await this.saveSettings();
+		},
+		updateEnded: async root => {
+			this.pendingUpdates = this.pendingUpdates.filter(other => other !== root);
+			await this.saveSettings();
+		},
+	};
 
 	async onload(): Promise<void> {
 		this.ui = uiStrings(interfaceLanguage());
@@ -47,6 +70,7 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 		registerIcon();
 		this.addRibbonIcon(ICON, this.ui.commandImport, () => this.openWizard());
 		this.addCommand({ id: 'import', name: this.ui.commandImport, callback: () => this.openWizard() });
+		this.addCommand({ id: 'check-updates', name: this.ui.commandUpdate, callback: () => this.openWizard('update') });
 		this.addCommand({
 			id: 'stop-import',
 			name: this.ui.commandStop,
@@ -58,8 +82,37 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 			},
 		});
 		this.addSettingTab(new FerrySettingTab(this.app, this));
-		// Scratch folders an earlier run could not remove (Obsidian quit during an import), once Obsidian has started.
-		this.app.workspace.onLayoutReady(() => WorkerClient.sweep());
+		// Once Obsidian has started: scratch folders an earlier run could not remove (Obsidian quit
+		// during an import), updates it cut off, then staging folders left long ago.
+		this.app.workspace.onLayoutReady(() => {
+			WorkerClient.sweep();
+			this.finishing = this.finishCutOffUpdates().finally(() => sweepStagingFolders());
+		});
+	}
+
+	/** Finishes the updates Obsidian quitting cut off (each section finished or put back), and says so. */
+	private async finishCutOffUpdates(): Promise<void> {
+		for (const root of [...this.pendingUpdates]) {
+			if (this.unloaded) return;
+			try {
+				const finished = await finishCutOff(this.app, root);
+				this.pendingUpdates = this.pendingUpdates.filter(other => other !== root);
+				await this.saveSettings();
+				for (const result of finished) {
+					const notice = new Notice(this.ui.resumedNotice, 0);
+					const record = new VaultSink(this.app, root).vaultPath(result.record);
+					const el = (notice as { containerEl?: HTMLElement }).containerEl ?? notice.noticeEl;
+					el.addEventListener('click', () => {
+						const file = this.app.vault.getFileByPath(record);
+						if (file) void this.app.workspace.getLeaf(true).openFile(file);
+					});
+				}
+			}
+			catch (error) {
+				// Tried again at the next start; an update of this folder finishes it first too.
+				new Notice(this.ui.resumeFailed(String((error as Error)?.message ?? error)), 0);
+			}
+		}
 	}
 
 	onunload(): void {
@@ -82,18 +135,19 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 			keepFontColor: flag('keepFontColor'),
 			imageAltText: flag('imageAltText'),
 		};
+		this.pendingUpdates = Array.isArray(saved.pendingUpdates) ? saved.pendingUpdates.filter((root): root is string => typeof root === 'string' && !folderProblem(root)) : [];
 	}
 
 	async saveSettings(): Promise<void> {
-		await this.saveData(this.settings);
+		await this.saveData({ ...this.settings, ...(this.pendingUpdates.length ? { pendingUpdates: this.pendingUpdates } : {}) });
 	}
 
-	/** Opens the wizard: on the import that is running or just finished, or for a new one. */
-	openWizard(): void {
+	/** Opens the wizard: on the import that is running or just finished, or for a new one (to import, or to check for updates). */
+	openWizard(entry: Entry = 'import'): void {
 		if (this.wizard || this.unloaded) return;
 		this.resultNotice?.hide();
 		this.resultNotice = undefined;
-		this.session ??= new ImportSession(this.app, this.client, this.settings, markerLanguageFor(interfaceLanguage()));
+		this.session ??= new ImportSession(this.app, this.client, this.settings, markerLanguageFor(interfaceLanguage()), entry, this.hooks);
 		this.wizard = new ImportWizard(this.app, this, this.session);
 		this.wizard.open();
 	}
@@ -113,7 +167,7 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 		this.progress = progress;
 		const off = session.onChange(() => {
 			const p = session.progress;
-			if (p) progress.update({ done: p.done, total: p.total, notebook: p.notebook, section: p.section.label, startedAt: session.startedAt });
+			if (p) progress.update({ done: p.done, total: p.total, notebook: p.notebook, section: p.section.label, startedAt: session.startedAt, updating: session.running === 'update' });
 		});
 		void session.start().finally(() => {
 			off();
@@ -122,7 +176,11 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 			// Not started after all (the target folder changed as it was looked at once more), or seen in the window.
 			if (this.unloaded || this.wizard || this.session !== session || session.phase !== 'finished') return;
 			// Finished while the wizard was hidden: a notice that leads to the result.
-			const outcome = session.error ? this.ui.failed : session.outcome?.result.cancelled ? this.ui.stopped : this.ui.finished;
+			const update = session.running === 'update';
+			const stopped = !!session.outcome?.result.cancelled || !!session.updateResult?.cancelled || (update && session.stopRequested && !session.updateResult);
+			const outcome = session.error ? update ? this.ui.updateFailed : this.ui.failed
+				: stopped ? update ? this.ui.updateStopped : this.ui.stopped
+				: update ? this.ui.updateFinished : this.ui.finished;
 			const notice = new Notice(this.ui.finishedNotice(outcome), 0);
 			this.resultNotice = notice;
 			const el = (notice as { containerEl?: HTMLElement }).containerEl ?? notice.noticeEl;
@@ -136,12 +194,12 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 	 */
 	async importFrom(inputs: string[], root = this.settings.folder) {
 		if (this.session) throw new Error(this.session.phase === 'running' ? this.ui.alreadyRunning : 'Close the import wizard (or open the finished import) first.');
-		const session = new ImportSession(this.app, this.client, { ...this.settings, folder: root }, markerLanguageFor(interfaceLanguage()));
+		const session = new ImportSession(this.app, this.client, { ...this.settings, folder: root }, markerLanguageFor(interfaceLanguage()), 'import', this.hooks);
 		this.session = session;
 		try {
 			await session.add(inputs);
 			await session.whenSettled();
-			if (!session.ready) throw new Error(session.included().length ? 'Two notebooks would get the same folder, or the folder name starts with a dot.' : 'Nothing to import: every notebook is in the folder already, or no download could be read.');
+			if (!session.ready) throw new Error(session.included().length ? 'Two notebooks would get the same folder, or the folder name starts with a dot.' : 'Nothing to import or update: nothing changed, or no download could be read.');
 			const finished = new Promise<void>(resolve => {
 				const off = session.onChange(() => {
 					if (session.phase !== 'finished') return;
@@ -152,16 +210,18 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 			this.startImport(session);
 			await finished;
 			if (session.error) throw new Error(session.error);
-			const result = session.outcome!.result;
-			const sections = result.notebooks.flatMap(notebook => notebook.sections);
+			const result = session.outcome?.result;
+			const sections = result?.notebooks.flatMap(notebook => notebook.sections) ?? [];
+			const update = session.updateResult;
 			return {
 				seconds: Math.round((Date.now() - session.startedAt) / 100) / 10,
-				cancelled: result.cancelled,
-				notebooks: result.notebooks.length,
+				cancelled: !!result?.cancelled || !!update?.cancelled,
+				notebooks: result?.notebooks.length ?? 0,
 				sections: sections.filter(section => section.report).length,
 				pages: sections.reduce((n, section) => n + (section.report?.pageCount ?? 0), 0),
 				failed: sections.filter(section => section.failed).length,
-				report: session.outcome!.reportPath,
+				report: session.outcome?.reportPath,
+				...(update ? { update: { counts: update.counts, attention: update.attention, outcomes: update.outcomes, record: session.recordPath } } : {}),
 			};
 		}
 		finally {

@@ -6,7 +6,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { register } from 'node:module';
-import type { DownloadNotebook } from '../src/core/download.ts';
+import type { DownloadNotebook, DownloadSection } from '../src/core/download.ts';
+import type { ScannedPage } from '../src/core/sync.ts';
 
 register('./support/hooks.mjs', import.meta.url);
 const { ImportSession } = await import('../src/plugin/session.ts');
@@ -17,8 +18,11 @@ const { TFile, TFolder } = await import('./support/obsidian.mjs' as string) as {
 	TFolder: new (name: string, parent: Node | null) => Node & { children: Node[] },
 };
 
-/** A vault holding these files (and the folders above them) and these empty folders. */
-function fakeApp(files: Record<string, string>, folders: string[] = [], failRead = false) {
+/**
+ * A vault holding these files (and the folders above them) and these empty folders; a file's time
+ * is its `modified` property, if any, unless `mtimes` gives another (the user edited it).
+ */
+function fakeApp(files: Record<string, string>, folders: string[] = [], failRead = false, mtimes: Record<string, number> = {}) {
 	const root = new TFolder('', null);
 	const byPath = new Map<string, Node>([['', root]]);
 	const folder = (path: string): Node & { children: Node[] } => {
@@ -35,7 +39,9 @@ function fakeApp(files: Record<string, string>, folders: string[] = [], failRead
 	for (const path of Object.keys(files)) {
 		const cut = path.lastIndexOf('/');
 		const parent = folder(path.slice(0, cut));
-		const file = new TFile(path.slice(cut + 1), parent);
+		const file = new TFile(path.slice(cut + 1), parent) as Node & { stat?: { mtime: number, size: number } };
+		const modified = /\nmodified: (\S+)\n/.exec(files[path]!)?.[1];
+		file.stat = { mtime: mtimes[path] ?? (modified ? Date.parse(modified) : 0), size: files[path]!.length };
 		parent.children.push(file);
 		byPath.set(path, file);
 	}
@@ -63,6 +69,10 @@ class FakeClient {
 	running = false;
 	starts = 0;
 	lockedPaths: Record<string, string[]> = {};
+	/** Pages of each section by its path (none when not given), and sections whose reading fails. */
+	pages: Record<string, ScannedPage[]> = {};
+	failing = new Set<string>();
+	scanned = 0;
 	private readonly waiting = new Set<(error: Error) => void>();
 	private readonly downloads: Record<string, DownloadNotebook[]>;
 	constructor(downloads: Record<string, DownloadNotebook[]>) {
@@ -84,7 +94,12 @@ class FakeClient {
 			this.waiting.add(reject);
 			setTimeout(() => {
 				if (!this.waiting.delete(reject)) return;
-				resolve(make());
+				try {
+					resolve(make());
+				}
+				catch (error) {
+					reject(error as Error);
+				}
 			}, 5);
 		});
 	}
@@ -93,6 +108,14 @@ class FakeClient {
 	}
 	locked(input: string) {
 		return this.answer(() => this.lockedPaths[input] ?? []);
+	}
+	scan(input: string, section: DownloadSection) {
+		this.scanned++;
+		return this.answer(() => {
+			if (this.failing.has(section.path)) throw new Error('cannot parse');
+			// By download and path (`input:path`), else by path.
+			return structuredClone(this.pages[`${input}:${section.path}`] ?? this.pages[section.path] ?? []);
+		});
 	}
 	close() {
 		return this.answer(() => undefined);
@@ -104,18 +127,20 @@ const DEFAULTS = { folder: 'T', boxMarkers: true, keepFontColor: true, imageAltT
 /** A table of contents of ours, with how far its import got (§11.5 item 47). */
 const toc = (status: 'importing' | 'complete' | 'failed', name = 'Tides') => `---\ntitle: "${name}"\nonenote-import: ${status}\n---\n\n# ${name}\n`;
 
-async function session(files: Record<string, string>, downloads: Record<string, DownloadNotebook[]>, options: { folders?: string[], folder?: string, locked?: Record<string, string[]>, failRead?: boolean } = {}) {
+async function session(files: Record<string, string>, downloads: Record<string, DownloadNotebook[]>, options: { folders?: string[], folder?: string, locked?: Record<string, string[]>, failRead?: boolean, pages?: Record<string, ScannedPage[]>, failing?: string[], mtimes?: Record<string, number> } = {}) {
 	const client = new FakeClient(downloads);
 	client.lockedPaths = options.locked ?? {};
-	const s = new ImportSession(fakeApp(files, options.folders, options.failRead), client as never, { ...DEFAULTS, folder: options.folder ?? 'T' }, 'zh-Hans');
+	client.pages = options.pages ?? {};
+	client.failing = new Set(options.failing ?? []);
+	const s = new ImportSession(fakeApp(files, options.folders, options.failRead, options.mtimes), client as never, { ...DEFAULTS, folder: options.folder ?? 'T' }, 'zh-Hans');
 	await s.add(Object.keys(downloads));
 	await settled(s);
 	return { s, client };
 }
 
-/** Waits until the target folder has been looked at and the password check is done. */
+/** Waits until the target folder has been looked at, the password check is done and updates compared. */
 async function settled(s: InstanceType<typeof ImportSession>) {
-	for (let i = 0; i < 200 && (s.checking || s.reading || s.downloads.some(d => d.state === 'ready' && !d.locked)); i++) await new Promise(r => setTimeout(r, 5));
+	for (let i = 0; i < 400 && (s.checking || s.reading || s.checkingUpdates || s.downloads.some(d => d.state === 'ready' && !d.locked)); i++) await new Promise(r => setTimeout(r, 5));
 }
 
 const names = (s: InstanceType<typeof ImportSession>) => s.choices.map(choice => choice.notebook.name);
@@ -147,18 +172,20 @@ test('"Name (2)" only while both notebooks of one name are wanted', async () => 
 	assert.deepEqual(names(s), ['Samples B', 'Samples B (2)']);
 });
 
-test('a notebook imported before: its sections there are "imported", the rest can be added', async () => {
+test('a notebook imported before is updated: the section there is compared, one that failed is unfinished, the rest is new', async () => {
 	const vault = {
 		'T/Tides/_目录.md': toc('complete'),
 		'T/Tides/Spring/_目录.md': toc('complete', 'Spring'),
 		'T/Tides/Spring/Tide table.md': 'page',
-		// A section that failed before: its contents page says so, so it may be imported again.
+		// A section that failed before: its contents page says so, so it is written again.
 		'T/Tides/Summer/_目录.md': toc('failed', 'Summer'),
 	};
 	const { s } = await session(vault, { a: [notebook('Tides', ['Spring', 'Summer', 'Autumn'])] });
-	assert.deepEqual(states(s), ['imported', 'free', 'free']);
+	assert.deepEqual(states(s), ['same', 'unfinished', 'new']);
 	assert.equal(s.choices[0]!.earlier?.language, 'zh-Hans');
-	assert.deepEqual(s.counts(), { notebooks: 1, sections: 2, unreadable: 0, bytes: 20 });
+	assert.equal(s.updating, true);
+	assert.deepEqual(s.counts(), { notebooks: 0, sections: 0, unreadable: 0, bytes: 0 });
+	assert.deepEqual(s.updateCounts(), { updated: 1, added: 1, restored: 0, bothEdited: 0 });
 	assert.equal(s.ready, true);
 });
 
@@ -180,8 +207,8 @@ test('what our contents pages say decides: cut off half way can be imported agai
 	}, folders = ['T/Tides/Spring 2'];
 	const { s } = await session(vault, { a: [notebook('Tides', ['Spring', 'Summer', 'Autumn', 'Winter', 'Spring 2'])] }, { folders });
 	assert.ok(!s.choices[0]!.blocked);
-	assert.deepEqual(states(s), ['imported', 'free', 'occupied', 'occupied', 'free']);
-	assert.deepEqual(s.counts(), { notebooks: 1, sections: 2, unreadable: 0, bytes: 20 });
+	assert.deepEqual(states(s), ['same', 'unfinished', 'occupied', 'occupied', 'new']);
+	assert.deepEqual(s.updateCounts(), { updated: 1, added: 1, restored: 0, bothEdited: 0 });
 });
 
 test('a folder of the notebook\'s name holding a note called like our contents page is still not ours', async () => {
@@ -201,8 +228,9 @@ test('a notebook all imported already takes no name from a newer download of it:
 	// The older download has Spring only (all imported); the newer one adds Summer.
 	const { s } = await session(vault, { old: [notebook('Tides', ['Spring'], 'Tides')], fresh: [notebook('Tides', ['Spring', 'Summer'], 'Tides')] });
 	assert.deepEqual(names(s), ['Tides', 'Tides']);
-	assert.deepEqual(states(s, 1), ['imported', 'free']);
-	assert.deepEqual(s.counts(), { notebooks: 1, sections: 1, unreadable: 0, bytes: 10 });
+	assert.deepEqual(states(s, 1), ['same', 'new']);
+	assert.deepEqual(s.included().map(choice => choice.download.input), ['fresh']);
+	assert.deepEqual(s.updateCounts(), { updated: 0, added: 1, restored: 0, bothEdited: 0 });
 });
 
 test('the target folder that cannot be read: the window says so and nothing starts', async () => {
@@ -224,7 +252,7 @@ test('a download removed while password-protected sections are looked for: the n
 	assert.deepEqual(states(s), ['locked', 'free']);
 });
 
-test('what decides is the folder, not the report: a report that says otherwise changes nothing', async () => {
+test('what decides is the folder: a section the report has and the folder does not is "no longer in the vault", unticked', async () => {
 	const report = JSON.stringify({
 		format: 1,
 		notebooks: [{ notebook: 'Tides', dir: 'Tides', language: 'en', importedAt: new Date().toISOString(), source: 'a', options: {}, sections: [
@@ -234,7 +262,9 @@ test('what decides is the folder, not the report: a report that says otherwise c
 	});
 	const vault = { 'T/_转换报告.json': report, 'T/Tides/_目录.md': toc('complete'), 'T/Tides/Spring/_目录.md': toc('complete', 'Spring'), 'T/Tides/Spring/Page.md': 'page' };
 	const { s } = await session(vault, { a: [notebook('Tides', ['Spring', 'Autumn'])] });
-	assert.deepEqual(states(s), ['imported', 'free']);
+	// Spring is there, though the report leaves it out; Autumn is not, though the report has it (§11.5 item 52.3).
+	assert.deepEqual(states(s), ['same', 'missing']);
+	assert.deepEqual(s.included(), []);
 	// The language is the one of its contents page, not the report's.
 	assert.equal(s.choices[0]!.earlier?.language, 'zh-Hans');
 });
@@ -269,7 +299,7 @@ test('password-protected and cut-off sections cannot be ticked', async () => {
 
 test('the target folder is matched as the disk matches it, and a part that starts with a dot is refused', async () => {
 	const { s } = await session({ 'OneNote/Tides/_目录.md': toc('complete'), 'OneNote/Tides/A/_目录.md': toc('complete', 'A'), 'OneNote/Tides/A/P.md': 'p' }, { a: [notebook('Tides')] }, { folder: 'onenote' });
-	assert.deepEqual(states(s), ['imported']);
+	assert.deepEqual(states(s), ['same']);
 	assert.equal(cleanFolder(' OneNote / 2026 / '), 'OneNote/2026');
 	assert.equal(cleanFolder('/'), '');
 	assert.equal(cleanFolder('a\\b'), 'a/b');
@@ -298,4 +328,176 @@ test('nothing changes once the window is closed or the import has started', asyn
 	assert.deepEqual(names(started.s), ['Tides']);
 	started.s.selectAll(false);
 	assert.equal(started.s.counts().sections, 1);
+});
+
+// Updates (§11.5 item 49): a notebook imported before, read again and compared with the vault.
+
+const T1 = '2024-01-01T00:00:00.000Z', T2 = '2024-02-01T00:00:00.000Z';
+/** A page as an import writes it (its properties), and as the download has it. */
+const pageFile = (id: string, title: string, modified: string, order: number) =>
+	`---\ntitle: ${JSON.stringify(title)}\nonenote-section: "S"\nonenote-order: ${order}\nonenote-level: 0\nmodified: ${modified}\nonenote-id: "${id}"\n---\n\ntext\n`;
+const scanned = (id: string, title: string, modified: string): ScannedPage => ({ id, title, modified, level: 0 });
+/** A section's contents page of ours listing its pages. */
+const sectionToc = (name: string, titles: string[]) => `${toc('complete', name)}\n${titles.map(title => `- [${title}](<${title}.md>)`).join('\n')}\n`;
+
+/** A notebook imported before: sections with pages, one the user deleted a page in, one the download no longer has; a report with a section left unticked and one imported that is not there now. */
+function importedTides() {
+	const report = JSON.stringify({
+		format: 1,
+		notebooks: [{ notebook: 'Tides', dir: 'Tides', language: 'zh-Hans', importedAt: new Date().toISOString(), source: 'a', options: {}, sections: [
+			{ groups: [], section: 'Skipped', skipped: true },
+			{ groups: [], section: 'Lost', dir: 'Tides/Lost', report: { pageCount: 1, attachments: 0, pages: [] } },
+		] }],
+	});
+	const files = {
+		'T/_转换报告.json': report,
+		'T/Tides/_目录.md': toc('complete'),
+		'T/Tides/Spring/_目录.md': sectionToc('Spring', ['One', 'Two']),
+		'T/Tides/Spring/One.md': pageFile('{0A}', 'One', T1, 1),
+		'T/Tides/Spring/Two.md': pageFile('{0B}', 'Two', T1, 2),
+		'T/Tides/Summer/_目录.md': sectionToc('Summer', ['Sun']),
+		'T/Tides/Summer/Sun.md': pageFile('{0C}', 'Sun', T1, 1),
+		// Leaf was deleted in Obsidian: its contents page still lists it.
+		'T/Tides/Autumn/_目录.md': sectionToc('Autumn', ['Leaf']),
+		'T/Tides/Older/_目录.md': sectionToc('Older', ['Late']),
+		'T/Tides/Older/Late.md': pageFile('{0E}', 'Late', T2, 1),
+		'T/Tides/Winter/_目录.md': sectionToc('Winter', ['Ice']),
+		'T/Tides/Winter/Ice.md': pageFile('{0F}', 'Ice', T1, 1),
+	};
+	const tides = notebook('Tides', ['Spring', 'Summer', 'Autumn', 'Older', 'Fresh', 'Skipped', 'Lost']);
+	const pages = {
+		// Two changed in OneNote.
+		'Tides/Spring.one': [scanned('{0A}', 'One', T1), scanned('{0B}', 'Two', T2)],
+		// Changed in OneNote, and edited in Obsidian since it was written.
+		'Tides/Summer.one': [scanned('{0C}', 'Sun', T2)],
+		'Tides/Autumn.one': [scanned('{0D}', 'Leaf', T1)],
+		// Older in the download than in the vault.
+		'Tides/Older.one': [scanned('{0E}', 'Late', T1)],
+		'Tides/Fresh.one': [scanned('{10}', 'New', T1)],
+		'Tides/Skipped.one': [scanned('{11}', 'Left', T1)],
+		'Tides/Lost.one': [scanned('{12}', 'Gone', T1)],
+	};
+	return { files, tides, pages, mtimes: { 'T/Tides/Summer/Sun.md': Date.parse(T1) + 60_000 } };
+}
+
+test('a notebook imported before is read and compared: each section says what changed; changed, new and unfinished are ticked, the rest not', async () => {
+	const { files, tides, pages, mtimes } = importedTides();
+	const { s } = await session(files, { a: [tides] }, { pages, mtimes });
+	assert.deepEqual(states(s), ['changed', 'changed', 'restorable', 'older', 'new', 'skipped', 'missing']);
+	const [choice] = s.choices as [typeof s.choices[0]];
+	assert.deepEqual(choice.notebook.sections.map(section => s.isChosen(choice, section)), [true, true, false, false, true, false, false]);
+	assert.deepEqual(s.gone(choice).map(item => item.label), ['Winter']);
+	assert.deepEqual(s.updateCounts(), { updated: 2, added: 1, restored: 0, bothEdited: 1 });
+	assert.equal(s.ready, true);
+	// Changed in OneNote and edited in Obsidian: said on the page.
+	assert.deepEqual(s.itemOf(choice, choice.notebook.sections[1]!)!.modified.map(page => page.userEdited), [true]);
+});
+
+test('a page the user deleted comes back only when ticked; unticking its section takes it back out', async () => {
+	const { files, tides, pages, mtimes } = importedTides();
+	const { s } = await session(files, { a: [tides] }, { pages, mtimes });
+	const [choice] = s.choices as [typeof s.choices[0]];
+	const [spring, , autumn] = choice.notebook.sections as [DownloadSection, DownloadSection, DownloadSection];
+	assert.deepEqual(s.deletedPages(choice, autumn).map(page => page.id), ['{0D}']);
+	assert.equal(s.ticked(choice, autumn), false);
+	s.setRestored(choice, autumn, '{0D}', true);
+	assert.equal(s.isChosen(choice, autumn), true);
+	assert.equal(s.ticked(choice, autumn), true);
+	assert.equal(s.updateCounts().restored, 1);
+	s.setSections(choice, [autumn], false);
+	assert.equal(s.isRestored(choice, autumn, '{0D}'), false);
+	assert.equal(s.updateCounts().restored, 0);
+	// Ticking the section brings back all its deleted pages.
+	s.setSections(choice, [autumn], true);
+	assert.equal(s.isRestored(choice, autumn, '{0D}'), true);
+	// Unticking a changed section: it is not updated.
+	s.setSections(choice, [spring], false);
+	assert.equal(s.updateCounts().updated, 1);
+});
+
+test('select all takes everything that can be ticked, including what is left unticked at first; deselect all takes nothing', async () => {
+	const { files, tides, pages, mtimes } = importedTides();
+	const { s } = await session(files, { a: [tides] }, { pages, mtimes });
+	assert.equal(s.allChosen, false);
+	s.selectAll(true);
+	await settled(s);
+	assert.equal(s.allChosen, true);
+	assert.deepEqual(s.updateCounts(), { updated: 3, added: 3, restored: 1, bothEdited: 1 });
+	s.selectAll(false);
+	await settled(s);
+	assert.deepEqual(s.included(), []);
+	assert.equal(s.ready, false);
+});
+
+test('a new notebook next to one imported before is not ticked unasked; ticked, it is imported', async () => {
+	const { files, tides, pages, mtimes } = importedTides();
+	const { s } = await session(files, { a: [tides], b: [notebook('Ferry log', ['Deck'])] }, { pages, mtimes });
+	assert.deepEqual(states(s, 1), ['free']);
+	assert.equal(s.isChosen(s.choices[1]!, s.choices[1]!.notebook.sections[0]!), false);
+	assert.deepEqual(s.counts(), { notebooks: 0, sections: 0, unreadable: 0, bytes: 0 });
+	s.setSections(s.choices[1]!, s.choices[1]!.notebook.sections, true);
+	await settled(s);
+	assert.deepEqual(s.counts(), { notebooks: 1, sections: 1, unreadable: 0, bytes: 10 });
+	assert.deepEqual(s.included().map(choice => choice.notebook.name), ['Tides', 'Ferry log']);
+});
+
+test('the vault\'s notebook of that name with no page in common is another notebook: nothing can be ticked', async () => {
+	const files = { 'T/Tides/_目录.md': toc('complete'), 'T/Tides/Spring/_目录.md': sectionToc('Spring', ['One']), 'T/Tides/Spring/One.md': pageFile('{0A}', 'One', T1, 1) };
+	const { s } = await session(files, { a: [notebook('Tides', ['Spring'])] }, { pages: { 'Tides/Spring.one': [scanned('{99}', 'Other', T1)] } });
+	assert.deepEqual(states(s), ['different']);
+	assert.deepEqual(s.included(), []);
+});
+
+test('a section that cannot be read is left as it is; sections are read once, whatever the target folder', async () => {
+	const { files, tides, pages, mtimes } = importedTides();
+	const { s, client } = await session(files, { a: [tides] }, { pages, mtimes, failing: ['Tides/Spring.one'] });
+	assert.equal(states(s)[0], 'unreadable');
+	assert.equal(s.isChosen(s.choices[0]!, s.choices[0]!.notebook.sections[0]!), false);
+	const read = client.scanned;
+	s.setFolder('Other');
+	await settled(s);
+	assert.equal(s.updating, false);
+	s.setFolder('T');
+	await settled(s);
+	assert.equal(client.scanned, read);
+	assert.equal(states(s)[1], 'changed');
+});
+
+test('a notebook named like the folders an update keeps its files in gets another name', async () => {
+	const { s } = await session({}, { a: [notebook('_旧版本'), notebook('_sync log')] });
+	assert.deepEqual(names(s), ['_旧版本 (2)', '_sync log (2)']);
+});
+
+test('two downloads of one notebook imported before: only the newer one updates it, the other is greyed, whatever the order or the folder typed meanwhile', async () => {
+	const { files, mtimes } = importedTides();
+	const spring = (time: string) => [scanned('{0A}', 'One', T1), scanned('{0B}', 'Two', time)];
+	const T3 = '2024-03-01T00:00:00.000Z';
+	for (const order of [['old', 'fresh'], ['fresh', 'old']]) {
+		const tides = () => notebook('Tides', ['Spring']);
+		const { s } = await session(files, Object.fromEntries(order.map(input => [input, [tides()]])), { mtimes, pages: { 'old:Tides/Spring.one': spring(T2), 'fresh:Tides/Spring.one': spring(T3) } });
+		// Retyped while it compares: the names go back and forth.
+		s.setFolder('Other');
+		s.setFolder('T');
+		await settled(s);
+		const byInput = (input: string) => s.choices.find(choice => choice.download.input === input)!;
+		assert.deepEqual(states(s, s.choices.indexOf(byInput('fresh'))), ['changed'], order.join());
+		assert.deepEqual(states(s, s.choices.indexOf(byInput('old'))), ['duplicate'], order.join());
+		assert.deepEqual(s.included().map(choice => choice.download.input), ['fresh'], order.join());
+		assert.deepEqual(names(s), ['Tides', 'Tides'], order.join());
+		s.selectAll(true);
+		await settled(s);
+		assert.deepEqual(s.included().map(choice => choice.download.input), ['fresh'], order.join());
+	}
+});
+
+test('of two downloads of one notebook, the newer is told by the pages both have: a page the older one has and OneNote deleted since does not decide', async () => {
+	const { files, mtimes } = importedTides();
+	const T3 = '2024-03-01T00:00:00.000Z';
+	const { s } = await session(files, { old: [notebook('Tides', ['Spring'])], fresh: [notebook('Tides', ['Spring'])] }, { mtimes, pages: {
+		// The older download still has a page changed last of all, deleted in OneNote since.
+		'old:Tides/Spring.one': [scanned('{0A}', 'One', T1), scanned('{0B}', 'Two', T1), scanned('{0C}', 'Late', T3)],
+		'fresh:Tides/Spring.one': [scanned('{0A}', 'One', T1), scanned('{0B}', 'Two', T2)],
+	} });
+	assert.deepEqual(s.included().map(choice => choice.download.input), ['fresh']);
+	assert.deepEqual(states(s, 0), ['duplicate']);
 });

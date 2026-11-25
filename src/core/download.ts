@@ -110,10 +110,11 @@ export const folderKey = (name: string) => safeName(name, '\u0000', 120).normali
  * Two notebooks whose names give one output folder (one name in different folders of a download,
  * or in two downloads imported together, or names that differ only in what a file name cannot
  * hold) would share it: the later ones get " (2)" and so on, as pages of one name do. Renames in
- * place and answers the same list.
+ * place and answers the same list. `reserved` names no notebook may take (the folders an update
+ * keeps its own files in): one called so gets " (2)" too.
  */
-export function distinctNames(notebooks: DownloadNotebook[]): DownloadNotebook[] {
-	const used = new Set<string>();
+export function distinctNames(notebooks: DownloadNotebook[], reserved: readonly string[] = []): DownloadNotebook[] {
+	const used = new Set<string>(reserved.map(folderKey));
 	for (const notebook of notebooks) {
 		let name = notebook.name, n = 2;
 		while (used.has(folderKey(name))) name = numberedName(notebook.name, n++);

@@ -10,9 +10,9 @@ import { findNotebooks } from '../src/core/download.ts';
 import type { DownloadFile, DownloadSection } from '../src/core/download.ts';
 import { importNotebooks } from '../src/core/importer.ts';
 import type { ImportHost } from '../src/core/importer.ts';
-import { writeReport } from '../src/core/report.ts';
+import { reportedNotebooks, writeReport } from '../src/core/report.ts';
 import { zhHans } from '../src/core/strings.ts';
-import { scannedPages } from '../src/core/sync.ts';
+import { planNotebook, readArchive, scannedPages } from '../src/core/sync.ts';
 import { recordedPlanOptions, resumeUpdates, updateNotebooks } from '../src/core/update.ts';
 import type { UpdateHost } from '../src/core/update.ts';
 import { importStatusOf, sectionKey } from '../src/core/write.ts';
@@ -58,11 +58,11 @@ function parser(version: Version) {
 
 const folders = (sink: MemorySink) => async () => [...new Set([...sink.files.keys()].map(path => path.split('/')[0]!))];
 
-/** A vault with version 1 imported into it, as the plugin and the command line import. */
-async function imported(version: Version): Promise<MemorySink> {
+/** A vault with version 1 imported into it, as the plugin and the command line import (`chosen`: the sections ticked, all when not given). */
+async function imported(version: Version, chosen?: (section: DownloadSection) => boolean): Promise<MemorySink> {
 	const vault = memorySink();
 	const host: ImportHost = { sink: vault, parse: parser(version), isPasswordProtected: async () => false, listFolders: folders(vault) };
-	const result = await importNotebooks(download(version), host, { languageFor: () => 'zh-Hans', ...OPTIONS, links: true });
+	const result = await importNotebooks(download(version), host, { languageFor: () => 'zh-Hans', ...OPTIONS, links: true, ...(chosen ? { chosen } : {}) });
 	await writeReport(vault, zhHans, result, { at: new Date(2026, 10, 1), sources: ['old.zip'], options: OPTIONS }, await folders(vault)());
 	return vault;
 }
@@ -139,7 +139,7 @@ test('pages OneNote changed and added: the result is what importing the new vers
 	const now = snapshot(vault);
 	assert.deepEqual(now['Tides/Spring/Two.md'], two);
 	const toc = now['Tides/Spring/_目录.md']![0];
-	assert.match(toc, /- \[Four\]\(<Four\.md>\)\n\n## OneNote 里已经没有的页面\n\n- \[Two\]\(<Two\.md>\)\n$/);
+	assert.match(toc, /- \[Four\]\(<Four\.md>\)\n\n## OneNote 中已移除的页面\n\n- \[Two\]\(<Two\.md>\)\n$/);
 	const fresh = snapshot(await imported(V2));
 	assert.equal(toc.slice(0, toc.indexOf('\n\n## ')), fresh['Tides/Spring/_目录.md']![0].replace(/\n$/, ''));
 	delete now['Tides/Spring/Two.md'];
@@ -155,11 +155,11 @@ test('pages OneNote changed and added: the result is what importing the new vers
 	assert.equal(textOf(vault, 'Tides/Spring/Three.md'), c.replace('onenote-order: 3', 'onenote-order: 2'));
 	// The record and the report.
 	const record = textOf(vault, '_更新记录/2026-12-01 1430.md')!;
-	assert.match(record, /更新 1 个分区，新增 1 页，修改 1 页，OneNote 里删了 1 页（仓库里留着）/);
+	assert.match(record, /更新 1 个分区，新增 1 页，修改 1 页，OneNote 中移除 1 页（仓库中保留）/);
 	assert.match(record, /- 修改：\[One\]\(<\.\.\/Tides\/Spring\/One\.md>\)（\[更新前\]\(<\.\.\/_旧版本\/2026-12-01 1430\/Tides\/Spring\/One\.md>\)）/);
-	assert.match(record, /- OneNote 里已经没有，留在原处：\[Two\]\(<\.\.\/Tides\/Spring\/Two\.md>\)/);
-	assert.match(record, /1 页只调整了顺序或层级/);
-	assert.match(textOf(vault, '_转换报告.md')!, /这次更新了已导入的笔记，改了什么见\[更新记录 2026-12-01 14:30\]\(<_更新记录\/2026-12-01 1430\.md>\)。/);
+	assert.match(record, /- OneNote 中已移除，保留在原处：\[Two\]\(<\.\.\/Tides\/Spring\/Two\.md>\)/);
+	assert.match(record, /1 页仅调整了顺序或层级/);
+	assert.match(textOf(vault, '_转换报告.md')!, /这次更新了已导入的笔记，详见\[更新记录 2026-12-01 14:30\]\(<_更新记录\/2026-12-01 1430\.md>\)。/);
 	const journal = textOf(vault, '_更新记录/2026-12-01 1430.jsonl')!;
 	assert.match(journal, /\{"t":"end"\}\n$/);
 	// Checking again with the same download: nothing to do.
@@ -175,7 +175,7 @@ test('a page OneNote deleted keeps its file name: a new page of that title gets 
 	await update(vault, V2);
 	assert.equal(textOf(vault, 'Tides/Spring/Two.md'), two);
 	assert.match(textOf(vault, 'Tides/Spring/Two (2).md')!, /a new two/);
-	assert.match(textOf(vault, 'Tides/Spring/_目录.md')!, /- \[Two\]\(<Two \(2\)\.md>\)\n[^]*## OneNote 里已经没有的页面\n\n- \[Two\]\(<Two\.md>\)/);
+	assert.match(textOf(vault, 'Tides/Spring/_目录.md')!, /- \[Two\]\(<Two \(2\)\.md>\)\n[^]*## OneNote 中已移除的页面\n\n- \[Two\]\(<Two\.md>\)/);
 });
 
 test('a page the user deleted comes back only when chosen', async () => {
@@ -187,7 +187,34 @@ test('a page the user deleted comes back only when chosen', async () => {
 	const back = await updateNotebooks(requests(V1, undefined, [id('b').toUpperCase()]), host(vault, V1), { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults: OPTIONS, links: true, sources: ['new.zip'] });
 	assert.deepEqual(back!.outcomes, [{ notebook: 'Tides', key: 'Spring', outcome: 'done' }]);
 	assert.deepEqual(snapshot(vault, 'Tides/Spring'), snapshot(await imported(V1), 'Tides/Spring'));
-	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /- 补回你删掉的页面：\[Two\]/);
+	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /- 补回在 Obsidian 中删除的页面：\[Two\]/);
+	// Counted as a page brought back, not as a section updated (§11.5 item 51.2).
+	assert.deepEqual(back!.counts, { sectionsUpdated: 0, sectionsAdded: 0, pagesAdded: 0, pagesModified: 0, pagesRemoved: 0, pagesRestored: 1 });
+	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /- 补回 1 页\n/);
+});
+
+test('two requests for one notebook folder (two downloads of it) are refused before anything is written', async () => {
+	const V2: Version = { Spring: { pages: [page('a', 'One', 'one, second version', 2), V1.Spring!.pages[1]!, V1.Spring!.pages[2]!] }, Summer: V1.Summer! };
+	const vault = await imported(V1);
+	const before = snapshot(vault, '');
+	await assert.rejects(updateNotebooks([...requests(V2), ...requests(V2)], host(vault, V2), { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults: OPTIONS, links: true, sources: ['new.zip'] }));
+	assert.deepEqual(snapshot(vault, ''), before);
+});
+
+test('a new section chosen and not reached (the update was stopped) is new again next time, not "left unticked"', async () => {
+	const V2: Version = { ...V1, Autumn: { pages: [page('x', 'Leaves', 'fall')] }, Winter: { pages: [page('y', 'Ice', 'cold')] } };
+	const vault = await imported(V1);
+	const h = host(vault, V2);
+	let done = 0;
+	h.onSectionDone = () => void done++;
+	h.isCancelled = () => done >= 1;
+	const result = await update(vault, V2, h);
+	assert.deepEqual(result!.outcomes.map(o => `${o.key}:${o.outcome}`), ['Autumn:done', 'Winter:not reached']);
+	const [entry] = await reportedNotebooks(vault, zhHans);
+	const recorded = recordedPlanOptions(entry, 'Tides');
+	assert.deepEqual([...recorded.skipped!], []);
+	const plan = planNotebook('Tides', requests(V2)[0]!.scanned, await readArchive(vault, 'Tides', entry!.sections), zhHans, recorded);
+	assert.equal(plan.items.find(item => item.label === 'Winter')!.status, 'new');
 });
 
 test('a section OneNote renamed moves with everything in it; links to it from other sections follow', async () => {
@@ -204,7 +231,7 @@ test('a section OneNote renamed moves with everything in it; links to it from ot
 	assert.ok(![...vault.files.keys()].some(path => path.startsWith('Tides/Spring/')));
 	// The page whose link changed was copied aside first.
 	assert.match(textOf(vault, `${BACKUP}/Tides/Summer/Sun.md`)!, /\]\(<\.\.\/Spring\/One\.md>\)/);
-	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /- 分区“\[Spring 2\]\(<\.\.\/Tides\/Spring 2\/_目录\.md>\)”（原来是“Spring”）/);
+	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /- 分区“\[Spring 2\]\(<\.\.\/Tides\/Spring 2\/_目录\.md>\)”（原为“Spring”）/);
 });
 
 test('pages OneNote retitled keep their file object (renamed), even two that swap their names', async () => {
@@ -242,9 +269,9 @@ test('what the user did in Obsidian: edits are kept or set aside, deleted pages 
 	assert.equal(textOf(vault, 'Tides/Spring/Mine.md'), 'my own note');
 	assert.match(textOf(vault, 'Tides/Spring/Mine (2).md')!, /from OneNote/);
 	const record = textOf(vault, '_更新记录/2026-12-01 1430.md')!;
-	assert.match(record, /下面这些页面两边都改过/);
-	assert.match(record, /\t- \[One\]\(<\.\.\/Tides\/Spring\/One\.md>\)（\[你改过的那份\]\(<\.\.\/_旧版本\/2026-12-01 1430\/Tides\/Spring\/One\.md>\)）/);
-	assert.match(record, /修改：\[One\][^\n]*（两边都改过）/);
+	assert.match(record, /以下页面在 OneNote 和 Obsidian 中都有修改/);
+	assert.match(record, /\t- \[One\]\(<\.\.\/Tides\/Spring\/One\.md>\)（\[你的版本\]\(<\.\.\/_旧版本\/2026-12-01 1430\/Tides\/Spring\/One\.md>\)）/);
+	assert.match(record, /修改：\[One\][^\n]*（Obsidian 中也已修改）/);
 });
 
 test('attachments: a changed picture replaces its file; one a page that stays uses is never overwritten; unused ones go aside', async () => {
@@ -281,9 +308,9 @@ test('a section and a notebook not imported before are added; sections the downl
 	assert.match(textOf(vault, 'Tides/Autumn/Leaves.md')!, /fall/);
 	const toc = textOf(vault, 'Tides/_目录.md')!;
 	assert.match(toc, /- \[Autumn\]\(<Autumn\/_目录\.md>\)\n- \[Spring\]\(<Spring\/_目录\.md>\)\n- \[Summer\]\(<Summer\/_目录\.md>\)\n/);
-	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /新下载里没有这些分区，仓库里的没有动：Tides \/ Summer/);
+	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /下载中没有这些分区，仓库中的保持原样：Tides \/ Summer/);
 	// Nothing was replaced (only a section added): the record does not point to previous versions.
-	assert.doesNotMatch(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /换下来的旧版都在/);
+	assert.doesNotMatch(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /更新前的版本在/);
 
 	const other = memorySink();
 	await update(other, V2);
@@ -312,7 +339,7 @@ test('a step the vault refuses puts the section back as it was; the next section
 	assert.deepEqual(result!.outcomes.map(o => o.outcome), ['rolled back', 'done']);
 	assert.deepEqual(snapshot(vault, 'Tides/Spring'), spring);
 	assert.match(textOf(vault, 'Tides/Summer/Sun.md')!, /see again/);
-	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /分区“Tides \/ Spring”没能更新完，已经恢复成更新前的样子：the disk is full/);
+	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /分区“Tides \/ Spring”未能更新，已恢复原状：the disk is full/);
 	// What it wrote before it was refused went aside, not away.
 	assert.match(textOf(vault, `${BACKUP}/_未完成/Tides/Spring/Four.md`)!, /four/);
 });
@@ -333,7 +360,7 @@ test('a section that cannot be converted now is left as it was; the others go in
 	const failing = await update(vault, V2, h);
 	assert.deepEqual(failing!.outcomes.map(o => o.outcome), ['not converted', 'done']);
 	assert.deepEqual(snapshot(vault, 'Tides/Spring'), spring);
-	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /分区“Tides \/ Spring”这次读不出来，仓库里的没有动：[^\n]*invented failure/);
+	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /分区“Tides \/ Spring”无法读取，保持原样：[^\n]*invented failure/);
 	// Converting that stopped outside the parser (the worker, say) is the same.
 	const other = await imported(V1);
 	const h2 = host(other, V2);
@@ -395,6 +422,20 @@ test('a section imported before, moved out of the notebook folder, comes back on
 	assert.deepEqual(result!.outcomes.map(o => o.outcome), ['done']);
 	assert.match(textOf(vault, 'Tides/Summer/Sun.md')!, /\nsee\n/);
 	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /重新导入分区“\[Summer\]/);
+});
+
+test('a section left unticked when its notebook was imported is "skipped" (not ticked again unasked), and written only when chosen', async () => {
+	const vault = await imported(V1, section => section.label !== 'Summer');
+	const [entry] = await reportedNotebooks(vault, zhHans);
+	const recorded = recordedPlanOptions(entry, 'Tides');
+	assert.deepEqual([...recorded.skipped!], [sectionKey([], 'Summer')]);
+	const archive = await readArchive(vault, 'Tides', entry!.sections);
+	const plan = planNotebook('Tides', requests(V1)[0]!.scanned, archive, zhHans, recorded);
+	assert.deepEqual(plan.items.map(item => [item.label, item.status]), [['Spring', 'same'], ['Summer', 'skipped']]);
+	assert.equal(await update(vault, V1, host(vault, V1), ['Spring']), undefined);
+	const result = await update(vault, V1, host(vault, V1), ['Summer']);
+	assert.deepEqual(result!.outcomes.map(o => o.outcome), ['done']);
+	assert.match(textOf(vault, 'Tides/Summer/Sun.md')!, /\nsee\n/);
 });
 
 test('a copy the user made of a page (same page id) is left alone; the page is updated', async () => {

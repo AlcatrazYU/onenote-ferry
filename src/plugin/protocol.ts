@@ -20,10 +20,21 @@ export type ToWorker =
 	| { type: 'open', id: number, input: string }
 	/** Paths of the sections that are password protected (a quick look at each section's first bytes). */
 	| { type: 'locked', id: number, input: string }
-	/** Converts one section; files come back as sink calls. */
-	| { type: 'convert', id: number, input: string, section: unknown, dir: string, language: string, options: unknown }
+	/** Page ids, titles, times and levels of one section, in order (ScannedPage[]): nothing else is read out. */
+	| { type: 'scan', id: number, input: string, section: unknown }
+	/**
+	 * Converts one section. Its files come back as sink calls, or, with `staging` (an update), go
+	 * straight into that folder outside the vault; `names` keeps the file names an earlier import gave.
+	 */
+	| { type: 'convert', id: number, input: string, section: unknown, dir: string, language: string, options: unknown, staging?: string, names?: WireNames }
 	/** Closes every open download. */
 	| { type: 'close', id: number };
+
+/** SectionNames as a message carries them. */
+export interface WireNames {
+	names: [string, string][];
+	taken: string[];
+}
 
 /** A write (or read) the worker asks the window to do in the vault. */
 export interface SinkCall {

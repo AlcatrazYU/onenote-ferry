@@ -132,7 +132,7 @@ test('pages the user deleted are told by page id when the report has ids, and a 
 
 test('a page OneNote brought back after it was listed as no longer in OneNote makes its section changed', async () => {
 	const sink = await vault({ Spring: [['{A}', 'One'], ['{B}', 'Two']] });
-	await sink.writeText('Tides/Spring/_目录.md', `${toc('complete', 'Spring', ['One.md'])}\n## OneNote 里已经没有的页面\n\n- [Two](<Two.md>)\n`);
+	await sink.writeText('Tides/Spring/_目录.md', `${toc('complete', 'Spring', ['One.md'])}\n## OneNote 中已移除的页面\n\n- [Two](<Two.md>)\n`);
 	const item = (await plan([scan('Spring', [p('{A}', 'One'), p('{B}', 'Two', T1, 1)])], sink)).items[0]!;
 	assert.equal(item.status, 'changed');
 });
@@ -239,7 +239,7 @@ test('a page OneNote deleted makes its section changed once; listed as no longer
 	const first = (await plan([scan('Spring', [p('{A}', 'One')])], sink)).items[0]!;
 	assert.equal(first.status, 'changed');
 	assert.deepEqual(first.removed.map(page => page.title), ['Two']);
-	await sink.writeText('Tides/Spring/_目录.md', `${toc('complete', 'Spring', ['One.md'])}\n## OneNote 里已经没有的页面\n\n- [Two](<Two.md>)\n`);
+	await sink.writeText('Tides/Spring/_目录.md', `${toc('complete', 'Spring', ['One.md'])}\n## OneNote 中已移除的页面\n\n- [Two](<Two.md>)\n`);
 	const again = (await plan([scan('Spring', [p('{A}', 'One')])], sink)).items[0]!;
 	assert.equal(again.status, 'same');
 	assert.deepEqual(again.removed, []);

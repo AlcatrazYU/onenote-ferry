@@ -107,6 +107,23 @@ export interface UpdateResult {
 	outcomes: { notebook: string, key: string, outcome: SectionOutcome | 'not reached' }[];
 	links?: LinkStats;
 	cancelled: boolean;
+	/** What changed, as the record counts it. */
+	counts: UpdateCounts;
+	/** What needs the reader's attention, counted (the record says which). */
+	attention: UpdateAttention;
+}
+
+/** Counts of what the record lists under "attention". */
+export interface UpdateAttention {
+	/** Pages changed in OneNote and in Obsidian: the new version went in, the user's was kept aside. */
+	bothEdited: number;
+	/** Files that were not as the update expected, copied aside before they were written over. */
+	keptAside: number;
+	rolledBack: number;
+	notConverted: number;
+	notUpdated: number;
+	/** Chosen, and not reached (stopped before them). */
+	notReached: number;
 }
 
 // The journal: one JSON object a line, in the update's log folder next to its record.
@@ -972,13 +989,16 @@ function namesFor(archived: ArchivedSection | undefined, files: string[], scanne
 
 /**
  * What the report recorded of a notebook in `dir`, for planning it (§11.5 item 52): each section
- * folder's OneNote name and groups then, and the sections imported.
+ * folder's OneNote name and groups then, the sections imported, and those left unticked (they are
+ * not ticked again unasked).
  */
-export function recordedPlanOptions(entry: ReportNotebook | undefined, dir: string): Pick<PlanOptions, 'previous' | 'imported'> {
+export function recordedPlanOptions(entry: ReportNotebook | undefined, dir: string): Pick<PlanOptions, 'previous' | 'imported' | 'skipped'> {
 	const inNotebook = (entry?.sections ?? []).filter(section => section.dir !== undefined && fold(section.dir).startsWith(`${fold(dir)}/`));
 	return {
 		previous: new Map(inNotebook.map(section => [fold(section.dir!.slice(dir.length + 1)), { groups: section.groups, name: section.section }])),
 		imported: new Set(inNotebook.filter(section => section.report && !section.failed && !section.skipped && !section.cancelled).map(section => sectionKey(section.groups, section.section))),
+		// Left unticked: recorded without a folder (a section of ours is never one of these).
+		skipped: new Set((entry?.sections ?? []).filter(section => section.skipped && !section.report).map(section => sectionKey(section.groups, section.section))),
 	};
 }
 
@@ -1057,6 +1077,11 @@ export async function updateNotebooks(requests: UpdateRequest[], host: UpdateHos
 		planned.push({ request, dir, archive, language, strings, plan, occupied, todo });
 	}
 	if (!planned.some(entry => entry.todo.length)) return undefined;
+	// Two requests for one notebook folder (two downloads of one notebook) would each plan against the
+	// other's output and set aside over each other's copies: refused before anything is written.
+	const folders = planned.map(entry => fold(entry.dir));
+	const twice = planned.find((entry, i) => folders.indexOf(fold(entry.dir)) !== i);
+	if (twice) throw new Error(`Two downloads would update the notebook folder ${twice.dir}: choose one of them`);
 
 	const reader = options.strings;
 	const oldRoot = await ownFolder(vault, reader, 'oldVersionsFolder');
@@ -1375,6 +1400,8 @@ function importResult(state: RunState): ImportResult {
 			const failure = !listed.extra ? failed.get(listed.key) : undefined;
 			if (failure) return { ...base, failed: true, error: failure.error, ...(failure.locked ? { locked: true } : {}) };
 			if (listed.unlinked) return { ...base, failed: true, earlier: true, ...(listed.error !== undefined ? { error: listed.error } : {}), ...(listed.locked ? { locked: true } : {}) };
+			// Chosen and not done (stopped before it, or put back): not left unticked, so it is new again next time.
+			if (!listed.extra && notebook.chosen.includes(listed.key)) return { ...base, cancelled: true };
 			return { ...base, skipped: true };
 		});
 		notebooks.push({ notebook: notebook.notebook, dir: notebook.dir, language: notebook.language, sections });
@@ -1388,6 +1415,34 @@ function notReached(state: RunState): { notebook: NotebookEntry, key: string }[]
 	return state.notebooks.flatMap(notebook => notebook.chosen.filter(key => !reached.has(`${notebook.n}/${key}`)).map(key => ({ notebook, key })));
 }
 
+/** What the sections done changed. */
+function countsOf(state: RunState): UpdateCounts {
+	const done = state.sections.filter(run => run.outcome === 'done').map(run => run.entry);
+	// A section whose only change is pages the user brought back is not counted as updated (§11.5 item 51.2).
+	const onlyRestored = (summary: Summary) => !summary.added.length && !summary.modified.length && !summary.removed.length && !summary.reordered && summary.was === undefined && summary.restored.length > 0;
+	return {
+		sectionsUpdated: done.filter(entry => !entry.summary.isNew && !onlyRestored(entry.summary)).length,
+		sectionsAdded: done.filter(entry => entry.summary.isNew).length,
+		pagesAdded: done.reduce((n, entry) => n + entry.summary.added.length, 0),
+		pagesModified: done.reduce((n, entry) => n + entry.summary.modified.length, 0),
+		pagesRemoved: done.reduce((n, entry) => n + entry.summary.removed.length, 0),
+		pagesRestored: done.reduce((n, entry) => n + entry.summary.restored.length, 0),
+	};
+}
+
+/** What needs the reader's attention, counted as the record lists it. */
+function attentionOf(state: RunState): UpdateAttention {
+	const done = state.sections.filter(run => run.outcome === 'done').map(run => run.entry);
+	return {
+		bothEdited: done.reduce((n, entry) => n + entry.summary.modified.filter(page => page.edited).length, 0),
+		keptAside: state.kept.length,
+		rolledBack: state.sections.filter(run => run.outcome === 'rolled back').length,
+		notConverted: state.failed.filter(entry => entry.blocked === undefined).length,
+		notUpdated: state.failed.filter(entry => entry.blocked !== undefined).length,
+		notReached: notReached(state).length,
+	};
+}
+
 /** The record of an update: what changed, and what needs the reader's attention. */
 function recordMarkdown(state: RunState, backupMade: boolean): string {
 	const reader = STRINGS[state.start.reader];
@@ -1397,13 +1452,7 @@ function recordMarkdown(state: RunState, backupMade: boolean): string {
 	const name = (groups: string[], label: string) => text([...groups, label].join(' / '));
 	const notebookOf = (n: number) => state.notebooks.find(notebook => notebook.n === n)?.notebook ?? '';
 	const done = state.sections.filter(run => run.outcome === 'done').map(run => run.entry);
-	const counts: UpdateCounts = {
-		sectionsUpdated: done.filter(entry => !entry.summary.isNew).length,
-		sectionsAdded: done.filter(entry => entry.summary.isNew).length,
-		pagesAdded: done.reduce((n, entry) => n + entry.summary.added.length, 0),
-		pagesModified: done.reduce((n, entry) => n + entry.summary.modified.length, 0),
-		pagesRemoved: done.reduce((n, entry) => n + entry.summary.removed.length, 0),
-	};
+	const counts = countsOf(state);
 	const title = u.title(reportTime(state.start.at));
 	const lines = ['---', `title: ${JSON.stringify(title)}`, '---', '', `# ${title}`, '', u.intro(backupMade ? text(state.start.backup) : undefined), ''];
 	lines.push(`- ${r.time(reportTime(state.start.at))}`, `- ${r.source(state.start.sources.map(text))}`, `- ${u.counts(counts)}`);
@@ -1516,6 +1565,8 @@ async function finish(host: Pick<UpdateHost, 'vault' | 'listFolders'>, ctx: Cont
 		outcomes: state.notebooks.flatMap(notebook => notebook.chosen.map(key => ({ notebook: notebook.dir, key, outcome: outcome(notebook.n, key) }))),
 		...(state.links && state.start.links ? { links: state.links } : {}),
 		cancelled: state.stopped,
+		counts: countsOf(state),
+		attention: attentionOf(state),
 	};
 }
 

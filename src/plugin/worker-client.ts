@@ -4,9 +4,10 @@
 import workerSource from 'onenote-ferry:worker';
 import wasmBase64 from 'onenote-ferry:wasm';
 import type { DownloadSection } from '../core/download.ts';
-import type { SectionOptions, SectionResult } from '../core/importer.ts';
+import type { SectionNames, SectionOptions, SectionResult } from '../core/importer.ts';
 import type { Sink } from '../core/io.ts';
 import type { Language } from '../core/strings.ts';
+import type { ScannedPage } from '../core/sync.ts';
 import type { FromWorker, OpenedDownload, SinkCall, ToWorker } from './protocol.ts';
 
 type Request = ToWorker extends infer T ? T extends { id: number } ? Omit<T, 'id'> : never : never;
@@ -166,8 +167,15 @@ export class WorkerClient {
 		return this.request({ type: 'locked', input });
 	}
 
-	convert(input: string, section: DownloadSection, dir: string, language: Language, options: SectionOptions): Promise<SectionResult> {
-		return this.request({ type: 'convert', input, section, dir, language, options });
+	/** A section's pages (ids, titles, times, levels), in order. */
+	scan(input: string, section: DownloadSection): Promise<ScannedPage[]> {
+		return this.request({ type: 'scan', input, section });
+	}
+
+	/** Converts a section: into the vault through `sink`, or (an update) into `staging`, a folder outside it. */
+	convert(input: string, section: DownloadSection, dir: string, language: Language, options: SectionOptions, staging?: { path: string, names: SectionNames }): Promise<SectionResult> {
+		const names = staging && { names: [...staging.names.names ?? []], taken: [...staging.names.taken ?? []] };
+		return this.request({ type: 'convert', input, section, dir, language, options, ...(staging ? { staging: staging.path, names } : {}) });
 	}
 
 	/** Closes every open download (removing the worker's temporary copies). */

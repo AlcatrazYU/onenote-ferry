@@ -39,7 +39,7 @@
 // also names the language of the record and of notebooks not converted before.
 
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve as resolvePath } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -59,6 +59,7 @@ import type { Archive, NotebookPlan, PagePlan, PlanItem, ScannedSection } from '
 import { notebookFolder, sectionKey } from '../core/write.ts';
 import { incompleteZipMessage, openDownload, parseWithWasm, passwordProtected } from '../node/download.ts';
 import { fileSink } from '../node/file-sink.ts';
+import { ownStagingRoot, stagingPlaces, stagingRoot } from '../node/staging.ts';
 import type { Download, WasmParser } from '../node/download.ts';
 
 /** Paths as the disks of macOS and Windows compare them. */
@@ -267,34 +268,12 @@ async function plan(argv: string[], command: 'plan' | 'sync') {
 	const listFolders = async () => (existsSync(options.output) ? readdirSync(options.output).filter(name => statSync(join(options.output, name), { throwIfNoEntry: false })?.isDirectory()) : []);
 	// Where sync converts each section first: kept until the section is in, outside the scratch folder
 	// (removed when the command ends), so an update the command was stopped in can be finished.
-	// The user's own (a temp folder may be shared on a machine of several users), reachable by nobody else.
-	const stagingRoot = join(options.tmp, `onenote-ferry-sync-${process.getuid?.() ?? 'user'}`);
-	const stagingId = /^section-[A-Za-z0-9]{6}$/;
-	const ownStagingRoot = () => {
-		mkdirSync(stagingRoot, { recursive: true, mode: 0o700 });
-		const info = lstatSync(stagingRoot);
-		if (!info.isDirectory() || info.isSymbolicLink() || (process.getuid && info.uid !== process.getuid()) || (process.platform !== 'win32' && (info.mode & 0o077) !== 0)) {
-			throw new Error(`${stagingRoot} is not a folder of yours that only you can open: remove it, or pass --tmp`);
-		}
-	};
-	const staging: Pick<UpdateHost, 'newStaging' | 'openStaging' | 'releaseStaging'> = {
-		async newStaging() {
-			ownStagingRoot();
-			const dir = mkdtempSync(join(stagingRoot, 'section-'));
-			return { id: basename(dir), sink: fileSink(dir) };
-		},
-		// The id comes from a journal in the output folder: only a name this command makes is used.
-		async openStaging(id) {
-			return stagingId.test(id) && existsSync(join(stagingRoot, id)) ? fileSink(join(stagingRoot, id)) : undefined;
-		},
-		async releaseStaging(id) {
-			if (stagingId.test(id)) rmSync(join(stagingRoot, id), { recursive: true, force: true });
-		},
-	};
+	const stagingFolder = stagingRoot(options.tmp);
+	const staging = stagingPlaces(options.tmp);
 	if (command === 'sync' && options.apply) {
 		// One update of a folder at a time: a second one would take the first one's journal for a cut-off one.
-		ownStagingRoot();
-		const lock = join(stagingRoot, `lock-${createHash('sha256').update(existsSync(options.output) ? realpathSync(options.output) : resolvePath(options.output)).digest('hex').slice(0, 16)}`);
+		ownStagingRoot(stagingFolder);
+		const lock = join(stagingFolder, `lock-${createHash('sha256').update(existsSync(options.output) ? realpathSync(options.output) : resolvePath(options.output)).digest('hex').slice(0, 16)}`);
 		const other = existsSync(lock) ? Number(readFileSync(lock, 'utf8')) : NaN;
 		let running = false;
 		try {
@@ -382,7 +361,7 @@ async function plan(argv: string[], command: 'plan' | 'sync') {
 			// Not into a folder of that name that is not ours, nor a notebook of that name that is another one.
 			const occupied = !archive && (await sink.listFiles(notebookFolder(name, strings))).length > 0;
 			if (occupied) console.log(`  [not ours] ${name}: a folder of this name holds files the plugin did not write; nothing is written into it`);
-			const chosen = identity === 'different' || occupied ? [] : items.filter(item => (item.status === 'changed' || item.status === 'unfinished' || (options.addNew && (item.status === 'new' || item.status === 'missing')) || (options.restoreDeleted && deletedHere(item).length > 0)) && !item.older);
+			const chosen = identity === 'different' || occupied ? [] : items.filter(item => (item.status === 'changed' || item.status === 'unfinished' || (options.addNew && (item.status === 'new' || item.status === 'skipped' || item.status === 'missing')) || (options.restoreDeleted && deletedHere(item).length > 0)) && !item.older);
 			const restore = options.restoreDeleted ? new Set(chosen.flatMap(item => deletedHere(item).map(page => page.id))) : undefined;
 			requests.push({ notebook, scanned, chosen: new Set(chosen.map(item => sectionKey(item.groups, item.label))), partial: options.partial, ...(restore ? { restore } : {}) });
 			if (identity === 'different') console.log(`  [different notebook] ${name}: a notebook of this name is in the folder, with no page in common`);

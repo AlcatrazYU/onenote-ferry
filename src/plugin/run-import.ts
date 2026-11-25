@@ -21,7 +21,7 @@ import type { WorkerClient } from './worker-client.ts';
  * WebAssembly memory only grows: after a section this large the worker is replaced by a fresh one,
  * so the memory a big section took is handed back (about 2.6 GB for the largest one measured).
  */
-const FRESH_WORKER_AFTER_BYTES = 256 * 1024 * 1024;
+export const FRESH_WORKER_AFTER_BYTES = 256 * 1024 * 1024;
 
 export interface ImportDownload {
 	/** A zip or a folder outside the vault. */

@@ -3,15 +3,21 @@
 // the notebooks and sections in them to tick, the settings, and "Start import". Once the import
 // starts the same window shows its progress, and at the end what it did. Closing the window while
 // the import runs leaves it going; the status bar item opens the window again.
+//
+// The same window updates notebooks imported before (§11.5 item 49): each section says what
+// changed in a word or two (why, on hover), a section that changed opens to its pages, and the
+// bottom says what the update will do. Only what needs a decision stands out.
 
-import { ButtonComponent, Modal, Notice, ProgressBarComponent, Setting, SettingGroup, setIcon } from 'obsidian';
+import { ButtonComponent, Modal, Notice, ProgressBarComponent, Setting, SettingGroup, setIcon, setTooltip } from 'obsidian';
 import type { App } from 'obsidian';
 import type { DownloadNotebook, DownloadSection } from '../core/download.ts';
-import { LANGUAGES } from '../core/strings.ts';
+import { LANGUAGES, STRINGS } from '../core/strings.ts';
 import type { Language } from '../core/strings.ts';
+import type { PlanItem } from '../core/sync.ts';
 import { formatBytes, LANGUAGE_NAMES } from './i18n.ts';
 import type { UiStrings } from './i18n.ts';
 import { elapsed } from './progress.ts';
+import { TICKABLE } from './session.ts';
 import type { ChosenDownload, ImportSession, NotebookChoice, SectionState } from './session.ts';
 import { cleanFolder, folderProblem, FolderSuggest } from './settings.ts';
 
@@ -60,10 +66,14 @@ interface TreeNode {
 	children: TreeNode[];
 }
 
-/** A notebook as a tree: section groups hold sections and groups, as in OneNote. */
-function treeOf(notebook: DownloadNotebook): TreeNode {
-	const root: TreeNode = { title: notebook.name, path: '', sections: [...notebook.sections], children: [] };
-	for (const section of notebook.sections) {
+/**
+ * A notebook as a tree: section groups hold sections and groups, as in OneNote. `extra`: sections of
+ * ours the download does not have (an update leaves them as they are), shown where they are.
+ */
+function treeOf(notebook: DownloadNotebook, extra: DownloadSection[] = []): TreeNode {
+	const all = [...notebook.sections, ...extra];
+	const root: TreeNode = { title: notebook.name, path: '', sections: all, children: [] };
+	for (const section of all) {
 		let node = root;
 		for (const [i, group] of section.groups.entries()) {
 			const path = section.groups.slice(0, i + 1).join('/');
@@ -79,6 +89,26 @@ function treeOf(notebook: DownloadNotebook): TreeNode {
 	}
 	return root;
 }
+
+/** How a row stands: a section's state, or one the download does not have. */
+type RowState = SectionState | 'gone';
+
+/** What the right of a row says: a word or two, how it stands out, and why (on hover). */
+interface Flair {
+	text: string;
+	/** strong: needs the user (an update to take); warn: the user's own words are concerned. */
+	tone?: 'strong' | 'warn';
+	tip?: string;
+}
+
+/** States that stand out: what the update will take unless unticked. */
+const STRONG: ReadonlySet<RowState> = new Set(['changed', 'new', 'unfinished']);
+/** States a group row names when all its sections share one. */
+const GROUP_WORDS: ReadonlySet<RowState> = new Set(['same', 'gone', 'checking', 'locked', 'incomplete', 'occupied', 'unreadable']);
+/** States that leave a notebook imported before at "no changes": nothing differs that needs a look. */
+const QUIET: ReadonlySet<RowState> = new Set(['same', 'gone', 'skipped', 'locked', 'restorable']);
+
+const fold = (path: string) => path.normalize('NFC').toLowerCase();
 
 export class ImportWizard extends Modal {
 	readonly session: ImportSession;
@@ -110,7 +140,7 @@ export class ImportWizard extends Modal {
 
 	onOpen(): void {
 		this.modalEl.addClass('onenote-ferry-wizard');
-		this.titleEl.setText(this.ui.wizardTitle);
+		this.titleEl.setText(this.session.entry === 'update' ? this.ui.updateTitle : this.ui.wizardTitle);
 		this.off = this.session.onChange(() => this.onChange());
 		this.timer = window.setInterval(() => {
 			if (this.session.phase === 'running') this.refresh?.();
@@ -157,7 +187,7 @@ export class ImportWizard extends Modal {
 		// in one group as Importer has them.
 		const treeGroup = new SettingGroup(body).addClass('onenote-ferry-tree-group');
 		let all!: ButtonComponent;
-		new Setting(treeGroup.listEl)
+		const heading = new Setting(treeGroup.listEl)
 			.setName(ui.tree)
 			.addButton(button => {
 				all = button;
@@ -166,8 +196,14 @@ export class ImportWizard extends Modal {
 			});
 		const tree = treeGroup.listEl.createDiv('import-section file-tree publish-section onenote-ferry-tree').createDiv('publish-change-list');
 
-		// The settings.
-		const settings = new SettingGroup(body).setHeading(ui.settings).addClass('onenote-ferry-settings');
+		// The settings. Language and options are for notebooks new to the target folder: one imported
+		// before keeps its own, which the heading says when they are greyed.
+		const settingsHeading = createFragment(fragment => {
+			fragment.appendText(ui.settings);
+			fragment.createSpan({ cls: 'onenote-ferry-heading-note', text: ui.settingsKept });
+		});
+		const settings = new SettingGroup(body).setHeading(settingsHeading).addClass('onenote-ferry-settings');
+		const kept = body.querySelector<HTMLElement>('.onenote-ferry-settings .onenote-ferry-heading-note');
 		let folderWarning!: HTMLElement;
 		settings.addSetting(setting => {
 			setting.setName(ui.importInto).setDesc(ui.importIntoDesc);
@@ -177,25 +213,35 @@ export class ImportWizard extends Modal {
 				new FolderSuggest(this.app, text.inputEl);
 			});
 		});
-		settings.addSetting(setting => setting
-			.setName(ui.language)
-			.setDesc(ui.languageDesc)
-			.addDropdown(dropdown => {
-				for (const language of LANGUAGES) dropdown.addOption(language, LANGUAGE_NAMES[language]!);
-				dropdown.setValue(session.language).onChange(value => session.setLanguage(value as Language));
-			}));
-		const option = (name: string, desc: string, key: keyof typeof session.options) => settings.addSetting(setting => setting
-			.setName(name)
-			.setDesc(desc)
-			.addToggle(toggle => toggle.setValue(session.options[key]).onChange(value => session.options[key] = value)));
+		// Rows greyed as a whole (name, description and control) when only updating.
+		const forNew: Setting[] = [];
+		settings.addSetting(setting => {
+			forNew.push(setting);
+			setting
+				.setName(ui.language)
+				.setDesc(ui.languageDesc)
+				.addDropdown(dropdown => {
+					for (const code of LANGUAGES) dropdown.addOption(code, LANGUAGE_NAMES[code]!);
+					dropdown.setValue(session.language).onChange(value => session.setLanguage(value as Language));
+				});
+		});
+		const option = (name: string, desc: string, key: keyof typeof session.options) => settings.addSetting(setting => {
+			forNew.push(setting);
+			setting
+				.setName(name)
+				.setDesc(desc)
+				.addToggle(toggle => toggle.setValue(session.options[key]).onChange(value => session.options[key] = value));
+		});
 		option(ui.boxMarkers, ui.boxMarkersDesc, 'boxMarkers');
 		option(ui.fontColor, ui.fontColorDesc, 'keepFontColor');
 		option(ui.altText, ui.altTextDesc, 'imageAltText');
 
-		// What the import will do, and the button that starts it.
+		// What the import or update will do, and the button that starts it.
 		const footer = this.footer();
-		const summary = footer.createDiv('onenote-ferry-summary');
-		const start = new ButtonComponent(footer).setButtonText(ui.startImport).setCta().onClick(() => this.host.startImport(session));
+		const lines = footer.createDiv('onenote-ferry-summary');
+		const summary = lines.createDiv();
+		const warning = lines.createDiv('onenote-ferry-flair-warn');
+		const start = new ButtonComponent(footer).setCta().onClick(() => this.host.startImport(session));
 
 		// Rows are drawn again only when what they show changes, so nothing jumps while ticking.
 		let sourceShown: string | undefined;
@@ -207,30 +253,65 @@ export class ImportWizard extends Modal {
 				sourceShown = sourceState;
 				this.drawSource(source.listEl);
 			}
-			const treeState = session.choices.map(choice => `${choice.download.input}:${choice.notebook.path}`).join('|');
+			const treeState = session.choices.map(choice => `${choice.download.input}:${choice.notebook.path}:${this.shape(choice)}`).join('|');
 			if (treeState !== treeShown) {
 				treeShown = treeState;
 				rows = this.drawTree(tree);
 			}
 			for (const update of rows) update();
+			const updating = session.updating;
+			heading.setName(updating ? ui.updateTree : ui.tree);
 			const choosable = session.choices.some(choice => session.choosable(choice).length > 0);
 			all.setButtonText(session.allChosen && choosable ? ui.deselectAll : ui.selectAll).setDisabled(!choosable);
 			folderWarning.setText(folderProblem(session.folder) ? ui.badFolder : '');
 			folderWarning.toggle(folderProblem(session.folder));
+			// Language and options change nothing when only notebooks imported before are written.
+			const onlyUpdates = updating && !session.included().some(choice => !choice.earlier);
+			kept?.toggle(onlyUpdates);
+			for (const setting of forNew) setting.setDisabled(onlyUpdates);
 			const counts = session.counts();
-			summary.setText(session.reading ? ui.reading
-				: session.folderError ? ui.folderUnreadable(session.folderError)
-				: session.checking || session.findingLocked ? ui.checking
-				: counts.sections ? ui.willImport(counts.notebooks, counts.sections, formatBytes(counts.bytes), counts.unreadable)
+			const changes = session.updateCounts();
+			const folder = session.oldVersionsFolder;
+			const will = [
+				counts.sections ? ui.willImport(counts.notebooks, counts.sections, formatBytes(counts.bytes), counts.unreadable) : '',
+				changes.updated || changes.added || changes.restored ? ui.willUpdate(changes.updated, changes.added, changes.restored, folder) : '',
+			].filter(Boolean);
+			// Nothing differs in the notebooks imported before.
+			const noChange = updating && !session.choices.some(choice => choice.earlier && choice.notebook.sections.some(section => STRONG.has(session.sectionState(choice, section))));
+			summary.empty();
+			if (session.reading) summary.setText(ui.reading);
+			else if (session.folderError) summary.setText(ui.folderUnreadable(session.folderError));
+			else if (session.checking || session.findingLocked) summary.setText(ui.checking);
+			else if (session.checkingUpdates) summary.setText(ui.checkingUpdates(session.checkProgress.done, session.checkProgress.total));
+			else if (will.length) for (const line of will) summary.createDiv({ text: line });
+			else summary.setText(noChange ? ui.noUpdates
 				: choosable ? ui.nothingChosen
 				: !session.choices.length ? ''
 				// Why nothing can be imported, when there is one reason for all.
 				: session.choices.every(choice => choice.blocked) ? ui.allTaken
 				: session.choices.every(choice => !choice.notebook.sections.length) ? ui.noSectionsAnywhere
 				: ui.nothingToImport);
+			const settled = !session.reading && !session.folderError && !session.checking && !session.findingLocked && !session.checkingUpdates;
+			warning.setText(settled && changes.bothEdited ? ui.bothEditedWarning(changes.bothEdited, folder) : '');
+			warning.toggle(settled && changes.bothEdited > 0);
+			// What will be done: an update when a notebook imported before is chosen (or, with nothing chosen, among the downloads).
+			const included = session.included();
+			start.setButtonText(included.some(choice => choice.earlier) || (!included.length && updating) ? ui.startUpdate : ui.startImport);
 			start.setDisabled(!session.ready);
 		};
 		this.refresh();
+	}
+
+	/**
+	 * What the tree shows of a notebook imported before, apart from ticks: which sections are there,
+	 * which open to pages and which pages. The tree is drawn again when it changes.
+	 */
+	private shape(choice: NotebookChoice): string {
+		const plan = choice.plan;
+		if (!choice.earlier) return choice.blocked ? 'blocked' : 'new';
+		if (!plan) return 'checking';
+		const page = (pages: { id: string }[]) => pages.map(one => one.id).join(',');
+		return `${plan.identity}:${plan.items.map(item => `${item.status}/${item.key}/${item.old ?? ''}>${item.new ?? ''}/${page(item.added)}/${page(item.modified)}/${page(item.removed)}/${item.reordered.length}`).join(';')}`;
 	}
 
 	/** A download's name, with the folder it is in when another chosen download has the same name. */
@@ -245,7 +326,7 @@ export class ImportWizard extends Modal {
 		const session = this.session;
 		this.sourceList = listEl;
 		listEl.empty();
-		if (!session.downloads.length) new Setting(listEl).setClass('mod-empty-state').setName(ui.sourceEmpty);
+		if (!session.downloads.length) new Setting(listEl).setClass('mod-empty-state').setName(session.entry === 'update' ? ui.updateSourceEmpty : ui.sourceEmpty);
 		for (const download of session.downloads) {
 			const row = new Setting(listEl).setName(this.downloadLabel(download));
 			rowIcon(row, /\.zip$/i.test(download.input) ? 'lucide-file-archive' : 'lucide-folder');
@@ -319,7 +400,11 @@ export class ImportWizard extends Modal {
 			const choices = session.choices.filter(choice => choice.download === download);
 			if (!choices.length) continue;
 			if (many) listEl.createDiv({ cls: 'onenote-ferry-tree-heading', text: this.downloadLabel(download) });
-			for (const choice of choices) this.treeRow(listEl, choice, treeOf(choice.notebook), 'notebook', rows);
+			for (const choice of choices) {
+				// Sections of ours the download does not have: shown where they are, never ticked.
+				const gone = new Map(session.gone(choice).map(item => [{ path: `\u0000gone\u0000${item.old}`, notebook: choice.notebook.name, groups: item.groups, label: item.label, size: 0 } as DownloadSection, item]));
+				this.treeRow(listEl, choice, treeOf(choice.notebook, [...gone.keys()]), 'notebook', rows, section => gone.has(section));
+			}
 		}
 		return rows;
 	}
@@ -328,13 +413,26 @@ export class ImportWizard extends Modal {
 		return `${choice.download.input}\u0000${choice.notebook.path}\u0000${path}`;
 	}
 
-	/** One row of the tree, and the rows under it. */
-	private treeRow(parent: HTMLElement, choice: NotebookChoice, node: TreeNode, kind: 'notebook' | 'group' | 'section', rows: (() => void)[]): void {
+	/** Shows a row's word on the right, how it stands out, and why on hover. */
+	private static showFlair(el: HTMLElement, flair: Flair): void {
+		el.setText(flair.text);
+		el.toggleClass('onenote-ferry-flair-strong', flair.tone === 'strong');
+		el.toggleClass('onenote-ferry-flair-warn', flair.tone === 'warn');
+		if (flair.tip) setTooltip(el, flair.tip, { placement: 'top' });
+		else el.removeAttribute('aria-label');
+	}
+
+	/** One row of the tree, and the rows under it (for a section that changed, its pages). */
+	private treeRow(parent: HTMLElement, choice: NotebookChoice, node: TreeNode, kind: 'notebook' | 'group' | 'section', rows: (() => void)[], isGone: (section: DownloadSection) => boolean): void {
 		const session = this.session;
-		const folder = kind !== 'section';
+		const stateOf = (section: DownloadSection): RowState => (isGone(section) ? 'gone' : session.sectionState(choice, section));
+		const section = kind === 'section' ? node.sections[0]! : undefined;
+		const item = section && !isGone(section) ? session.itemOf(choice, section) : undefined;
+		const details = section && item ? this.details(choice, section, item) : [];
+		const folder = kind !== 'section' || details.length > 0;
 		const id = this.rowId(choice, node.path);
-		const item = parent.createDiv('tree-item');
-		const self = item.createDiv(`tree-item-self is-clickable ${folder ? 'mod-folder mod-collapsible' : 'mod-file'}`);
+		const treeItem = parent.createDiv('tree-item');
+		const self = treeItem.createDiv(`tree-item-self is-clickable ${folder ? 'mod-folder mod-collapsible' : 'mod-file'}`);
 		const arrow = folder ? self.createDiv('tree-item-icon collapse-icon') : undefined;
 		if (arrow) setIcon(arrow, 'right-triangle');
 		const inner = self.createDiv('tree-item-inner file-tree-item');
@@ -342,13 +440,13 @@ export class ImportWizard extends Modal {
 		setIcon(inner.createDiv('file-tree-item-icon'), kind === 'notebook' ? 'lucide-notebook' : kind === 'group' ? 'lucide-folder' : 'lucide-file-text');
 		const title = inner.createDiv({ cls: 'file-tree-item-title', text: node.title });
 		const flair = self.createDiv('tree-item-flair-outer').createSpan('tree-item-flair');
-		const children = item.createDiv('tree-item-children');
+		const children = treeItem.createDiv('tree-item-children');
 
 		const open = () => this.expanded.has(id);
 		const showOpen = () => {
 			arrow?.toggleClass('is-collapsed', !open());
 			arrow?.setAttr('aria-expanded', String(open()));
-			item.toggleClass('is-collapsed', !open());
+			treeItem.toggleClass('is-collapsed', !open());
 			children.toggle(open());
 		};
 		const toggleOpen = () => {
@@ -373,51 +471,172 @@ export class ImportWizard extends Modal {
 			event.stopPropagation();
 			toggleOpen();
 		});
+		// Only the download's own sections can be ticked.
+		const tickable = () => node.sections.filter(one => !isGone(one) && TICKABLE.has(session.sectionState(choice, one)));
 		box.addEventListener('click', event => event.stopPropagation());
-		box.addEventListener('change', () => session.setSections(choice, node.sections, box.checked));
-		// A notebook or group row opens and closes; a section row ticks.
+		box.addEventListener('change', () => session.setSections(choice, tickable(), box.checked));
+		// A notebook or group row opens and closes; a section row ticks (its arrow opens it).
 		self.addEventListener('click', () => {
-			if (folder) toggleOpen();
-			else if (!box.disabled) session.setSections(choice, node.sections, !box.checked);
+			if (kind !== 'section') toggleOpen();
+			else if (!box.disabled) session.setSections(choice, tickable(), !box.checked);
 		});
 
 		rows.push(() => {
-			const states = node.sections.map(section => session.sectionState(choice, section));
-			const free = node.sections.filter((_, i) => states[i] === 'free');
-			const chosen = free.filter(section => session.isChosen(choice, section)).length;
-			const disabled = free.length === 0;
+			const states = node.sections.map(stateOf);
+			const ticks = tickable().map(one => session.ticked(choice, one));
+			const disabled = ticks.length === 0;
+			const every = ticks.length > 0 && ticks.every(tick => tick === true);
 			box.disabled = disabled;
 			// Nothing to tick: ticked (and dimmed) when what can be there is there already.
-			box.checked = disabled ? states.some(state => state === 'imported') && states.every(state => state !== 'blocked') : chosen === free.length;
-			box.indeterminate = !disabled && chosen > 0 && chosen < free.length;
+			box.checked = disabled ? states.some(state => state === 'same') && states.every(state => state !== 'blocked' && state !== 'different') : every;
+			box.indeterminate = !disabled && !every && ticks.some(tick => tick !== false);
 			box.setAttr('data-indeterminate', String(box.indeterminate));
 			self.toggleClass('is-disabled', disabled);
 			if (kind === 'notebook') title.setText(choice.notebook.name);
-			flair.setText(this.note(kind, choice, node, states));
+			ImportWizard.showFlair(flair, this.note(kind, choice, node, states));
 		});
-		const childKind = (child: TreeNode) => child.children.length ? 'group' : 'section';
-		for (const child of node.children) this.treeRow(children, choice, child, childKind(child), rows);
+		if (section) {
+			for (const draw of details) draw(children, rows);
+			return;
+		}
+		const childKind = (child: TreeNode) => (child.children.length ? 'group' : 'section');
+		for (const child of node.children) this.treeRow(children, choice, child, childKind(child), rows, isGone);
 	}
 
-	/** What the right of a row says: why it cannot be ticked, that it goes into a notebook there already, or its size. */
-	private note(kind: 'notebook' | 'group' | 'section', choice: NotebookChoice, node: TreeNode, states: SectionState[]): string {
+	/**
+	 * The rows under a section of a notebook imported before that changed: where it was, its pages
+	 * added, changed and removed, the pages the user deleted (each can be brought back), and how many
+	 * only moved. Each draws its row into the section's children.
+	 */
+	private details(choice: NotebookChoice, section: DownloadSection, item: PlanItem): ((parent: HTMLElement, rows: (() => void)[]) => void)[] {
 		const ui = this.ui;
-		if (!node.sections.length) return ui.noSections;
-		if (states.length && states.every(state => state === 'blocked')) return kind === 'notebook' ? choice.otherSpelling ? ui.folderSpelling : ui.folderTaken : '';
-		// Nothing left to tick, and some of it is there: imported (the rest cannot be read).
-		if (states.some(state => state === 'imported') && !states.includes('free')) return ui.imported;
-		// A section, or a notebook or group whose sections are all alike: why they cannot be ticked.
+		const session = this.session;
+		const state = session.sectionState(choice, section);
+		if (state !== 'changed' && state !== 'older' && state !== 'unfinished' && state !== 'restorable') return [];
+		const untitled = STRINGS[session.readerLanguage].untitledPage;
+		const folder = session.oldVersionsFolder;
+		const out: ((parent: HTMLElement, rows: (() => void)[]) => void)[] = [];
+		const line = (text: string, flair: Flair, icon = 'lucide-file-text', muted = false) => (parent: HTMLElement) => {
+			const self = parent.createDiv('tree-item').createDiv('tree-item-self mod-file onenote-ferry-page');
+			const inner = self.createDiv('tree-item-inner file-tree-item');
+			// In line with the rows that have a box.
+			inner.createSpan('onenote-ferry-box-space');
+			setIcon(inner.createDiv('file-tree-item-icon'), icon);
+			inner.createDiv({ cls: `file-tree-item-title${muted ? ' onenote-ferry-muted' : ''}`, text });
+			ImportWizard.showFlair(self.createDiv('tree-item-flair-outer').createSpan('tree-item-flair'), flair);
+		};
+		// Where it was, when OneNote renamed it or moved it to another group.
+		if (item.old !== undefined && item.new !== undefined && fold(item.old) !== fold(item.new)) {
+			const was = item.before ? [...item.before.groups, item.before.name].join(' / ') : item.old;
+			out.push(line(ui.sectionWas(was), { text: '' }, 'lucide-folder-input', true));
+		}
+		for (const page of item.added.filter(page => !page.userDeleted)) out.push(line(page.title || untitled, { text: ui.pageAdded }));
+		for (const page of item.modified) {
+			out.push(line(page.title || untitled, page.userEdited
+				? { text: ui.pageBothEdited, tone: 'warn', tip: ui.pageBothEditedTip(folder) }
+				: { text: ui.pageModified, ...(page.from !== undefined ? { tip: ui.pageRetitled(page.from || untitled) } : {}) }));
+		}
+		for (const page of item.removed) out.push(line(page.title || untitled, { text: ui.pageRemoved, tip: ui.keptAsIs }));
+		// Pages the user deleted in Obsidian: each can be brought back.
+		for (const page of item.added.filter(page => page.userDeleted)) {
+			out.push((parent, rows) => {
+				const self = parent.createDiv('tree-item').createDiv('tree-item-self is-clickable mod-file onenote-ferry-page');
+				const inner = self.createDiv('tree-item-inner file-tree-item');
+				const box = inner.createEl('input', { type: 'checkbox', cls: 'file-tree-item-checkbox' });
+				setIcon(inner.createDiv('file-tree-item-icon'), 'lucide-file-text');
+				inner.createDiv({ cls: 'file-tree-item-title', text: page.title || untitled });
+				ImportWizard.showFlair(self.createDiv('tree-item-flair-outer').createSpan('tree-item-flair'), { text: ui.pageDeleted, tip: ui.pageDeletedTip });
+				box.addEventListener('click', event => event.stopPropagation());
+				box.addEventListener('change', () => session.setRestored(choice, section, page.id, box.checked));
+				self.addEventListener('click', () => session.setRestored(choice, section, page.id, !box.checked));
+				rows.push(() => {
+					box.checked = session.isRestored(choice, section, page.id);
+				});
+			});
+		}
+		if (item.reordered.length) out.push(line(ui.pagesReordered(item.reordered.length), { text: '' }, 'lucide-list-ordered', true));
+		return out;
+	}
+
+	/** What the right of a row says, and why on hover. */
+	private note(kind: 'notebook' | 'group' | 'section', choice: NotebookChoice, node: TreeNode, states: RowState[]): Flair {
+		const ui = this.ui;
+		const session = this.session;
+		if (!node.sections.length) return { text: ui.noSections };
+		if (states.every(state => state === 'blocked')) return { text: kind === 'notebook' ? choice.otherSpelling ? ui.folderSpelling : ui.folderTaken : '' };
+		if (kind === 'notebook' && choice.earlier) {
+			// A notebook imported before: what changed in it, in a few words (open it for the rest).
+			if (!choice.plan) return { text: ui.checkingRow };
+			if (choice.plan.identity === 'different') return { text: ui.different, tip: ui.differentTip };
+			if (states.every(state => state === 'duplicate' || state === 'gone')) return { text: ui.duplicate, tip: ui.duplicateTip };
+			return this.summary(choice, node, states);
+		}
+		// A notebook new to the target folder, while others there are updated: it is ticked only when asked.
+		if (kind === 'notebook' && session.updating) return { text: ui.notImported };
 		const same = states.every(state => state === states[0]) ? states[0] : undefined;
-		if (same === 'locked') return ui.locked;
-		if (same === 'incomplete') return ui.incomplete;
-		if (same === 'occupied') return ui.folderTaken;
-		// Sections to add to the folder an earlier import of this notebook left: said, so two notebooks
-		// of one name are not merged unseen (§11.5 item 47).
-		if (kind === 'notebook' && choice.earlier) return ui.addingTo;
-		if (kind === 'group') return '';
-		// Sections cut off in the download have no size: nothing rather than "0 B".
+		if (kind === 'group') {
+			// A group in a notebook imported before that holds updates says so, as its notebook does.
+			if (choice.earlier && states.some(state => STRONG.has(state))) return this.summary(choice, node, states);
+			return same !== undefined && GROUP_WORDS.has(same) ? this.word(choice, node, same) : { text: '' };
+		}
+		if (kind === 'section') return this.word(choice, node, states[0]!);
+		// A new notebook whose sections all cannot be ticked for one reason: that reason; else its size.
+		if (same === 'locked' || same === 'incomplete') return this.word(choice, node, same);
 		const bytes = node.sections.reduce((n, section) => n + section.size, 0);
-		return bytes ? formatBytes(bytes) : '';
+		return { text: bytes ? formatBytes(bytes) : '' };
+	}
+
+	/**
+	 * A notebook (or group) imported before, collapsed: how many sections the update takes unless
+	 * unticked (as the bottom line counts them; a download older than the vault is no update), in the
+	 * warning colour when pages edited on both sides are among them; "no changes" only when nothing
+	 * in it differs or needs a look.
+	 */
+	private summary(choice: NotebookChoice, node: TreeNode, states: RowState[]): Flair {
+		const ui = this.ui;
+		const session = this.session;
+		const changed = states.filter(state => STRONG.has(state)).length;
+		if (changed) {
+			const both = node.sections.some((section, i) => states[i] === 'changed' && session.itemOf(choice, section)?.modified.some(page => page.userEdited));
+			return { text: ui.sectionsChanged(changed), tone: both ? 'warn' : 'strong' };
+		}
+		return states.every(state => QUIET.has(state)) ? { text: ui.unchanged } : { text: '' };
+	}
+
+	/** The word for a section (or a group of sections) in one state. */
+	private word(choice: NotebookChoice, node: TreeNode, state: RowState): Flair {
+		const ui = this.ui;
+		const session = this.session;
+		const section = node.sections[0]!;
+		const folder = session.oldVersionsFolder;
+		switch (state) {
+			case 'free': {
+				// Sections cut off in the download have no size: nothing rather than "0 B".
+				const bytes = node.sections.reduce((n, one) => n + one.size, 0);
+				return { text: bytes ? formatBytes(bytes) : '' };
+			}
+			case 'locked': return { text: ui.locked };
+			case 'incomplete': return { text: ui.incomplete };
+			case 'occupied': return { text: ui.folderTaken };
+			case 'unreadable': {
+				const error = node.sections.length === 1 ? session.itemOf(choice, section)?.error : undefined;
+				return { text: ui.unreadable, ...(error ? { tip: error } : {}) };
+			}
+			case 'checking': return { text: ui.checkingRow };
+			case 'same': return { text: ui.unchanged };
+			case 'gone': return { text: ui.gone, tip: ui.keptAsIs };
+			case 'restorable': return { text: ui.restorable(session.deletedPages(choice, section).length), tip: ui.restorableTip };
+			case 'changed': {
+				const both = session.itemOf(choice, section)?.modified.filter(page => page.userEdited).length ?? 0;
+				return both ? { text: ui.changed, tone: 'warn', tip: ui.bothEditedIn(both) } : { text: ui.changed, tone: 'strong' };
+			}
+			case 'older': return { text: ui.older, tip: ui.olderTip(folder) };
+			case 'new': return { text: ui.newSection, tone: 'strong' };
+			case 'unfinished': return { text: ui.unfinished, tone: 'strong' };
+			case 'skipped': return { text: ui.skipped };
+			case 'missing': return { text: ui.missing, tip: ui.missingTip };
+			default: return { text: '' };
+		}
 	}
 
 	// While the import runs.
@@ -429,7 +648,7 @@ export class ImportWizard extends Modal {
 		const count = box.createDiv('onenote-ferry-progress-count');
 		const bar = new ProgressBarComponent(box);
 		const name = box.createDiv('onenote-ferry-progress-name');
-		box.createDiv({ cls: 'onenote-ferry-progress-hint', text: ui.closeHint });
+		box.createDiv({ cls: 'onenote-ferry-progress-hint', text: session.running === 'update' ? ui.closeHintUpdate : ui.closeHint });
 		const footer = this.footer();
 		const stop = new ButtonComponent(footer).onClick(() => session.requestStop());
 		this.refresh = () => {
@@ -459,50 +678,76 @@ export class ImportWizard extends Modal {
 		const session = this.session;
 		const outcome = session.outcome;
 		const result = outcome?.result;
+		const update = session.running === 'update';
 		const box = this.contentEl.createDiv('onenote-ferry-result');
 		const heading = box.createDiv('onenote-ferry-result-heading');
-		const failed = !!session.error || !outcome || !result;
-		setIcon(heading.createSpan('onenote-ferry-result-icon'), failed ? 'lucide-circle-x' : result.cancelled ? 'lucide-circle-pause' : 'lucide-circle-check');
-		heading.createSpan({ text: failed ? ui.failed : result.cancelled ? ui.stopped : ui.finished });
+		// An update with nothing left to do when it started (a cut-off one finished first) did not fail.
+		const failed = !!session.error || (!update && (!outcome || !result));
+		const stopped = !failed && (!!result?.cancelled || !!session.updateResult?.cancelled || (update && session.stopRequested && !session.updateResult));
+		setIcon(heading.createSpan('onenote-ferry-result-icon'), failed ? 'lucide-circle-x' : stopped ? 'lucide-circle-pause' : 'lucide-circle-check');
+		heading.createSpan({ text: update
+			? failed ? ui.updateFailed : stopped ? ui.updateStopped : ui.updateFinished
+			: failed ? ui.failed : stopped ? ui.stopped : ui.finished });
 		const footer = this.footer();
 		if (failed) {
 			box.createDiv({ cls: 'onenote-ferry-result-line onenote-ferry-warning', text: session.alreadyThere ? ui.alreadyInFolder(session.alreadyThere) : session.error ?? '' });
 			new ButtonComponent(footer).setButtonText(ui.close).setCta().onClick(() => this.close());
 			return;
 		}
-		// What this import did: the sections it converted (or noted as failed), not those an earlier one had
-		// written, the user left unticked, or a stop left out (those have their own line below).
-		const mine = (notebook: typeof result.notebooks[number]) => notebook.sections.filter(section => !section.earlier && !section.skipped);
-		const handled = result.notebooks.flatMap(notebook => mine(notebook).filter(section => !section.cancelled));
-		const converted = handled.filter(section => section.report);
-		box.createDiv({ cls: 'onenote-ferry-result-line', text: ui.summary(
-			result.notebooks.filter(notebook => !(mine(notebook).length && mine(notebook).every(section => section.cancelled))).length, handled.length,
-			converted.reduce((n, section) => n + (section.report?.pageCount ?? 0), 0),
-			converted.reduce((n, section) => n + (section.report?.attachments ?? 0), 0)) });
 		const notes: string[] = [];
-		const notConverted = handled.filter(section => section.failed || section.locked).length;
-		if (notConverted) notes.push(ui.notConverted(notConverted));
-		const leftOut = result.notebooks.flatMap(mine).filter(section => section.cancelled).length + result.notStarted.reduce((n, notebook) => n + notebook.sections, 0);
-		if (leftOut) notes.push(ui.leftOut(leftOut));
-		// Only part of a notebook: some of it converted now, some left out by the stop (one the stop came
-		// before entirely is counted with the sections left out).
-		for (const notebook of result.notebooks) {
-			if (mine(notebook).some(section => section.cancelled) && mine(notebook).some(section => !section.cancelled)) notes.push(ui.partial(notebook.notebook));
+		// The update: what it changed, and what needs a look (the record says which).
+		const done = session.updateResult;
+		if (update) {
+			const counts = done?.counts;
+			box.createDiv({ cls: 'onenote-ferry-result-line', text: counts ? ui.updateSummary(counts.sectionsUpdated, counts.sectionsAdded, counts.pagesAdded, counts.pagesModified, counts.pagesRestored) : ui.updateSummary(0, 0, 0, 0, 0) });
+			const attention = done?.attention;
+			const backup = done?.backup ?? session.oldVersionsFolder;
+			if (attention?.bothEdited) notes.push(ui.attnBothEdited(attention.bothEdited, backup));
+			if (attention?.rolledBack) notes.push(ui.attnRolledBack(attention.rolledBack));
+			if (attention?.notConverted) notes.push(ui.attnNotConverted(attention.notConverted));
+			if (attention?.notUpdated) notes.push(ui.attnNotUpdated(attention.notUpdated));
+			if (attention?.keptAside) notes.push(ui.attnKeptAside(attention.keptAside, backup.split('/')[0]!));
+			// Stopped before the update began (while new notebooks were imported), or during it.
+			const leftOut = done ? attention!.notReached : session.stopRequested ? session.updateTotal : 0;
+			if (leftOut) notes.push(ui.attnLeftOut(leftOut));
+		}
+		// The import (of notebooks new to the target folder): the sections it converted (or noted as
+		// failed), not those the user left unticked or a stop left out (those have their own line).
+		if (result && result.notebooks.length) {
+			const mine = (notebook: typeof result.notebooks[number]) => notebook.sections.filter(section => !section.earlier && !section.skipped);
+			const handled = result.notebooks.flatMap(notebook => mine(notebook).filter(section => !section.cancelled));
+			const converted = handled.filter(section => section.report);
+			const summary = ui.summary(
+				result.notebooks.filter(notebook => !(mine(notebook).length && mine(notebook).every(section => section.cancelled))).length, handled.length,
+				converted.reduce((n, section) => n + (section.report?.pageCount ?? 0), 0),
+				converted.reduce((n, section) => n + (section.report?.attachments ?? 0), 0));
+			box.createDiv({ cls: 'onenote-ferry-result-line', text: update ? ui.alsoImported(summary) : summary });
+			const notConverted = handled.filter(section => section.failed || section.locked).length;
+			if (notConverted) notes.push(ui.notConverted(notConverted));
+			const leftOut = result.notebooks.flatMap(mine).filter(section => section.cancelled).length + result.notStarted.reduce((n, notebook) => n + notebook.sections, 0);
+			if (leftOut) notes.push(ui.leftOut(leftOut));
+			// Only part of a notebook: some of it converted now, some left out by the stop (one the stop came
+			// before entirely is counted with the sections left out).
+			for (const notebook of result.notebooks) {
+				if (mine(notebook).some(section => section.cancelled) && mine(notebook).some(section => !section.cancelled)) notes.push(ui.partial(notebook.notebook));
+			}
 		}
 		if (notes.length) {
 			const list = box.createEl('ul', { cls: 'onenote-ferry-result-notes' });
 			for (const note of notes) list.createEl('li', { text: note });
 		}
-		const reportPath = outcome.reportPath;
 		const close = new ButtonComponent(footer).setButtonText(ui.close).onClick(() => this.close());
-		if (!reportPath) {
+		// The update's record when there is one (the report links to it), else the report.
+		const target = session.recordPath ?? outcome?.reportPath;
+		if (!target) {
 			close.setCta();
 			return;
 		}
-		new ButtonComponent(footer).setButtonText(ui.openReport).setCta().onClick(() => {
-			const file = this.app.vault.getFileByPath(reportPath);
+		const recordShown = target === session.recordPath;
+		new ButtonComponent(footer).setButtonText(recordShown ? ui.openRecord : ui.openReport).setCta().onClick(() => {
+			const file = this.app.vault.getFileByPath(target);
 			if (!file) {
-				new Notice(ui.reportMissing);
+				new Notice(recordShown ? ui.recordMissing : ui.reportMissing);
 				return;
 			}
 			void this.app.workspace.getLeaf(true).openFile(file);

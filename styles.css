@@ -84,6 +84,49 @@
 	pointer-events: none;
 }
 
+/* An update: what it will take unless unticked stands out; pages the user also edited, more so. */
+.onenote-ferry-tree .tree-item-flair.onenote-ferry-flair-strong {
+	color: var(--text-accent);
+}
+
+.onenote-ferry-tree .tree-item-flair.onenote-ferry-flair-warn,
+.onenote-ferry-summary .onenote-ferry-flair-warn {
+	color: var(--text-warning);
+}
+
+/* The pages of a section that changed: lines to read, not to tick (but for pages to bring back). */
+.onenote-ferry-tree .onenote-ferry-page {
+	cursor: default;
+}
+
+.onenote-ferry-tree .onenote-ferry-page.is-clickable {
+	cursor: pointer;
+}
+
+.onenote-ferry-tree .onenote-ferry-muted {
+	color: var(--text-muted);
+}
+
+.onenote-ferry-box-space {
+	display: inline-block;
+	flex-shrink: 0;
+	width: var(--checkbox-size);
+	margin-inline-end: var(--size-4-2);
+}
+
+/* Beside the settings heading, while language and options are greyed: why. */
+.onenote-ferry-settings .onenote-ferry-heading-note {
+	margin-inline-start: var(--size-4-3);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-normal);
+}
+
+/* Language and options while only notebooks imported before are written: greyed as a whole, as the tree's rows are. */
+.onenote-ferry-settings .setting-item.is-disabled {
+	opacity: 0.5;
+}
+
 /* Before a download is chosen: what will come here, in the space it will take. */
 .onenote-ferry-tree-placeholder {
 	display: flex;

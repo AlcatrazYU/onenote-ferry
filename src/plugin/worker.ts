@@ -11,8 +11,11 @@ import type { SectionHost, SectionOptions } from '../core/importer.ts';
 import type { Sink } from '../core/io.ts';
 import { STRINGS } from '../core/strings.ts';
 import type { Language } from '../core/strings.ts';
+import { scannedPages } from '../core/sync.ts';
+import type { ScannedPage } from '../core/sync.ts';
 import { openDownload, parseWithWasm, passwordProtected } from '../node/download.ts';
 import type { Download, WasmParser } from '../node/download.ts';
+import { fileSink } from '../node/file-sink.ts';
 import type { OpenedDownload, SinkCall, ToWorker } from './protocol.ts';
 
 declare const require: (id: string) => any;
@@ -91,8 +94,9 @@ function closeAll(): void {
 	downloads.clear();
 }
 
-const hostFor = (download: Download): SectionHost => ({
-	sink,
+/** An update's section goes straight into its staging folder outside the vault; an import's into the vault, through the window. */
+const hostFor = (download: Download, staging?: string): SectionHost => ({
+	sink: staging ? fileSink(staging) : sink,
 	parse: section => parseWithWasm(parser(), download, section),
 	isPasswordProtected: section => passwordProtected(download, section),
 });
@@ -119,9 +123,20 @@ async function handle(message: ToWorker): Promise<unknown> {
 			}
 			return locked;
 		}
+		case 'scan': {
+			const download = await opened(message.input);
+			const parsed = await parseWithWasm(parser(), download, message.section as DownloadSection);
+			try {
+				return scannedPages(parsed.json) satisfies ScannedPage[];
+			}
+			finally {
+				parsed.release();
+			}
+		}
 		case 'convert': {
 			const download = await opened(message.input);
-			return convertSection(message.section as DownloadSection, message.dir, STRINGS[message.language as Language], hostFor(download), message.options as SectionOptions);
+			const names = message.names ? { names: new Map(message.names.names), taken: new Set(message.names.taken) } : undefined;
+			return convertSection(message.section as DownloadSection, message.dir, STRINGS[message.language as Language], hostFor(download, message.staging), message.options as SectionOptions, names);
 		}
 		case 'close':
 			closeAll();
