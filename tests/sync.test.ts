@@ -259,10 +259,24 @@ test('two notebooks of one name with no page in common are not the same notebook
 	assert.equal(planNotebook('Tides', [scan('Spring', [p('{A}', 'a')])], undefined, zhHans).identity, 'new');
 });
 
-test('page info from the parser JSON: in order, ids upper case, times as ISO strings, levels', () => {
-	const pages = scannedPages({ pages: [{ id: '{abc}', title: 'T', updated: 1704067200, level: 2 }, { id: '{def}', title: null, updated: null }] });
+test('page info from the parser JSON: in order, ids upper case, times as ISO strings, levels', async () => {
+	const pages = await scannedPages({ pages: [{ id: '{abc}', title: 'T', updated: 1704067200, level: 2 }, { id: '{def}', title: null, updated: null }] });
 	// Levels as the page properties have them (the parser counts from 1, the properties from 0).
 	assert.deepEqual(pages, [{ id: '{ABC}', title: 'T', modified: T1, level: 1 }, { id: '{DEF}', title: '', modified: null, level: 0 }]);
+	// With its content, a page gets a fingerprint: the same content the same one, other content
+	// another; a text box's width does not count, its place does (§11.5 item 59).
+	const box = (text: string, x: number, w: number) => [{ type: 'outline', x, y: 1, w, items: [{ contents: [{ runs: [{ text }] }] }] }];
+	const [a, b, c, d] = await scannedPages({ pages: [
+		{ id: '{a}', contents: box('one', 1, 13.86) }, { id: '{b}', contents: box('one', 1, 12.01) }, { id: '{c}', contents: box('two', 1, 13.86) }, { id: '{d}', contents: box('one', 5, 13.86) },
+	] });
+	assert.match(a!.fingerprint!, /^[0-9a-f]{20}$/);
+	assert.equal(b!.fingerprint, a!.fingerprint);
+	assert.notEqual(c!.fingerprint, a!.fingerprint);
+	assert.notEqual(d!.fingerprint, a!.fingerprint);
+	// A picture's recognised text and the alt text OneNote fills in from it, later, do not count either.
+	const pictured = (ocr: string | null) => [{ type: 'outline', x: 1, y: 1, w: 9, items: [{ contents: [{ type: 'image', asset: 'aa.png', alt: ocr, ocr }] }] }];
+	const [e, f] = await scannedPages({ pages: [{ id: '{e}', contents: pictured(null) }, { id: '{f}', contents: pictured('text read from the picture') }] });
+	assert.equal(f!.fingerprint, e!.fingerprint);
 });
 
 test('front matter: JSON strings, single quotes, CRLF lines, line separators inside a value', () => {

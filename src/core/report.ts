@@ -79,7 +79,7 @@ function isSection(value: unknown): value is SectionResult {
 	const report = section.report;
 	if (report === undefined) return true;
 	return !!report && typeof report === 'object' && isNumber(report.pageCount) && isNumber(report.attachments) && Array.isArray(report.pages)
-		&& report.pages.every(page => !!page && isString(page.file) && (page.title === undefined || isString(page.title)) && Array.isArray(page.skipped) && page.skipped.every(isString));
+		&& report.pages.every(page => !!page && isString(page.file) && (page.title === undefined || isString(page.title)) && (page.fingerprint === undefined || isString(page.fingerprint)) && Array.isArray(page.skipped) && page.skipped.every(isString));
 }
 
 function isEntry(value: unknown): value is ReportNotebook {

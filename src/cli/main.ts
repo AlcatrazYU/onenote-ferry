@@ -346,7 +346,7 @@ async function plan(argv: string[], command: 'plan' | 'sync') {
 					continue;
 				}
 				try {
-					scanned.push({ key, groups: section.groups, label: section.label, pages: scannedPages(await readSection(section)) });
+					scanned.push({ key, groups: section.groups, label: section.label, pages: await scannedPages(await readSection(section)) });
 				}
 				catch (error) {
 					const locked = await passwordProtected(download, section).catch(() => false);

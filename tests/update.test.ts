@@ -84,20 +84,20 @@ function host(vault: MemorySink, version: Version, stagings = new Map<string, Me
 	};
 }
 
-function requests(version: Version, chosen?: string[], restore?: string[]) {
-	return download(version).map(notebook => ({
+async function requests(version: Version, chosen?: string[], restore?: string[]) {
+	return Promise.all(download(version).map(async notebook => ({
 		...(restore ? { restore: new Set(restore) } : {}),
 		notebook,
-		scanned: notebook.sections.map(section => ({
+		scanned: await Promise.all(notebook.sections.map(async section => ({
 			key: `${notebook.name}/${placeOf(section)}`, groups: section.groups, label: section.label,
-			pages: scannedPages(sectionJson(section.label, version[placeOf(section)]!.pages) as never),
-		})),
+			pages: await scannedPages(sectionJson(section.label, version[placeOf(section)]!.pages) as never),
+		}))),
 		chosen: new Set(chosen ?? notebook.sections.map(section => sectionKey(section.groups, section.label))),
-	}));
+	})));
 }
 
-const update = (vault: MemorySink, version: Version, h = host(vault, version), chosen?: string[]) =>
-	updateNotebooks(requests(version, chosen), h, { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults: OPTIONS, links: true, sources: ['new.zip'] });
+const update = async (vault: MemorySink, version: Version, h = host(vault, version), chosen?: string[]) =>
+	updateNotebooks(await requests(version, chosen), h, { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults: OPTIONS, links: true, sources: ['new.zip'] });
 
 /** Files under a folder: text (or bytes as text) and time. */
 function snapshot(sink: MemorySink, folder = 'Tides') {
@@ -184,7 +184,7 @@ test('a page the user deleted comes back only when chosen', async () => {
 	// Nothing else changed: nothing to do, unless the page is to come back.
 	assert.equal(await update(vault, V1), undefined);
 	assert.equal(textOf(vault, 'Tides/Spring/Two.md'), undefined);
-	const back = await updateNotebooks(requests(V1, undefined, [id('b').toUpperCase()]), host(vault, V1), { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults: OPTIONS, links: true, sources: ['new.zip'] });
+	const back = await updateNotebooks(await requests(V1, undefined, [id('b').toUpperCase()]), host(vault, V1), { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults: OPTIONS, links: true, sources: ['new.zip'] });
 	assert.deepEqual(back!.outcomes, [{ notebook: 'Tides', key: 'Spring', outcome: 'done' }]);
 	assert.deepEqual(snapshot(vault, 'Tides/Spring'), snapshot(await imported(V1), 'Tides/Spring'));
 	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /- 补回在 Obsidian 中删除的页面：\[Two\]/);
@@ -193,11 +193,44 @@ test('a page the user deleted comes back only when chosen', async () => {
 	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /- 补回 1 页\n/);
 });
 
+test('a page whose content OneNote changed while its last-modified time stayed is updated: the content decides (§11.5 item 59)', async () => {
+	// OneNote leaves a page's time as it was when its text is edited (seen on real downloads).
+	const V2: Version = { ...V1, Spring: { pages: [page('a', 'One', 'one, edited in OneNote', 1), V1.Spring!.pages[1]!, V1.Spring!.pages[2]!] } };
+	const vault = await imported(V1);
+	const result = await update(vault, V2);
+	assert.deepEqual(result!.outcomes.map(o => `${o.key}:${o.outcome}`), ['Spring:done']);
+	assert.match(textOf(vault, 'Tides/Spring/One.md')!, /one, edited in OneNote/);
+	assert.match(textOf(vault, `${BACKUP}/Tides/Spring/One.md`)!, /one, first version/);
+	// The report now holds the new content's fingerprint: checking again finds nothing.
+	assert.equal(await update(vault, V2), undefined);
+});
+
+test('only the width of a text box changed (OneNote does it by itself): nothing to update', async () => {
+	const boxed = (width: number) => pageJson('One', [outline([element([rich([run('one, first version')])])], { x: 1, y: 1, w: width })], { id: id('a'), updated: hour(1) });
+	const W1: Version = { Spring: { pages: [boxed(13.86)] } }, W2: Version = { Spring: { pages: [boxed(12.01)] } };
+	const vault = await imported(W1);
+	assert.equal(await update(vault, W2), undefined);
+	// Moving it is a change (reading order and position comments follow it).
+	const moved: Version = { Spring: { pages: [pageJson('One', [outline([element([rich([run('one, first version')])])], { x: 9, y: 1, w: 13.86 })], { id: id('a'), updated: hour(1) })] } };
+	assert.deepEqual((await update(vault, moved))!.outcomes.map(o => o.outcome), ['done']);
+});
+
+test('a report written before fingerprints (none recorded): pages are compared by their time, as before', async () => {
+	const vault = await imported(V1);
+	const reportPath = [...vault.files.keys()].find(path => path.endsWith('.json'))!;
+	vault.files.set(reportPath, (vault.files.get(reportPath) as string).replace(/,\s*"fingerprint":\s*"[^"]*"/g, ''));
+	assert.doesNotMatch(vault.files.get(reportPath) as string, /fingerprint/);
+	// The same content: nothing to update, though the content cannot be compared.
+	assert.equal(await update(vault, V1), undefined);
+	const V2: Version = { ...V1, Spring: { pages: [page('a', 'One', 'one, second version', 2), V1.Spring!.pages[1]!, V1.Spring!.pages[2]!] } };
+	assert.deepEqual((await update(vault, V2))!.outcomes.map(o => o.outcome), ['done']);
+});
+
 test('two requests for one notebook folder (two downloads of it) are refused before anything is written', async () => {
 	const V2: Version = { Spring: { pages: [page('a', 'One', 'one, second version', 2), V1.Spring!.pages[1]!, V1.Spring!.pages[2]!] }, Summer: V1.Summer! };
 	const vault = await imported(V1);
 	const before = snapshot(vault, '');
-	await assert.rejects(updateNotebooks([...requests(V2), ...requests(V2)], host(vault, V2), { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults: OPTIONS, links: true, sources: ['new.zip'] }));
+	await assert.rejects(updateNotebooks([...await requests(V2), ...await requests(V2)], host(vault, V2), { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults: OPTIONS, links: true, sources: ['new.zip'] }));
 	assert.deepEqual(snapshot(vault, ''), before);
 });
 
@@ -213,7 +246,7 @@ test('a new section chosen and not reached (the update was stopped) is new again
 	const [entry] = await reportedNotebooks(vault, zhHans);
 	const recorded = recordedPlanOptions(entry, 'Tides');
 	assert.deepEqual([...recorded.skipped!], []);
-	const plan = planNotebook('Tides', requests(V2)[0]!.scanned, await readArchive(vault, 'Tides', entry!.sections), zhHans, recorded);
+	const plan = planNotebook('Tides', (await requests(V2))[0]!.scanned, await readArchive(vault, 'Tides', entry!.sections), zhHans, recorded);
 	assert.equal(plan.items.find(item => item.label === 'Winter')!.status, 'new');
 });
 
@@ -283,8 +316,9 @@ test('attachments: a changed picture replaces its file; one a page that stays us
 	const files = () => [...vault.files.keys()].filter(path => path.startsWith('Tides/Spring/_附件/')).sort();
 	assert.deepEqual(files(), ['Tides/Spring/_附件/A title long enough to be cut - 图001 (2).png', 'Tides/Spring/_附件/A title long enough to be cut - 图001.png', 'Tides/Spring/_附件/Kept - 图001.png']);
 	// The two pages swap places and page 1 changes its picture: the converter now gives page 2 the first name.
+	// (The parser names a picture by its bytes' SHA-1, so a changed picture comes with another name.)
 	const V2p: Version = {
-		Spring: { pages: [page('l2', `${long} 2`, 'two', 1, [picture('p2.png')]), page('l1', `${long} 1`, 'one', 2, [picture('p1.png')]), page('k', 'Kept', 'k', 1, [picture('k.png')])], assets: { 'p1.png': 'CCC', 'p2.png': 'BBB', 'k.png': 'KKK' } },
+		Spring: { pages: [page('l2', `${long} 2`, 'two', 1, [picture('p2.png')]), page('l1', `${long} 1`, 'one', 2, [picture('p1b.png')]), page('k', 'Kept', 'k', 1, [picture('k.png')])], assets: { 'p1b.png': 'CCC', 'p2.png': 'BBB', 'k.png': 'KKK' } },
 	};
 	await update(vault, V2p);
 	const bytes = (path: string) => new TextDecoder().decode(vault.files.get(path) as Uint8Array);
@@ -393,7 +427,7 @@ test('a partial download keeps the sections it does not have in the notebook\'s 
 	const from: Version = { Spring: V1.Spring!, Summer: V1.Summer!, Winter: { pages: [page('e1', 'Snow', 'cold')] } };
 	const vault = await imported(from);
 	const only: Version = { Spring: { pages: [page('a', 'One', 'one, second version', 2), page('b', 'Two', 'two'), page('c', 'Three', 'three')] } };
-	const result = await updateNotebooks(requests(only).map(request => ({ ...request, partial: true })), host(vault, only), { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults: OPTIONS, links: true, sources: ['part.zip'] });
+	const result = await updateNotebooks((await requests(only)).map(request => ({ ...request, partial: true })), host(vault, only), { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults: OPTIONS, links: true, sources: ['part.zip'] });
 	assert.deepEqual(result!.outcomes.map(o => o.outcome), ['done']);
 	const toc = textOf(vault, 'Tides/_目录.md')!;
 	assert.match(toc, /\[Spring\]\(<Spring\/_目录\.md>\)/);
@@ -430,7 +464,7 @@ test('a section left unticked when its notebook was imported is "skipped" (not t
 	const recorded = recordedPlanOptions(entry, 'Tides');
 	assert.deepEqual([...recorded.skipped!], [sectionKey([], 'Summer')]);
 	const archive = await readArchive(vault, 'Tides', entry!.sections);
-	const plan = planNotebook('Tides', requests(V1)[0]!.scanned, archive, zhHans, recorded);
+	const plan = planNotebook('Tides', (await requests(V1))[0]!.scanned, archive, zhHans, recorded);
 	assert.deepEqual(plan.items.map(item => [item.label, item.status]), [['Spring', 'same'], ['Summer', 'skipped']]);
 	assert.equal(await update(vault, V1, host(vault, V1), ['Spring']), undefined);
 	const result = await update(vault, V1, host(vault, V1), ['Summer']);
@@ -560,7 +594,7 @@ test('a section folder the user moved keeps its record: OneNote moving it to ano
 	assert.equal(winter.report.pageCount, 2);
 	// OneNote then moves Winter into a group Old: followed (§11.5 item 52.2).
 	const regrouped: Version = { Spring: changed.Spring!, 'Old/Winter': from.Winter! };
-	const later = await updateNotebooks(requests(regrouped), host(vault, regrouped), { at: new Date(2026, 11, 2, 9, 0), strings: zhHans, languageFor: () => 'zh-Hans', defaults: OPTIONS, links: true, sources: ['new.zip'] });
+	const later = await updateNotebooks(await requests(regrouped), host(vault, regrouped), { at: new Date(2026, 11, 2, 9, 0), strings: zhHans, languageFor: () => 'zh-Hans', defaults: OPTIONS, links: true, sources: ['new.zip'] });
 	assert.deepEqual(later!.outcomes.map(o => o.outcome), ['done']);
 	assert.match(textOf(vault, 'Tides/Old/Winter/Snow.md')!, /cold/);
 });

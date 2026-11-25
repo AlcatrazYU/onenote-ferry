@@ -127,7 +127,7 @@ async function handle(message: ToWorker): Promise<unknown> {
 			const download = await opened(message.input);
 			const parsed = await parseWithWasm(parser(), download, message.section as DownloadSection);
 			try {
-				return scannedPages(parsed.json) satisfies ScannedPage[];
+				return await scannedPages(parsed.json) satisfies ScannedPage[];
 			}
 			finally {
 				parsed.release();

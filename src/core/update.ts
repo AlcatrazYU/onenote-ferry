@@ -36,7 +36,7 @@ import { link, readReport, reportedNotebooks, reportTime, text, writeReport } fr
 import type { ReportNotebook } from './report.ts';
 import { isLanguage, LANGUAGES, STRINGS } from './strings.ts';
 import type { Language, Strings, UpdateCounts } from './strings.ts';
-import { deletedByUser, frontMatter, planNotebook, readArchive } from './sync.ts';
+import { deletedByUser, editedInOneNote, frontMatter, planNotebook, readArchive } from './sync.ts';
 import type { Archive, ArchivedPage, ArchivedSection, PlanItem, PlanOptions, PlanStatus, ScannedSection } from './sync.ts';
 import { notebookFolder, notebookToc, sectionKey, tocHead } from './write.ts';
 import type { NotebookTocEntry } from './write.ts';
@@ -483,12 +483,15 @@ async function prepareSection(vault: UpdateSink, start: StartEntry, nb: Notebook
 	// The new version, page by page, in its order.
 	const stagedAll = await staged.sink.listFiles(N);
 	const stagedAttachments = new Set(stagedAll.filter(path => inFolder(path, joinPath(N, att))).map(baseName));
-	const pages: { id: string, file: string, text: string, title: string, modified: string | null }[] = [];
+	const pages: { id: string, file: string, text: string, title: string, modified: string | null, fingerprint?: string }[] = [];
 	for (const page of result.report!.pages) {
 		const pageText = await staged.sink.readText(joinPath(N, page.file));
 		if (pageText === undefined) throw new Error(`staged ${page.file} is missing`);
 		const properties = frontMatter(pageText);
-		pages.push({ id: (properties['onenote-id'] ?? '').toUpperCase(), file: page.file, text: pageText, title: composedText(properties.title ?? ''), modified: properties.modified ?? null });
+		pages.push({
+			id: (properties['onenote-id'] ?? '').toUpperCase(), file: page.file, text: pageText, title: composedText(properties.title ?? ''), modified: properties.modified ?? null,
+			...(page.fingerprint !== undefined ? { fingerprint: page.fingerprint } : {}),
+		});
 	}
 	const newIds = new Set(pages.map(page => page.id));
 
@@ -514,7 +517,7 @@ async function prepareSection(vault: UpdateSink, start: StartEntry, nb: Notebook
 		if (fold(before.file) !== fold(page.file)) renames.push({ from: before.file, to: page.file });
 		// Only the case differs (a title changed in case): the file keeps the vault's spelling.
 		else if (before.file !== page.file) spelling.set(page.file, before.file);
-		if (composedText(before.title) !== page.title || before.modified !== page.modified) {
+		if (composedText(before.title) !== page.title || editedInOneNote(before, page)) {
 			writes.push({ file: page.file, text: page.text, title: page.title, existing: before, ...(editedNow(before) ? { edited: true as const } : {}) });
 			replaced.add(fold(before.file));
 			continue;

@@ -2,6 +2,7 @@
 // contents, then the links between pages once everything is written. The command line and the
 // plugin share this; they differ only in how a section is parsed and where files go (ImportHost).
 
+import { pageFingerprint } from './fingerprint.ts';
 import { Adapter } from './adapter.ts';
 import type { DownloadNotebook, DownloadSection } from './download.ts';
 import type { SectionSource, Sink } from './io.ts';
@@ -414,10 +415,12 @@ export async function convertSection(section: DownloadSection, dir: string, stri
 	}
 	try {
 		const adapter = new Adapter(strings);
+		// Each page's content fingerprint, so that a later check for updates sees what OneNote changed (§11.5 item 59).
+		const fingerprints = new Map<string, string>(await Promise.all((parsed.json.pages as { id: string, contents?: unknown }[]).map(async page => [page.id, await pageFingerprint(page.contents)] as [string, string])));
 		const report = await writeSection(adapter.section(parsed.json), parsed.source, host.sink, {
 			dir, label: parsed.json.name || label, strings,
 			boxMarkers: options.boxMarkers, keepFontColor: options.keepFontColor, imageAltText: options.imageAltText,
-			...names,
+			...names, fingerprints,
 		});
 		return { groups, section: label, dir, report, stats: { parser: parsed.json.stats, parserErrors: parsed.json.errors, ...adapter.stats } };
 	}

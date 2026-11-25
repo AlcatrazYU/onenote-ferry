@@ -28,11 +28,15 @@ export interface SectionWriteOptions {
 	names?: ReadonlyMap<string, string>;
 	/** File names (composed, lower case, with `.md`) no page may take: files in the folder that are not pages being written. */
 	taken?: ReadonlySet<string>;
+	/** Each page's content fingerprint, by page id (as the parser gives it), recorded in the report. */
+	fingerprints?: ReadonlyMap<string, string>;
 }
 
 export interface PageReport {
 	/** The page id (as the parser gives it), to tell pages apart in a later update (absent in reports before M3). */
 	id?: string;
+	/** Its content's fingerprint (pageFingerprint), to tell what OneNote changed since (absent in reports before §11.5 item 59). */
+	fingerprint?: string;
 	title: string;
 	file: string;
 	level: number;
@@ -218,7 +222,8 @@ export async function writeSection(section: Section, source: SectionSource, sink
 		].filter(Boolean).join('\n');
 		const path = joinPath(dir, `${noteName}.md`);
 		await sink.writeText(path, `${frontMatter}\n\n${rendered.markdown}\n`, page.lastModifiedUtc && !isNaN(+page.lastModifiedUtc) ? page.lastModifiedUtc : undefined);
-		report.pages.push({ id: page.id, title: page.title, file: `${noteName}.md`, level: page.level, chars: rendered.markdown.length, assets: rendered.attachments.length, skipped });
+		const fingerprint = options.fingerprints?.get(page.id);
+		report.pages.push({ id: page.id, ...(fingerprint !== undefined ? { fingerprint } : {}), title: page.title, file: `${noteName}.md`, level: page.level, chars: rendered.markdown.length, assets: rendered.attachments.length, skipped });
 	}
 
 	// Last, the table of contents with every page: the section is complete.

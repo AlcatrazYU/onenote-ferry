@@ -11,6 +11,7 @@
 // is ever touched (§11.5 items 49, 51): a section is listed as gone, a page as removed, and both
 // stay where they are.
 
+import { pageFingerprint } from './fingerprint.ts';
 import type { Sink } from './io.ts';
 import { composedText, joinPath, numberedName, safeName } from './names.ts';
 import { LANGUAGES, STRINGS } from './strings.ts';
@@ -29,6 +30,8 @@ export interface ScannedPage {
 	modified: string | null;
 	/** As the page properties count it (from 0). */
 	level: number;
+	/** Its content's fingerprint (pageFingerprint): what tells that OneNote changed it (§11.5 item 59). */
+	fingerprint?: string;
 }
 
 /** A section found in the new download. */
@@ -54,6 +57,8 @@ export interface ArchivedPage {
 	file: string;
 	/** Its file's modification time (milliseconds), when the sink can tell. */
 	mtime?: number;
+	/** Its content's fingerprint when it was written, as the report recorded it (none in reports before §11.5 item 59). */
+	fingerprint?: string;
 }
 
 /** A section folder of ours. */
@@ -154,6 +159,15 @@ const EDIT_TOLERANCE = 2000;
 /** Names as the disk and Obsidian tell them apart: composed in full, any case. */
 const fold = (name: string) => name.normalize('NFC').toLowerCase();
 const parentOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '');
+
+/**
+ * Whether OneNote changed a page since it was written: its content, told by the fingerprints when
+ * both sides have one (OneNote leaves a page's time as it was when its text is edited), else its
+ * time (§11.5 item 59). A changed title is told apart by the callers.
+ */
+export function editedInOneNote(before: { modified: string | null, fingerprint?: string }, now: { modified: string | null, fingerprint?: string }): boolean {
+	return before.fingerprint !== undefined && now.fingerprint !== undefined ? before.fingerprint !== now.fingerprint : before.modified !== now.modified;
+}
 
 /** Whether a page was edited in Obsidian since it was written: its file's time is not the page's any more. */
 export function editedInVault(page: ArchivedPage): boolean {
@@ -333,7 +347,7 @@ export function planNotebook(notebook: string, scanned: ScannedSection[], archiv
 				continue;
 			}
 			const retitled = composedText(before.title) !== page.title;
-			if (retitled || before.modified !== page.modified) {
+			if (retitled || editedInOneNote(before, page)) {
 				item.modified.push(plan(before, { title: page.title, ...(retitled ? { from: before.title } : {}) }));
 				if (before.modified && page.modified && page.modified < before.modified) item.older = true;
 			}
@@ -360,15 +374,16 @@ export function planNotebook(notebook: string, scanned: ScannedSection[], archiv
 	return { identity, items };
 }
 
-/** Page info from the parser's JSON for one section, in order. */
-export function scannedPages(json: { pages: { id: string, title?: string | null, updated?: number | null, level?: number | null }[] }): ScannedPage[] {
-	return json.pages.map(page => ({
+/** Page info from the parser's JSON for one section, in order, with each page's content fingerprint. */
+export async function scannedPages(json: { pages: { id: string, title?: string | null, updated?: number | null, level?: number | null, contents?: unknown }[] }): Promise<ScannedPage[]> {
+	return Promise.all(json.pages.map(async page => ({
 		id: page.id.toUpperCase(),
 		title: composedText(page.title || ''),
 		modified: page.updated ? new Date(page.updated * 1000).toISOString() : null,
 		// As the adapter writes it (adapter.ts): the parser counts levels from 1.
 		level: Math.max(0, (page.level ?? 1) - 1),
-	}));
+		...(page.contents !== undefined ? { fingerprint: await pageFingerprint(page.contents) } : {}),
+	})));
 }
 
 /**
@@ -489,6 +504,13 @@ export async function readArchive(sink: Sink, notebookFolder: string, recorded?:
 		if (best) {
 			section.recorded = best;
 			taken.add(best);
+		}
+	}
+	// Each page's fingerprint when it was written, from its section's report entry (§11.5 item 59).
+	for (const section of sections) {
+		for (const recorded of section.recorded?.report?.pages ?? []) {
+			const page = typeof recorded.id === 'string' && typeof recorded.fingerprint === 'string' ? section.pages.get(recorded.id.toUpperCase()) : undefined;
+			if (page) page.fingerprint = recorded.fingerprint;
 		}
 	}
 	// Pages the report records for the folder whose files are gone (and not listed as no longer in OneNote): the user deleted them.
