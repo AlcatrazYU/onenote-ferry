@@ -228,8 +228,14 @@ class PageWriter {
 		return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 	}
 
-	marker(text: string): void {
-		this.blocks.push({ text, listItem: false, marker: true });
+	/** How many blocks are written so far (see addMarkers). */
+	get blockCount(): number {
+		return this.blocks.length;
+	}
+
+	/** Puts position comments in at the given places (block indexes, as blockCount told them), once the page is written. */
+	addMarkers(markers: { at: number, text: string }[]): void {
+		for (const { at, text } of [...markers].sort((a, b) => b.at - a.at)) this.blocks.splice(at, 0, { text, listItem: false, marker: true });
 	}
 
 	private push(text: string, listItem = false): void {
@@ -648,15 +654,23 @@ export async function renderPage(page: Page, options: PageRenderOptions): Promis
 	const markers = options.boxMarkers && columns > 1 && items.length > 1;
 	// Writing that falls on either side of an empty text box is one drawing.
 	let pending: InkPiece[] = [];
+	/** Where each block that wrote something starts, for its position comment (§11.5 item 58). */
+	const written: { at: number, item: Positioned }[] = [];
 	for (const [k, item] of items.entries()) {
 		pending.push(...slots.get(k) ?? []);
 		if (markers || !isBlank(item.element)) {
 			await writer.writeLooseInk(pending);
 			pending = [];
 		}
-		if (markers) writer.marker(options.strings.boxMarker(k + 1, items.length, cm(item.x), cm(item.y)));
+		const at = writer.blockCount;
 		await writer.writeElements([item.element]);
+		if (writer.blockCount > at) written.push({ at, item });
 	}
 	await writer.writeLooseInk([...pending, ...slots.get(items.length) ?? []]);
+	// Only before blocks that wrote something, counted over those: an empty text box, or a later
+	// printout page of a PDF embedded once (a picture of its own on the page), gets none.
+	if (markers && written.length > 1) {
+		writer.addMarkers(written.map(({ at, item }, n) => ({ at, text: options.strings.boxMarker(n + 1, written.length, cm(item.x), cm(item.y)) })));
+	}
 	return { markdown: writer.markdown, attachments: writer.attachments };
 }

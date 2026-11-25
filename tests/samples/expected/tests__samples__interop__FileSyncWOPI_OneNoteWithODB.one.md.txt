@@ -18,9 +18,5 @@
 
 ## Untitled.md
 
-<!-- Box 1 of 2, position on page: left 1.3 cm, top 3.0 cm -->
-
 ![](<_attachments/Untitled - image001.jpg>)
-
-<!-- Box 2 of 2, position on page: left 16.5 cm, top 5.6 cm -->
 

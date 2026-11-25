@@ -102,6 +102,24 @@ test('text boxes: columns left to right, each top to bottom, with position comme
 	assert.equal(await md(pg, { boxMarkers: false }), 'left top\n\nleft bottom\n\nright top');
 });
 
+test('position comments only before blocks that write something: not before later printout pages of a PDF embedded once, nor empty boxes; numbered over those written', async () => {
+	const pdf: EmbeddedFile = { kind: 'embedded-file', fileName: 'doc.pdf', extension: 'pdf', data: stored('h.pdf') };
+	// A Mac printout: each page of the PDF a picture of its own, placed on the page one under the other.
+	const macPage = (n: number): Image => ({ kind: 'image', fileName: `doc_${n}.pdf`, extension: 'png', data: stored(`m${n}.png`), printoutPage: n, printoutName: 'doc.pdf', printoutOf: pdf, place: { x: 0, y: n * 10, width: 8 } });
+	const pg = page([
+		box([p('intro')], { x: 0, y: 0, width: 8 }),
+		box([p('')], { x: 0, y: 45, width: 8 }),
+		box([p('beside')], { x: 20, y: 0, width: 8 }),
+	], [macPage(1), macPage(2), macPage(3)]);
+	assert.equal(await md(pg), [
+		'<!-- 第1块（共3块） 页面位置：左 0.0 cm，上 0.0 cm -->', 'intro',
+		'<!-- 第2块（共3块） 页面位置：左 0.0 cm，上 12.7 cm -->', '![](<_附件/doc.pdf#page=1>)',
+		'<!-- 第3块（共3块） 页面位置：左 25.4 cm，上 0.0 cm -->', 'beside',
+	].join('\n\n'));
+	// One block written in all: no comments.
+	assert.equal(await md(page([box([p('')], { x: 20, y: 0, width: 8 })], [macPage(1), macPage(2)])), '![](<_附件/doc.pdf#page=1>)');
+});
+
 test('a single column of boxes gets no position comments', async () => {
 	const pg = page([box([p('bottom')], { x: 0, y: 4, width: 5 }), box([p('top')], { x: 0.5, y: 0, width: 5 })]);
 	assert.equal(await md(pg), 'top\n\nbottom');
