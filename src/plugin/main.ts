@@ -3,9 +3,10 @@
 // status bar and a report at the end. The same window updates notebooks imported before from a new
 // download (§11.5 item 49); an update cut off (Obsidian quit) is finished when Obsidian starts.
 
-import { Notice, Plugin } from 'obsidian';
+import { Notice, Plugin, requestUrl } from 'obsidian';
 import * as obsidian from 'obsidian';
 import { markerLanguageFor } from '../core/strings.ts';
+import { MicrosoftAccount } from './account.ts';
 import { ICON, registerIcon } from './icon.ts';
 import { uiStrings } from './i18n.ts';
 import type { UiStrings } from './i18n.ts';
@@ -36,6 +37,8 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 	settings: Settings = { ...DEFAULT_SETTINGS };
 	ui: UiStrings = uiStrings('en');
 	private readonly client = new WorkerClient();
+	/** The Microsoft account to download with (M3.5, §11.5 item 61). */
+	readonly microsoft = new MicrosoftAccount(this.app, () => ({ title: this.ui.signInPageTitle, done: this.ui.signInPageDone, failed: this.ui.signInPageFailed }));
 	/** The import being set up, running, or finished and not looked at yet. */
 	private session?: ImportSession;
 	private wizard?: ImportWizard;
@@ -117,6 +120,7 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 
 	onunload(): void {
 		this.unloaded = true;
+		this.microsoft.cancelSignIn();
 		this.session?.requestStop();
 		this.client.stop('unloaded');
 		this.progress?.finish();
@@ -230,6 +234,25 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 				this.session = undefined;
 			}
 		}
+	}
+
+	/**
+	 * For testing from the developer console (M3.5 step 1): signs in to Microsoft when not signed in
+	 * (or when asked), then reads what kind of drive the account has, to see the whole way work.
+	 * Answers nothing that names the person.
+	 */
+	async microsoftCheck(signIn = false) {
+		if (signIn || !this.microsoft.signedIn) await this.microsoft.signIn();
+		const token = await this.microsoft.accessToken();
+		const response = await requestUrl({ url: 'https://graph.microsoft.com/v1.0/me/drive?$select=driveType', headers: { Authorization: `Bearer ${token}` }, throw: false });
+		let driveType: unknown;
+		try {
+			driveType = (response.json as { driveType?: unknown }).driveType;
+		}
+		catch {
+			driveType = undefined;
+		}
+		return { kind: this.microsoft.kind, status: response.status, driveType, kept: !!this.app.secretStorage.getSecret('onenote-ferry-microsoft') };
 	}
 
 	/** For testing from the developer console: ask the running import to stop after its current section. */

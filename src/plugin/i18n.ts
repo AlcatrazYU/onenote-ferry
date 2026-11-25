@@ -174,6 +174,11 @@ export interface UiStrings {
 	alreadyRunning: string;
 	/** Notebooks found in the target folder when the import starts (put there meanwhile). */
 	alreadyInFolder(names: string[]): string;
+
+	// The page the browser shows once the Microsoft sign-in's answer has come back to the plugin.
+	signInPageTitle: string;
+	signInPageDone: string;
+	signInPageFailed: string;
 }
 
 const n = (value: number) => value.toLocaleString('en-US');
@@ -326,6 +331,10 @@ const en: UiStrings = {
 	resumeFailed: error => `OneNote Ferry: the update interrupted last time could not be dealt with: ${error}`,
 	alreadyRunning: 'An import is already running.',
 	alreadyInFolder: names => `Already in the target folder: ${names.join(', ')}`,
+
+	signInPageTitle: 'OneNote Ferry',
+	signInPageDone: 'Signed in. You can close this page and go back to Obsidian.',
+	signInPageFailed: 'Not signed in. Go back to Obsidian to try again.',
 };
 
 const zh: UiStrings = {
@@ -477,6 +486,10 @@ const zh: UiStrings = {
 	resumeFailed: error => `OneNote Ferry：上次中断的更新未能处理完毕：${error}`,
 	alreadyRunning: '已经有一个导入正在进行。',
 	alreadyInFolder: names => `目标文件夹里已经有：${names.join('、')}`,
+
+	signInPageTitle: 'OneNote Ferry',
+	signInPageDone: '已登录。可以关掉这个页面，回到 Obsidian。',
+	signInPageFailed: '没有登录成功。请回到 Obsidian 再试一次。',
 };
 
 const ja: UiStrings = {
@@ -627,6 +640,10 @@ const ja: UiStrings = {
 	resumeFailed: error => `OneNote Ferry：前回中断した更新の処理を終えられませんでした：${error}`,
 	alreadyRunning: 'インポートはすでに実行中です。',
 	alreadyInFolder: names => `インポート先にすでにあります：${names.join('、')}`,
+
+	signInPageTitle: 'OneNote Ferry',
+	signInPageDone: 'サインインしました。このページを閉じて Obsidian に戻ってください。',
+	signInPageFailed: 'サインインできませんでした。Obsidian に戻ってもう一度お試しください。',
 };
 
 const ko: UiStrings = {
@@ -777,6 +794,10 @@ const ko: UiStrings = {
 	resumeFailed: error => `OneNote Ferry: 지난번 중단된 업데이트를 마무리하지 못했습니다: ${error}`,
 	alreadyRunning: '가져오기가 이미 진행 중입니다.',
 	alreadyInFolder: names => `대상 폴더에 이미 있습니다: ${names.join(', ')}`,
+
+	signInPageTitle: 'OneNote Ferry',
+	signInPageDone: '로그인했습니다. 이 페이지를 닫고 Obsidian으로 돌아가세요.',
+	signInPageFailed: '로그인하지 못했습니다. Obsidian으로 돌아가 다시 시도하세요.',
 };
 
 export const UI_LANGUAGES = { en, zh, ja, ko };
