@@ -42,6 +42,8 @@ export interface ImportReport {
 		links?: LinkStats;
 		/** Written while the import ran (it records what was done so far): it had not ended. */
 		unfinished?: true;
+		/** The run was an update: its record (a path from the output root). */
+		update?: string;
 	};
 	notebooks: ReportNotebook[];
 }
@@ -56,6 +58,10 @@ export interface ReportMeta {
 	options: SectionOptions;
 	/** The import is still running (a record of what it has done so far). */
 	unfinished?: true;
+	/** How a notebook (by its folder) was converted, when not `options`: an update keeps each notebook's own. */
+	optionsOf?(dir: string): SectionOptions | undefined;
+	/** The run was an update: its record (a path from the output root). */
+	update?: string;
 }
 
 /** Folders as a disk that ignores case, and Obsidian (which composes every path), tell them apart. */
@@ -98,7 +104,7 @@ export function updateReport(previous: unknown, result: ImportResult, meta: Repo
 	const at = meta.at.toISOString();
 	const fresh = new Map(result.notebooks.map(notebook => [key(notebook.dir), {
 		notebook: notebook.notebook, ...(notebook.originalName !== undefined ? { originalName: notebook.originalName } : {}), dir: notebook.dir, language: notebook.language,
-		importedAt: at, source: meta.sourceOf?.(notebook.dir) ?? meta.sources.join(', '), options: meta.options, sections: notebook.sections,
+		importedAt: at, source: meta.sourceOf?.(notebook.dir) ?? meta.sources.join(', '), options: meta.optionsOf?.(notebook.dir) ?? meta.options, sections: notebook.sections,
 	} satisfies ReportNotebook]));
 	const present = new Set(folders.map(key));
 	const notebooks: ReportNotebook[] = [];
@@ -120,6 +126,7 @@ export function updateReport(previous: unknown, result: ImportResult, meta: Repo
 			at, sources: meta.sources, seconds: meta.seconds, cancelled: result.cancelled,
 			notebooks: result.notebooks.map(notebook => notebook.dir), notStarted: result.notStarted, links: result.links,
 			...(meta.unfinished ? { unfinished: true as const } : {}),
+			...(meta.update ? { update: meta.update } : {}),
 		},
 		notebooks,
 	};
@@ -137,8 +144,8 @@ const notConverted = (section: SectionResult) => !!(section.failed || section.lo
  * A name or reason as plain text on the page: every mark Markdown or Obsidian would act on is
  * escaped (links, code, emphasis, highlights, comments, tags, math, block ids, tables).
  */
-const text = (value: string) => composedText(value).replace(/\s+/g, ' ').trim().replace(/[\\[\]`<>*_~=%#$^|]/g, '\\$&');
-const link = (label: string, path: string) => `[${text(label)}](<${path}>)`;
+export const text = (value: string) => composedText(value).replace(/\s+/g, ' ').trim().replace(/[\\[\]`<>*_~=%#$^|]/g, '\\$&');
+export const link = (label: string, path: string) => `[${text(label)}](<${path}>)`;
 
 /** Counts over the sections of some notebooks (those not chosen for import left out), or only those `which` keeps. */
 /**
@@ -183,6 +190,7 @@ export function reportMarkdown(report: ImportReport, strings: Strings): string {
 	if (last.links && last.links.links) lines.push(`- ${r.links(last.links.resolved, last.links.unresolved)}`);
 	if (last.cancelled) lines.push(`- ${r.cancelled(stopped)}`);
 	if (last.unfinished) lines.push(`- ${r.unfinished}`);
+	if (last.update) lines.push(`- ${r.update(link(strings.update.title(reportTime(last.at)), last.update))}`);
 
 	if (report.notebooks.length) {
 		lines.push('', `## ${r.notebooks}`, '', `| ${r.columns.join(' | ')} |`, '| --- | --- | ---: | ---: | ---: | ---: |');
@@ -228,7 +236,7 @@ export function reportMarkdown(report: ImportReport, strings: Strings): string {
 }
 
 /** The name (without `.json`) of the report the output root holds, the reader's language's first, and what it says. */
-async function readReport(sink: Sink, strings: Strings): Promise<{ name: string, previous: unknown } | undefined> {
+export async function readReport(sink: Sink, strings: Strings): Promise<{ name: string, previous: unknown } | undefined> {
 	const names = [strings.reportName, ...LANGUAGES.map(language => STRINGS[language].reportName)];
 	for (const name of names) {
 		const old = await sink.readText(`${name}.json`);
@@ -259,8 +267,10 @@ export async function reportedNotebooks(sink: Sink, strings: Strings): Promise<R
  * Answers the report and its file name (without `.md` or `.json`): the reader's language's, or
  * that of a report the folder already holds in another language.
  */
-export async function writeReport(sink: Sink, strings: Strings, result: ImportResult, meta: ReportMeta, folders: string[]): Promise<{ report: ImportReport, name: string }> {
-	const found = await readReport(sink, strings);
+export async function writeReport(sink: Sink, strings: Strings, result: ImportResult, meta: ReportMeta, folders: string[], earlier?: { name: string, previous: unknown }): Promise<{ report: ImportReport, name: string }> {
+	// `earlier`: the report as it was before this run (an update keeps a copy, so finishing it after
+	// a cut-off works from the same report even when the first try was cut off while writing it).
+	const found = earlier ?? await readReport(sink, strings);
 	const name = found?.name ?? strings.reportName;
 	const report = updateReport(found?.previous, result, meta, folders);
 	// Both are made before either is written, so a failure leaves the earlier pair as it was.

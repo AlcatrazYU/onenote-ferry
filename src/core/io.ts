@@ -23,3 +23,23 @@ export interface Sink {
 	/** A file's modification time (milliseconds) and size, or undefined when there is none; not every sink can tell. */
 	stat?(path: string): Promise<{ mtime: number, size: number } | undefined>;
 }
+
+/**
+ * What updating notes in place needs on top of writing them (§11.5 item 49). There is no way to
+ * delete: what an update replaces or OneNote no longer has is moved aside, never removed.
+ */
+export interface UpdateSink extends Sink {
+	stat(path: string): Promise<{ mtime: number, size: number } | undefined>;
+	/** Whether a file or a folder is at the path (as the disk compares names: maybe ignoring case). */
+	exists(path: string): boolean | Promise<boolean>;
+	readBinary(path: string): Promise<Uint8Array | undefined>;
+	/**
+	 * Moves (renames) a file or a folder, with the folders above `to` made as needed. Throws when
+	 * something else is at `to` already (a change of case only is a rename of the same file).
+	 */
+	move(from: string, to: string): Promise<void>;
+	/** Copies a file, keeping its modification time. Throws when something is at `to` already. */
+	copy(from: string, to: string): Promise<void>;
+	/** Adds text at the end of a file, making it when there is none. */
+	appendText(path: string, text: string): Promise<void>;
+}

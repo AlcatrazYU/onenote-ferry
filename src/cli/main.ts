@@ -26,25 +26,43 @@
 // unchanged or gone. Changes nothing. Options: --partial (the download holds only some sections:
 // missing ones are not gone), --only, --language (by default each notebook's, read from the
 // earlier conversion's folder names), --json <file>, --dump, --parser-wasm, --tmp.
+//
+//   node src/cli/main.ts sync <new download> <converted output folder> [--apply] [options]
+//
+// Updates an earlier conversion from a new download in place (§11.5 item 49): pages OneNote
+// changed, added or removed, sections it renamed or moved; what is replaced goes to the previous
+// versions folder, and nothing is deleted; pages OneNote deleted stay where they are, and pages
+// deleted in the vault are not written back unless --restore-deleted is given. Without --apply it
+// only lists what would change.
+// Sections already converted are updated; --new also adds sections not converted before. An
+// update cut off before (the command stopped) is finished first. Options: as for plan; --language
+// also names the language of the record and of notebooks not converted before.
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, relative, sep } from 'node:path';
+import { createHash } from 'node:crypto';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, join, resolve as resolvePath } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { DownloadSection } from '../core/download.ts';
 import { importNotebooks, scanNotebook } from '../core/importer.ts';
-import type { ImportHost, ParsedSection } from '../core/importer.ts';
-import type { SectionSource, Sink } from '../core/io.ts';
-import { writeReport } from '../core/report.ts';
+import type { ImportHost, ParsedSection, SectionOptions } from '../core/importer.ts';
+import type { SectionSource } from '../core/io.ts';
+import { reportedNotebooks, writeReport } from '../core/report.ts';
 import { STRINGS, isLanguage, LANGUAGES, markerLanguageFor } from '../core/strings.ts';
 import type { Language } from '../core/strings.ts';
 import { planNotebook, readArchive, scannedPages } from '../core/sync.ts';
+import { recordedPlanOptions, resumeUpdates, unfinishedUpdates, updateNotebooks } from '../core/update.ts';
+import type { UpdateHost, UpdateRequest } from '../core/update.ts';
 import type { Archive, NotebookPlan, PagePlan, PlanItem, ScannedSection } from '../core/sync.ts';
-import { notebookFolder } from '../core/write.ts';
+import { notebookFolder, sectionKey } from '../core/write.ts';
 import { incompleteZipMessage, openDownload, parseWithWasm, passwordProtected } from '../node/download.ts';
-import type { WasmParser } from '../node/download.ts';
+import { fileSink } from '../node/file-sink.ts';
+import type { Download, WasmParser } from '../node/download.ts';
+
+/** Paths as the disks of macOS and Windows compare them. */
+const fold = (path: string) => path.normalize('NFC').toLowerCase();
 
 /** The marks for the person running the command: the system's language. */
 const SYSTEM_LANGUAGE = markerLanguageFor(process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || Intl.DateTimeFormat().resolvedOptions().locale);
@@ -76,6 +94,9 @@ function parseArgs(argv: string[]) {
 		imageAltText: flag('--image-alt-text'),
 		links: !flag('--no-links'),
 		partial: flag('--partial'),
+		apply: flag('--apply'),
+		addNew: flag('--new'),
+		restoreDeleted: flag('--restore-deleted'),
 		json: option('--json'),
 		input: '',
 		output: '',
@@ -83,48 +104,6 @@ function parseArgs(argv: string[]) {
 	parsed.languageGiven = argv.includes('--language');
 	[parsed.input, parsed.output] = args;
 	return parsed;
-}
-
-function fileSink(root: string): Sink {
-	const resolve = (path: string) => join(root, ...path.split('/'));
-	return {
-		async ensureFolder(path) {
-			mkdirSync(resolve(path), { recursive: true });
-		},
-		async writeText(path, text, modified) {
-			mkdirSync(dirname(resolve(path)), { recursive: true });
-			writeFileSync(resolve(path), text);
-			if (modified) utimesSync(resolve(path), modified, modified);
-		},
-		async writeBinary(path, bytes) {
-			mkdirSync(dirname(resolve(path)), { recursive: true });
-			writeFileSync(resolve(path), bytes);
-		},
-		async readText(path) {
-			try {
-				return readFileSync(resolve(path), 'utf8');
-			}
-			catch {
-				return undefined;
-			}
-		},
-		async listFiles(folder) {
-			const start = resolve(folder);
-			if (!existsSync(start)) return [];
-			return (readdirSync(start, { recursive: true, withFileTypes: true }) as import('node:fs').Dirent[])
-				.filter(entry => entry.isFile())
-				.map(entry => relative(root, join(entry.parentPath, entry.name)).split(sep).join('/'));
-		},
-		async stat(path) {
-			try {
-				const info = statSync(resolve(path));
-				return info.isFile() ? { mtime: info.mtimeMs, size: info.size } : undefined;
-			}
-			catch {
-				return undefined;
-			}
-		},
-	};
 }
 
 function loadWasmParser(dir: string): WasmParser {
@@ -155,6 +134,40 @@ function scratchFolder(base: string): string {
 	return folder;
 }
 
+/** Parses whole sections for converting them: the WebAssembly parser, or the native one (--dump). */
+function sectionParser(options: ReturnType<typeof parseArgs>, download: Download, wasm: WasmParser | undefined, scratch: string): Pick<ImportHost, 'parse' | 'isPasswordProtected'> {
+	const rawDir = join(scratch, 'raw');
+	const jsonPath = join(scratch, 'section.json');
+	return {
+		async parse(section): Promise<ParsedSection> {
+			if (wasm) return parseWithWasm(wasm, download, section);
+			const path = await download.parserPath(section);
+			rmSync(rawDir, { recursive: true, force: true });
+			mkdirSync(rawDir, { recursive: true });
+			const result = spawnSync(options.dump!, [path, jsonPath, rawDir], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+			if (result.status !== 0) {
+				download.done(section);
+				throw new Error((result.stderr || String(result.error)).trim());
+			}
+			const release = () => {
+				rmSync(rawDir, { recursive: true, force: true });
+				rmSync(jsonPath, { force: true });
+				download.done(section);
+			};
+			let json;
+			try {
+				json = JSON.parse(readFileSync(jsonPath, 'utf8'));
+			}
+			catch (error) {
+				release();
+				throw error;
+			}
+			return { json, source: folderSource(rawDir), release };
+		},
+		isPasswordProtected: section => passwordProtected(download, section),
+	};
+}
+
 async function main() {
 	const options = parseArgs(process.argv.slice(2));
 	if (!options.input || !options.output) {
@@ -169,10 +182,15 @@ async function main() {
 	// The report and anything not tied to one notebook: the reader's language.
 	const strings = STRINGS[fixed ?? SYSTEM_LANGUAGE];
 	const sink = fileSink(options.output);
+	// An update cut off in this folder is finished first (it may be in the middle of a section an import would write into).
+	const unfinished = await unfinishedUpdates(sink);
+	if (unfinished.length) {
+		console.error(`An update of this folder was cut off and is not finished (${unfinished.join(', ')}). Run sync with --apply first: it finishes it.`);
+		process.exitCode = 1;
+		return;
+	}
 	const wasm = options.dump ? undefined : loadWasmParser(options.parserWasm);
 	const scratch = scratchFolder(options.tmp);
-	const rawDir = join(scratch, 'raw');
-	const jsonPath = join(scratch, 'section.json');
 	const started = Date.now();
 	const download = await openDownload(options.input, join(scratch, 'zip'), !!wasm);
 	if (download.incomplete) console.warn(incompleteZipMessage(download.incomplete));
@@ -188,31 +206,7 @@ async function main() {
 
 		const host: ImportHost = {
 			sink,
-			async parse(section): Promise<ParsedSection> {
-				if (wasm) return parseWithWasm(wasm, download, section);
-				const path = await download.parserPath(section);
-				rmSync(rawDir, { recursive: true, force: true });
-				mkdirSync(rawDir, { recursive: true });
-				const result = spawnSync(options.dump!, [path, jsonPath, rawDir], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-				if (result.status !== 0) {
-					download.done(section);
-					throw new Error((result.stderr || String(result.error)).trim());
-				}
-				const release = () => {
-					rmSync(rawDir, { recursive: true, force: true });
-					download.done(section);
-				};
-				let json;
-				try {
-					json = JSON.parse(readFileSync(jsonPath, 'utf8'));
-				}
-				catch (error) {
-					release();
-					throw error;
-				}
-				return { json, source: folderSource(rawDir), release };
-			},
-			isPasswordProtected: section => passwordProtected(download, section),
+			...sectionParser(options, download, wasm, scratch),
 			async listFolders() {
 				if (!existsSync(options.output)) return [];
 				return readdirSync(options.output).filter(name => statSync(join(options.output, name), { throwIfNoEntry: false })?.isDirectory());
@@ -236,7 +230,6 @@ async function main() {
 		const sectionOptions = { boxMarkers: options.boxMarkers, keepFontColor: options.keepFontColor, imageAltText: options.imageAltText };
 		const result = await importNotebooks(notebooks, host, { languageFor: notebook => fixed ?? languages.get(notebook.name)!, ...sectionOptions, links: options.links });
 		if (result.links) console.log(`Links: ${result.links.resolved} of ${result.links.links} rewritten, ${result.links.unresolved} left as they were`);
-		if (existsSync(jsonPath)) rmSync(jsonPath);
 		const seconds = Math.round((Date.now() - started) / 1000);
 		await writeReport(sink, strings, result, { at: new Date(started), sources: [basename(options.input)], seconds, options: sectionOptions }, await host.listFolders());
 		console.log(`Done in ${Math.round((Date.now() - started) / 1000)} s`);
@@ -246,10 +239,16 @@ async function main() {
 	}
 }
 
-async function plan(argv: string[]) {
+/**
+ * plan, and sync: reads each notebook of the new download (page ids, titles and times only),
+ * plans it against the output folder and lists what would change; `sync --apply` then updates.
+ */
+async function plan(argv: string[], command: 'plan' | 'sync') {
 	const options = parseArgs(argv);
 	if (!options.input || !options.output) {
-		console.error('Usage: node src/cli/main.ts plan <new download zip or folder> <converted output folder> [--partial] [--only "A|B"] [--language CODE] [--json FILE] [--dump <native parser>]');
+		console.error(command === 'plan'
+			? 'Usage: node src/cli/main.ts plan <new download zip or folder> <converted output folder> [--partial] [--only "A|B"] [--language CODE] [--json FILE] [--dump <native parser>]'
+			: 'Usage: node src/cli/main.ts sync <new download zip or folder> <converted output folder> [--apply] [--new] [--restore-deleted] [--partial] [--only "A|B"] [--language CODE] [--json FILE] [--dump <native parser>] [--tmp DIR]');
 		process.exit(2);
 	}
 	if (options.language !== 'auto' && !isLanguage(options.language)) {
@@ -259,10 +258,62 @@ async function plan(argv: string[]) {
 	// Each notebook is compared in the language it was converted in (its folder names say which),
 	// unless --language names one.
 	const given = options.languageGiven && options.language !== 'auto' ? options.language as Language : undefined;
+	// The record of an update, and notebooks not converted before: the reader's language.
+	const reader = STRINGS[given ?? SYSTEM_LANGUAGE];
 	const sink = fileSink(options.output);
 	const wasm = options.dump ? undefined : loadWasmParser(options.parserWasm);
 	const scratch = scratchFolder(options.tmp);
 	const jsonPath = join(scratch, 'scan.json');
+	const listFolders = async () => (existsSync(options.output) ? readdirSync(options.output).filter(name => statSync(join(options.output, name), { throwIfNoEntry: false })?.isDirectory()) : []);
+	// Where sync converts each section first: kept until the section is in, outside the scratch folder
+	// (removed when the command ends), so an update the command was stopped in can be finished.
+	// The user's own (a temp folder may be shared on a machine of several users), reachable by nobody else.
+	const stagingRoot = join(options.tmp, `onenote-ferry-sync-${process.getuid?.() ?? 'user'}`);
+	const stagingId = /^section-[A-Za-z0-9]{6}$/;
+	const ownStagingRoot = () => {
+		mkdirSync(stagingRoot, { recursive: true, mode: 0o700 });
+		const info = lstatSync(stagingRoot);
+		if (!info.isDirectory() || info.isSymbolicLink() || (process.getuid && info.uid !== process.getuid()) || (process.platform !== 'win32' && (info.mode & 0o077) !== 0)) {
+			throw new Error(`${stagingRoot} is not a folder of yours that only you can open: remove it, or pass --tmp`);
+		}
+	};
+	const staging: Pick<UpdateHost, 'newStaging' | 'openStaging' | 'releaseStaging'> = {
+		async newStaging() {
+			ownStagingRoot();
+			const dir = mkdtempSync(join(stagingRoot, 'section-'));
+			return { id: basename(dir), sink: fileSink(dir) };
+		},
+		// The id comes from a journal in the output folder: only a name this command makes is used.
+		async openStaging(id) {
+			return stagingId.test(id) && existsSync(join(stagingRoot, id)) ? fileSink(join(stagingRoot, id)) : undefined;
+		},
+		async releaseStaging(id) {
+			if (stagingId.test(id)) rmSync(join(stagingRoot, id), { recursive: true, force: true });
+		},
+	};
+	if (command === 'sync' && options.apply) {
+		// One update of a folder at a time: a second one would take the first one's journal for a cut-off one.
+		ownStagingRoot();
+		const lock = join(stagingRoot, `lock-${createHash('sha256').update(existsSync(options.output) ? realpathSync(options.output) : resolvePath(options.output)).digest('hex').slice(0, 16)}`);
+		const other = existsSync(lock) ? Number(readFileSync(lock, 'utf8')) : NaN;
+		let running = false;
+		try {
+			running = !isNaN(other) && other !== process.pid && process.kill(other, 0);
+		}
+		catch {
+			running = false;
+		}
+		if (running) {
+			console.error(`Another sync of ${options.output} is running (process ${other}). Wait for it to end.`);
+			process.exitCode = 1;
+			return;
+		}
+		writeFileSync(lock, String(process.pid));
+		process.on('exit', () => rmSync(lock, { force: true }));
+		const resumed = await resumeUpdates({ vault: sink, ...staging, listFolders });
+		for (const result of resumed.finished) console.log(`Finished an update that was cut off: ${result.record}`);
+		for (const journal of resumed.ignored) console.warn(`Left alone: ${journal} was changed since the update wrote it, so it is not followed. The sections it was updating are checked again below.`);
+	}
 	const download = await openDownload(options.input, join(scratch, 'zip'), !!wasm);
 	if (download.incomplete) console.warn(incompleteZipMessage(download.incomplete));
 	try {
@@ -290,14 +341,22 @@ async function plan(argv: string[]) {
 		}
 
 		const plans: { notebook: string, identity: NotebookPlan['identity'], items: PlanItem[] }[] = [];
+		// What the report recorded (names and groups of sections then, sections imported), as the update plans with it.
+		const reported = await reportedNotebooks(sink, reader);
+		const requests: UpdateRequest[] = [];
 		for (const notebook of download.notebooks) {
 			const name = notebook.name;
 			if (options.only && !options.only.includes(name)) continue;
 			// The notebook's folder in the language it was imported in (its contents page says which).
 			let archive: Archive | undefined;
+			let folder = notebookFolder(name, STRINGS[given ?? SYSTEM_LANGUAGE]);
 			for (const language of given ? [given] : [SYSTEM_LANGUAGE, ...LANGUAGES]) {
-				archive = await readArchive(sink, notebookFolder(name, STRINGS[language]));
-				if (archive) break;
+				const candidate = notebookFolder(name, STRINGS[language]);
+				archive = await readArchive(sink, candidate, reported.find(entry => fold(entry.dir) === fold(candidate))?.sections);
+				if (archive) {
+					folder = candidate;
+					break;
+				}
 			}
 			const strings = STRINGS[given ?? archive?.language ?? SYSTEM_LANGUAGE];
 			const scanned: ScannedSection[] = [];
@@ -315,15 +374,26 @@ async function plan(argv: string[]) {
 					scanned.push({ key, groups: section.groups, label: section.label, error: locked ? strings.passwordProtected : String((error as Error)?.message ?? error).slice(0, 500) });
 				}
 			}
-			const { identity, items } = planNotebook(name, scanned, archive, strings, { partial: options.partial });
+			const recorded = recordedPlanOptions(reported.find(entry => fold(entry.dir) === fold(folder)), folder);
+			const { identity, items } = planNotebook(name, scanned, archive, strings, { partial: options.partial, ...recorded });
 			plans.push({ notebook: name, identity, items });
+			// sync updates what is converted already (and, with --new, adds the rest); not from a download older than the vault.
+			const deletedHere = (item: PlanItem) => item.added.filter(page => page.userDeleted);
+			// Not into a folder of that name that is not ours, nor a notebook of that name that is another one.
+			const occupied = !archive && (await sink.listFiles(notebookFolder(name, strings))).length > 0;
+			if (occupied) console.log(`  [not ours] ${name}: a folder of this name holds files the plugin did not write; nothing is written into it`);
+			const chosen = identity === 'different' || occupied ? [] : items.filter(item => (item.status === 'changed' || item.status === 'unfinished' || (options.addNew && (item.status === 'new' || item.status === 'missing')) || (options.restoreDeleted && deletedHere(item).length > 0)) && !item.older);
+			const restore = options.restoreDeleted ? new Set(chosen.flatMap(item => deletedHere(item).map(page => page.id))) : undefined;
+			requests.push({ notebook, scanned, chosen: new Set(chosen.map(item => sectionKey(item.groups, item.label))), partial: options.partial, ...(restore ? { restore } : {}) });
 			if (identity === 'different') console.log(`  [different notebook] ${name}: a notebook of this name is in the folder, with no page in common`);
 			for (const item of items) {
-				if (item.status === 'same') continue;
-				const edited = [...item.modified, ...item.removed, ...item.reordered].filter(page => page.userEdited).length;
-				const detail = [['added', item.added], ['modified', item.modified], ['removed', item.removed], ['reordered', item.reordered]]
+				const deleted = item.added.filter(page => page.userDeleted).length;
+				if (item.status === 'same' && !deleted) continue;
+				const edited = [...item.modified, ...item.reordered].filter(page => page.userEdited).length;
+				const added = item.added.filter(page => !page.userDeleted);
+				const detail = [['added', added], ['modified', item.modified], ['deleted in OneNote (kept in the vault)', item.removed], ['reordered', item.reordered]]
 					.filter(([, list]) => (list as PagePlan[]).length > 0).map(([label, list]) => `${label} ${(list as PagePlan[]).length}`)
-					.concat(edited ? [`edited in the vault ${edited}`] : [], item.older ? ['older than the vault'] : []).join(', ');
+					.concat(edited ? [`edited in the vault ${edited}`] : [], deleted ? [`deleted in the vault ${deleted} (${options.restoreDeleted ? 'to be brought back' : 'not brought back; --restore-deleted brings them back'})`] : [], item.older ? ['older than the vault'] : []).join(', ');
 				const moved = item.old && item.new && item.old.normalize('NFC').toLowerCase() !== item.new.normalize('NFC').toLowerCase();
 				console.log(`  [${item.status}] ${item.key}${moved ? ` (was ${item.old})` : ''}${detail ? `: ${detail}` : ''}${item.error ? `: ${item.error}` : ''}`);
 			}
@@ -332,13 +402,39 @@ async function plan(argv: string[]) {
 		for (const p of plans) for (const item of p.items) totals[item.status] = (totals[item.status] ?? 0) + 1;
 		console.log(`Plan: ${Object.entries(totals).map(([status, n]) => `${n} ${status}`).join(', ') || 'nothing to compare'}`);
 		if (options.json) writeFileSync(options.json, JSON.stringify(plans, null, 2));
+		if (command === 'plan') return;
+		const count = requests.reduce((n, request) => n + request.chosen.size, 0);
+		if (!count) {
+			console.log('Nothing to update.');
+			return;
+		}
+		if (!options.apply) {
+			console.log(`Would update ${count} section${count === 1 ? '' : 's'}. Nothing was written: run again with --apply to update.`);
+			return;
+		}
+		const defaults: SectionOptions = { boxMarkers: options.boxMarkers, keepFontColor: options.keepFontColor, imageAltText: options.imageAltText };
+		const host: UpdateHost = {
+			vault: sink, ...staging, ...sectionParser(options, download, wasm, scratch), listFolders,
+			onSectionDone(notebook, section, outcome) {
+				console.log(`  ${[notebook, ...section.groups, section.label].join(' / ')}: ${outcome}`);
+			},
+		};
+		const started = Date.now();
+		const result = await updateNotebooks(requests, host, { at: new Date(started), strings: reader, languageFor: () => given ?? SYSTEM_LANGUAGE, defaults, links: options.links, sources: [basename(options.input)] });
+		if (!result) {
+			console.log('Nothing to update.');
+			return;
+		}
+		if (result.links) console.log(`Links: ${result.links.resolved} rewritten in ${result.links.filesChanged} pages`);
+		console.log(`Done in ${Math.round((Date.now() - started) / 1000)} s. Record: ${result.record}.${existsSync(join(options.output, ...result.backup.split('/'))) ? ` Previous versions: ${result.backup}` : ''}`);
 	}
 	finally {
 		download.close();
 	}
 }
 
-(process.argv[2] === 'plan' ? plan(process.argv.slice(3)) : main()).catch(error => {
+const command = process.argv[2];
+(command === 'plan' || command === 'sync' ? plan(process.argv.slice(3), command) : main()).catch(error => {
 	console.error(error);
 	process.exit(1);
 });

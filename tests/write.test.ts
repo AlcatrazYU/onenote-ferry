@@ -231,3 +231,35 @@ test('a section\'s table of contents is the first thing written of it (saying im
 	assert.equal(order[order.length - 1], `${DIR}/_目录.md complete`);
 	assert.ok(order.slice(1, -1).every(entry => !entry.endsWith('_目录.md')));
 });
+
+// An update keeps each page's file (§11.5 item 49): by page id, the name the earlier import gave it.
+test('pages keep the file names given to them by id; new names avoid those and the files to leave alone', async () => {
+	const sink = memorySink();
+	const section = new Adapter(zhHans).section(sectionJson('Section', [
+		textPage('Plan', 'a', { id: '{new-plan}' }), textPage('Plan', 'b', { id: '{old-plan}' }),
+		textPage('Retitled', 'c', { id: '{kept}' }), textPage('Mine', 'd', { id: '{new}' }), textPage('_目录', 'e', { id: '{toc}' }),
+	]));
+	await writeSection(section, memorySource({}), sink, {
+		...options,
+		// Ids as the vault records them (upper case); a pin that is a table of contents' name is not kept.
+		names: new Map([['{OLD-PLAN}', 'Plan'], ['{KEPT}', 'Before'], ['{TOC}', '_目录']]),
+		taken: new Set(['mine.md']),
+	});
+	const names = [...sink.files.keys()].filter(p => p.endsWith('.md')).map(p => p.slice(DIR.length + 1)).sort();
+	assert.deepEqual(names, ['Before.md', 'Mine (2).md', 'Plan (2).md', 'Plan.md', '_目录 (2).md', '_目录.md']);
+	assert.match(text(sink, `${DIR}/Plan.md`), /onenote-id: "\{old-plan\}"/);
+	assert.match(text(sink, `${DIR}/Plan (2).md`), /onenote-id: "\{new-plan\}"/);
+	// The table of contents links each page where it is.
+	assert.match(text(sink, `${DIR}/_目录.md`), /- \[Retitled\]\(<Before\.md>\)/);
+});
+
+test('a section being updated says so; an import treats it as there, an update as unfinished', async () => {
+	const toc = (status: string) => `---\ntitle: "S 目录"\nonenote-import: ${status}\n---\n\n# S\n`;
+	assert.equal(importStatusOf(toc('syncing')), 'syncing');
+	assert.equal(importStatusOf(toc('updating')), undefined);
+});
+
+test('a section listed without a link: one that cannot be read and has no folder', () => {
+	const toc = notebookToc('NB', [{ groups: [], section: 'Locked', locked: true, unlinked: true }, { groups: [], section: 'Broken', failed: true, unlinked: true }], zhHans);
+	assert.match(toc, /\n- Locked（有密码保护，未转换）\n- Broken（转换失败）\n/);
+});

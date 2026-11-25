@@ -129,8 +129,8 @@ export interface ImportResult {
 }
 
 /** Table-of-contents and attachment folder names in every marker language, for links into notebooks of any language. */
-const ALL_TOC_NAMES = [...new Set(LANGUAGES.map(language => STRINGS[language].tocFileName))];
-const ALL_ATTACHMENT_FOLDERS = [...new Set(LANGUAGES.map(language => STRINGS[language].attachmentsFolder))];
+export const ALL_TOC_NAMES = [...new Set(LANGUAGES.map(language => STRINGS[language].tocFileName))];
+export const ALL_ATTACHMENT_FOLDERS = [...new Set(LANGUAGES.map(language => STRINGS[language].attachmentsFolder))];
 
 /** Folds a path as the disk and Obsidian compare them (composed, any case). */
 const fold = (path: string) => path.normalize('NFC').toLowerCase();
@@ -151,7 +151,7 @@ function tocOrder(a: { groups: string[], section: string }, b: { groups: string[
 }
 
 /** `entries` (in the download's order) with `extra` ones put where they belong. */
-function inTocOrder<T extends { groups: string[], section: string }>(entries: T[], extra: T[]): T[] {
+export function inTocOrder<T extends { groups: string[], section: string }>(entries: T[], extra: T[]): T[] {
 	const out = [...entries];
 	for (const entry of extra) {
 		const at = out.findIndex(other => tocOrder(entry, other) < 0);
@@ -304,7 +304,8 @@ export async function importNotebooks(notebooks: DownloadNotebook[], host: Impor
 /**
  * What an earlier import wrote of a notebook in `dir`, or undefined when the folder is not one of
  * ours (no table of contents of ours in it, §11.5 item 47). What is in the folder decides, never a
- * record: a section is there when its table of contents says it is complete. One that says
+ * record: a section is there when its table of contents says it is complete, or that an update is
+ * replacing some of it (the update finishes it or puts it back, §11.5 item 49). One that says
  * `importing` (cut off while it was written) or `failed`, and an empty folder, may be imported
  * (again): the same file names are written over. A folder with files but no table of contents of
  * ours is not ours (the user's own, or a section whose table of contents the user removed or
@@ -348,7 +349,7 @@ export async function earlierNotebook(sink: Sink, dir: string, notebook: Downloa
 		const folder = joinPath(dir, folders.get(key)!);
 		matched.add(fold(folder));
 		const status = importStatusOf(await read(joinPath(folder, toc)));
-		if (status === 'complete') sections.set(key, entry(section.groups, section.label, folder));
+		if (status === 'complete' || status === 'syncing') sections.set(key, entry(section.groups, section.label, folder));
 		else if (!status && holds(folder)) occupied.add(key);
 	}
 	// Sections of ours this download does not have (deleted in OneNote since, say): still there, by
@@ -359,7 +360,8 @@ export async function earlierNotebook(sink: Sink, dir: string, notebook: Downloa
 		if (fold(folder) === fold(dir) || matched.has(fold(folder))) continue;
 		matched.add(fold(folder));
 		const text = await sink.readText(file);
-		if (importStatusOf(text) !== 'complete') continue;
+		const status = importStatusOf(text);
+		if (status !== 'complete' && status !== 'syncing') continue;
 		const parts = folder.slice(dir.length + 1).split('/');
 		const groups = parts.slice(0, -1), name = tocHeading(text) ?? parts[parts.length - 1]!;
 		sections.set(sectionKey(groups, name), entry(groups, name, folder));
@@ -368,7 +370,7 @@ export async function earlierNotebook(sink: Sink, dir: string, notebook: Downloa
 }
 
 /** Whether a folder under the output root is a notebook of ours: its table of contents (in any marker language) carries our property. */
-async function isOurNotebook(sink: Sink, folder: string): Promise<boolean> {
+export async function isOurNotebook(sink: Sink, folder: string): Promise<boolean> {
 	for (const name of ALL_TOC_NAMES) if (importStatusOf(await sink.readText(joinPath(folder, `${name}.md`)))) return true;
 	return false;
 }
@@ -383,8 +385,14 @@ async function isLocked(host: Pick<SectionHost, 'isPasswordProtected'>, section:
 	}
 }
 
+/** File names to keep and to leave alone in a section's folder (an update, see writeSection). */
+export interface SectionNames {
+	names?: ReadonlyMap<string, string>;
+	taken?: ReadonlySet<string>;
+}
+
 /** Converts one section into its folder `dir` (see sectionFolders); a failed one gets a page that says why. */
-export async function convertSection(section: DownloadSection, dir: string, strings: Strings, host: SectionHost, options: SectionOptions): Promise<SectionResult> {
+export async function convertSection(section: DownloadSection, dir: string, strings: Strings, host: SectionHost, options: SectionOptions, names: SectionNames = {}): Promise<SectionResult> {
 	const { groups, label } = section;
 	await host.sink.ensureFolder(dir);
 	// A section that cannot be converted gets a table of contents that says why, so the notebook's
@@ -409,6 +417,7 @@ export async function convertSection(section: DownloadSection, dir: string, stri
 		const report = await writeSection(adapter.section(parsed.json), parsed.source, host.sink, {
 			dir, label: parsed.json.name || label, strings,
 			boxMarkers: options.boxMarkers, keepFontColor: options.keepFontColor, imageAltText: options.imageAltText,
+			...names,
 		});
 		return { groups, section: label, dir, report, stats: { parser: parsed.json.stats, parserErrors: parsed.json.errors, ...adapter.stats } };
 	}

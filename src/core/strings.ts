@@ -26,6 +26,8 @@ export interface Strings {
 	untitledPage: string;
 	conflictPageSuffix: string;
 	tocTitle(name: string): string;
+	/** Heading in a section's contents page above the pages OneNote no longer has (they stay, §11.5 item 51). */
+	noLongerInOneNote: string;
 	sectionOrderNote: string;
 	conversionFailedSuffix: string;
 	/** After a section that is password protected (in the notebook's table of contents). */
@@ -47,9 +49,12 @@ export interface Strings {
 	tocFileName: string;
 	oldVersionsFolder: string;
 	updateLogFolder: string;
+	/** Inside an update's previous versions: files an update wrote and then took back (a section it could not finish). */
+	notAppliedFolder: string;
 	/** The import report's file name without its extension: `.md` to read, `.json` for programs (later syncs). */
 	reportName: string;
 	report: ReportStrings;
+	update: UpdateStrings;
 	/** `<page> - <image><nnn>`: the word for a picture in attachment names. */
 	imageWord: string;
 	/** `<page> - <ink><nn>`: the word for handwriting in attachment names. */
@@ -85,6 +90,70 @@ export interface ReportStrings {
 	recordsMissing: string;
 	/** After a link to a page: pictures, attachments or printout pages with no data in the download. */
 	missingItems(count: number): string;
+	/** The last run was an update: what it changed is in its record (`record` is a link). */
+	update(record: string): string;
+}
+
+/** What an update changed (§11.5 item 49), counted for its record. */
+export interface UpdateCounts {
+	sectionsUpdated: number;
+	sectionsAdded: number;
+	pagesAdded: number;
+	pagesModified: number;
+	pagesRemoved: number;
+}
+
+/** An update's record (written in the reader's language). Names and links come already escaped. */
+export interface UpdateStrings {
+	title(time: string): string;
+	/** `folder`: where the versions the update replaced went (none when it replaced nothing). */
+	intro(folder?: string): string;
+	counts(counts: UpdateCounts): string;
+	/** Stopped before every chosen section was updated. */
+	stopped: string;
+	/** Cut off (Obsidian closed, say) and finished later. */
+	resumed: string;
+	attention: string;
+	nothingToNote: string;
+	/** Before the list of pages changed on both sides. */
+	bothEdited: string;
+	/** A page changed on both sides: the new version, and the user's (a link to its copy). */
+	bothEditedPage(page: string, yours: string): string;
+	yourVersion: string;
+	rolledBack(section: string, reason: string): string;
+	/** Why a section was put back: the update was cut off and its converted version was gone. */
+	interrupted: string;
+	notConverted(section: string, reason: string): string;
+	/** A section that could be read but not updated: something is in a folder it needs. */
+	notUpdated(section: string, reason: string): string;
+	folderTaken(folder: string): string;
+	/** Files that were not as the update expected (changed meanwhile), copied into `folder` before they were written over. */
+	keptAside(files: number, folder: string): string;
+	/** A notebook whose folder holds what the plugin did not write. */
+	occupiedNotebook(notebook: string): string;
+	/** A section imported before that is not in the vault any more, imported again because the user chose to. */
+	missingSection(name: string): string;
+	gone(sections: string[]): string;
+	occupied(sections: string[]): string;
+	different(notebook: string): string;
+	/** Before the list of pages and sections that moved: links to them from elsewhere may break. */
+	moved: string;
+	changes: string;
+	section(name: string, was?: string): string;
+	newSection(name: string): string;
+	added(page: string): string;
+	/** A changed page, a link to its version before, and its title before when OneNote changed that. */
+	modified(page: string, before: string, was?: string): string;
+	before: string;
+	/** A page OneNote deleted, which stays where it is. */
+	removed(page: string): string;
+	/** A page the user had deleted in Obsidian, written back because they chose to. */
+	restored(page: string): string;
+	/** Pages the user deleted in Obsidian, not written back (`pages` are links). */
+	notRestored(pages: string[]): string;
+	reordered(pages: number): string;
+	/** After a page changed on both sides, in the list of changes. */
+	bothEditedMark: string;
 }
 
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
@@ -104,6 +173,7 @@ export const en: Strings = {
 	untitledPage: 'Untitled',
 	conflictPageSuffix: ' (conflict)',
 	tocTitle: name => `${name} contents`,
+	noLongerInOneNote: 'Pages no longer in OneNote',
 	sectionOrderNote: '> Sections are sorted by name (files downloaded from OneDrive do not record the section order in OneNote).',
 	conversionFailedSuffix: ' (conversion failed)',
 	passwordProtectedSuffix: ' (password protected, not converted)',
@@ -117,6 +187,7 @@ export const en: Strings = {
 	tocFileName: '_contents',
 	oldVersionsFolder: '_previous versions',
 	updateLogFolder: '_sync log',
+	notAppliedFolder: '_not applied',
 	reportName: '_conversion report',
 	report: {
 		title: 'OneNote conversion report',
@@ -138,6 +209,48 @@ export const en: Strings = {
 		unfinished: 'This import has not finished yet, or Obsidian was closed during it. Import again to add the sections not imported yet.',
 		recordsMissing: 'Some sections have no earlier record (the data of this report was deleted or changed), so the page and attachment counts here may be incomplete.',
 		missingItems: count => `${plural(count, 'picture or attachment', 'pictures or attachments')} missing (the download has no data for ${count === 1 ? 'it' : 'them'})`,
+		update: record => `This run updated notes imported before; what changed is in ${record}.`,
+	},
+	update: {
+		title: time => `Sync log ${time}`,
+		intro: folder => `What this update changed.${folder ? ` The versions it replaced are in "${folder}": delete that folder once you are happy with the new versions.` : ''}`,
+		counts: c => [
+			c.sectionsUpdated ? plural(c.sectionsUpdated, 'section updated', 'sections updated') : '',
+			c.sectionsAdded ? plural(c.sectionsAdded, 'new section', 'new sections') : '',
+			c.pagesAdded ? plural(c.pagesAdded, 'page added', 'pages added') : '',
+			c.pagesModified ? plural(c.pagesModified, 'page changed', 'pages changed') : '',
+			c.pagesRemoved ? `${plural(c.pagesRemoved, 'page', 'pages')} deleted in OneNote (kept in the vault)` : '',
+		].filter(Boolean).join(', ') || 'No page changed',
+		stopped: 'The update stopped before every section was done. Check for updates again to finish.',
+		resumed: 'This update was cut off and was wound up the next time; what happened to each section is below.',
+		attention: 'Needs attention',
+		nothingToNote: 'Nothing needs attention.',
+		bothEdited: 'These pages were changed on both sides: in OneNote, and by you in Obsidian. They now hold the new version from OneNote. Your version is kept, so you can copy back what you want:',
+		bothEditedPage: (page, yours) => `${page} (${yours})`,
+		yourVersion: 'your version',
+		rolledBack: (section, reason) => `Section "${section}" could not be finished and was put back as it was: ${reason}`,
+		interrupted: 'the update was cut off, and the converted section was gone by the time it could go on',
+		notConverted: (section, reason) => `Section "${section}" could not be read this time and was left as it was: ${reason}`,
+		notUpdated: (section, reason) => `Section "${section}" was not updated this time and was left as it was: ${reason}`,
+		folderTaken: folder => `the folder it needs, "${folder}", already holds something else`,
+		keptAside: (files, folder) => `${plural(files, 'file was', 'files were')} not as the update expected (changed while it was cut off, say), and ${files === 1 ? 'was' : 'were'} copied into "${folder}" before being written over. Look at ${files === 1 ? 'it' : 'them'} before you delete the previous versions.`,
+		occupiedNotebook: notebook => `The folder of notebook "${notebook}" holds files the plugin did not write, so nothing was written into it.`,
+		missingSection: name => `Section "${name}" imported again (it was imported before and is not in the vault any more)`,
+		gone: sections => `Not in the new download, left as they were: ${sections.join(', ')}`,
+		occupied: sections => `Not written, because their folder holds files the plugin did not write: ${sections.join(', ')}`,
+		different: notebook => `"${notebook}" in the vault has no page in common with the notebook of that name in the download. It is another notebook, so it was left as it was.`,
+		moved: 'These pages and sections were renamed or moved. Links to them from other notes may need fixing:',
+		changes: 'Changes',
+		section: (name, was) => `Section "${name}"${was ? ` (was "${was}")` : ''}`,
+		newSection: name => `New section "${name}"`,
+		added: page => `Added: ${page}`,
+		modified: (page, before, was) => `Changed: ${page} (${before}${was !== undefined ? `; was "${was}"` : ''})`,
+		before: 'before',
+		removed: page => `No longer in OneNote, kept in the vault: ${page}`,
+		restored: page => `Brought back (you had deleted it): ${page}`,
+		notRestored: pages => `Pages you deleted in Obsidian were not brought back: ${pages.join(', ')}. To bring them back, tick them when you check for updates.`,
+		reordered: pages => `${plural(pages, 'page', 'pages')} only moved or changed level`,
+		bothEditedMark: ' (changed on both sides)',
 	},
 	imageWord: 'image',
 	inkWord: 'ink',
@@ -157,6 +270,7 @@ export const zhHans: Strings = {
 	untitledPage: '无标题',
 	conflictPageSuffix: '（冲突版本）',
 	tocTitle: name => `${name} 目录`,
+	noLongerInOneNote: 'OneNote 里已经没有的页面',
 	sectionOrderNote: '> 分区按名称排序（OneDrive 下载的文件里没有 OneNote 中的分区顺序）。',
 	conversionFailedSuffix: '（转换失败）',
 	passwordProtectedSuffix: '（有密码保护，未转换）',
@@ -170,6 +284,7 @@ export const zhHans: Strings = {
 	tocFileName: '_目录',
 	oldVersionsFolder: '_旧版本',
 	updateLogFolder: '_更新记录',
+	notAppliedFolder: '_未完成',
 	reportName: '_转换报告',
 	report: {
 		title: 'OneNote 转换报告',
@@ -191,6 +306,48 @@ export const zhHans: Strings = {
 		unfinished: '这次导入还没有结束，或者中途退出了 Obsidian。再导入一次，没导入的分区会补进来。',
 		recordsMissing: '有的分区以前的记录不在了（报告的数据被删掉或改动过），这里的页数和附件数可能不全。',
 		missingItems: count => `缺少 ${num(count)} 处图片或附件（下载包里没有数据）`,
+		update: record => `这次更新了已导入的笔记，改了什么见${record}。`,
+	},
+	update: {
+		title: time => `更新记录 ${time}`,
+		intro: folder => `这一页记下这次更新改了什么。${folder ? `换下来的旧版都在“${folder}”里，确认新版没问题后，可以把这个文件夹删掉。` : ''}`,
+		counts: c => [
+			c.sectionsUpdated ? `更新 ${num(c.sectionsUpdated)} 个分区` : '',
+			c.sectionsAdded ? `新增 ${num(c.sectionsAdded)} 个分区` : '',
+			c.pagesAdded ? `新增 ${num(c.pagesAdded)} 页` : '',
+			c.pagesModified ? `修改 ${num(c.pagesModified)} 页` : '',
+			c.pagesRemoved ? `OneNote 里删了 ${num(c.pagesRemoved)} 页（仓库里留着）` : '',
+		].filter(Boolean).join('，') || '没有页面变化',
+		stopped: '更新中途停止，还有分区没有更新。再检查一次更新即可。',
+		resumed: '这次更新中途被打断，下次运行时做了收尾，每个分区的结果见下。',
+		attention: '需要注意',
+		nothingToNote: '没有需要注意的地方。',
+		bothEdited: '下面这些页面两边都改过：OneNote 里改了，你在 Obsidian 里也改过。现在是 OneNote 的新版，你改过的那份留着，要保留的内容可以对照着搬回来：',
+		bothEditedPage: (page, yours) => `${page}（${yours}）`,
+		yourVersion: '你改过的那份',
+		rolledBack: (section, reason) => `分区“${section}”没能更新完，已经恢复成更新前的样子：${reason}`,
+		interrupted: '更新中途被打断，接着做的时候转换好的新版已经不在了',
+		notConverted: (section, reason) => `分区“${section}”这次读不出来，仓库里的没有动：${reason}`,
+		notUpdated: (section, reason) => `分区“${section}”这次没有更新，仓库里的没有动：${reason}`,
+		folderTaken: folder => `要用的文件夹“${folder}”里已经有别的东西`,
+		keptAside: (files, folder) => `有 ${num(files)} 个文件和更新预想的不一样（比如更新中断后你改过），覆盖之前先复制进了“${folder}”。删旧版本之前，先看看这些文件。`,
+		occupiedNotebook: notebook => `笔记本“${notebook}”的文件夹里有不是插件写的文件，没有写入。`,
+		missingSection: name => `重新导入分区“${name}”（以前导入过，这次在仓库里找不到了）`,
+		gone: sections => `新下载里没有这些分区，仓库里的没有动：${sections.join('、')}`,
+		occupied: sections => `这些分区的文件夹里有不是插件写的文件，没有写入：${sections.join('、')}`,
+		different: notebook => `仓库里的“${notebook}”和下载里的同名笔记本没有一页相同，不是同一本，没有动它。`,
+		moved: '下面这些页面和分区改了名或换了位置。别的笔记如果链接到它们，链接可能需要改：',
+		changes: '变化',
+		section: (name, was) => `分区“${name}”${was ? `（原来是“${was}”）` : ''}`,
+		newSection: name => `新分区“${name}”`,
+		added: page => `新增：${page}`,
+		modified: (page, before, was) => `修改：${page}（${before}${was !== undefined ? `，原标题“${was}”` : ''}）`,
+		before: '更新前',
+		removed: page => `OneNote 里已经没有，留在原处：${page}`,
+		restored: page => `补回你删掉的页面：${page}`,
+		notRestored: pages => `你在 Obsidian 里删掉的页面没有补回：${pages.join('、')}。想补回的话，检查更新时勾上它们。`,
+		reordered: pages => `${num(pages)} 页只调整了顺序或层级`,
+		bothEditedMark: '（两边都改过）',
 	},
 	imageWord: '图',
 	inkWord: '手写',
@@ -210,6 +367,7 @@ export const zhHant: Strings = {
 	untitledPage: '無標題',
 	conflictPageSuffix: '（衝突版本）',
 	tocTitle: name => `${name} 目錄`,
+	noLongerInOneNote: 'OneNote 裡已經沒有的頁面',
 	sectionOrderNote: '> 節按名稱排序（OneDrive 下載的檔案裡沒有 OneNote 中的節順序）。',
 	conversionFailedSuffix: '（轉換失敗）',
 	passwordProtectedSuffix: '（有密碼保護，未轉換）',
@@ -223,6 +381,7 @@ export const zhHant: Strings = {
 	tocFileName: '_目錄',
 	oldVersionsFolder: '_舊版本',
 	updateLogFolder: '_更新記錄',
+	notAppliedFolder: '_未完成',
 	reportName: '_轉換報告',
 	report: {
 		title: 'OneNote 轉換報告',
@@ -244,6 +403,48 @@ export const zhHant: Strings = {
 		unfinished: '這次匯入還沒有結束，或者中途退出了 Obsidian。再匯入一次，沒匯入的節會補進來。',
 		recordsMissing: '有的節以前的紀錄不在了（報告的資料被刪除或改動過），這裡的頁數和附件數可能不全。',
 		missingItems: count => `缺少 ${num(count)} 處圖片或附件（下載包裡沒有資料）`,
+		update: record => `這次更新了已匯入的筆記，改了什麼見${record}。`,
+	},
+	update: {
+		title: time => `更新記錄 ${time}`,
+		intro: folder => `這一頁記下這次更新改了什麼。${folder ? `換下來的舊版都在「${folder}」裡，確認新版沒問題後，可以把這個資料夾刪掉。` : ''}`,
+		counts: c => [
+			c.sectionsUpdated ? `更新 ${num(c.sectionsUpdated)} 個節` : '',
+			c.sectionsAdded ? `新增 ${num(c.sectionsAdded)} 個節` : '',
+			c.pagesAdded ? `新增 ${num(c.pagesAdded)} 頁` : '',
+			c.pagesModified ? `修改 ${num(c.pagesModified)} 頁` : '',
+			c.pagesRemoved ? `OneNote 裡刪了 ${num(c.pagesRemoved)} 頁（儲存庫裡留著）` : '',
+		].filter(Boolean).join('，') || '沒有頁面變化',
+		stopped: '更新中途停止，還有節沒有更新。再檢查一次更新即可。',
+		resumed: '這次更新中途被打斷，下次執行時做了收尾，每個節的結果見下。',
+		attention: '需要注意',
+		nothingToNote: '沒有需要注意的地方。',
+		bothEdited: '下面這些頁面兩邊都改過：OneNote 裡改了，你在 Obsidian 裡也改過。現在是 OneNote 的新版，你改過的那份留著，要保留的內容可以對照著搬回來：',
+		bothEditedPage: (page, yours) => `${page}（${yours}）`,
+		yourVersion: '你改過的那份',
+		rolledBack: (section, reason) => `節「${section}」沒能更新完，已經恢復成更新前的樣子：${reason}`,
+		interrupted: '更新中途被打斷，接著做的時候轉換好的新版已經不在了',
+		notConverted: (section, reason) => `節「${section}」這次讀不出來，儲存庫裡的沒有動：${reason}`,
+		notUpdated: (section, reason) => `節「${section}」這次沒有更新，儲存庫裡的沒有動：${reason}`,
+		folderTaken: folder => `要用的資料夾「${folder}」裡已經有別的東西`,
+		keptAside: (files, folder) => `有 ${num(files)} 個檔案和更新預想的不一樣（例如更新中斷後你改過），覆蓋之前先複製進了「${folder}」。刪舊版本之前，先看看這些檔案。`,
+		occupiedNotebook: notebook => `筆記本「${notebook}」的資料夾裡有不是外掛寫的檔案，沒有寫入。`,
+		missingSection: name => `重新匯入節「${name}」（以前匯入過，這次在儲存庫裡找不到了）`,
+		gone: sections => `新下載裡沒有這些節，儲存庫裡的沒有動：${sections.join('、')}`,
+		occupied: sections => `這些節的資料夾裡有不是外掛寫的檔案，沒有寫入：${sections.join('、')}`,
+		different: notebook => `儲存庫裡的「${notebook}」和下載裡的同名筆記本沒有一頁相同，不是同一本，沒有動它。`,
+		moved: '下面這些頁面和節改了名或換了位置。別的筆記如果連結到它們，連結可能需要改：',
+		changes: '變化',
+		section: (name, was) => `節「${name}」${was ? `（原來是「${was}」）` : ''}`,
+		newSection: name => `新的節「${name}」`,
+		added: page => `新增：${page}`,
+		modified: (page, before, was) => `修改：${page}（${before}${was !== undefined ? `，原標題「${was}」` : ''}）`,
+		before: '更新前',
+		removed: page => `OneNote 裡已經沒有，留在原處：${page}`,
+		restored: page => `補回你刪掉的頁面：${page}`,
+		notRestored: pages => `你在 Obsidian 裡刪掉的頁面沒有補回：${pages.join('、')}。想補回的話，檢查更新時勾選它們。`,
+		reordered: pages => `${num(pages)} 頁只調整了順序或層級`,
+		bothEditedMark: '（兩邊都改過）',
 	},
 	imageWord: '圖',
 	inkWord: '手寫',
@@ -263,6 +464,7 @@ export const ja: Strings = {
 	untitledPage: '無題',
 	conflictPageSuffix: '（競合）',
 	tocTitle: name => `${name} 目次`,
+	noLongerInOneNote: 'OneNote にはもうないページ',
 	sectionOrderNote: '> セクションは名前順です（OneDrive からダウンロードしたファイルには、OneNote でのセクションの並び順が含まれていません）。',
 	conversionFailedSuffix: '（変換失敗）',
 	passwordProtectedSuffix: '（パスワード保護のため未変換）',
@@ -276,6 +478,7 @@ export const ja: Strings = {
 	tocFileName: '_目次',
 	oldVersionsFolder: '_旧バージョン',
 	updateLogFolder: '_更新記録',
+	notAppliedFolder: '_未完了',
 	reportName: '_変換レポート',
 	report: {
 		title: 'OneNote 変換レポート',
@@ -297,6 +500,48 @@ export const ja: Strings = {
 		unfinished: 'このインポートはまだ終わっていないか、途中で Obsidian が終了しました。もう一度インポートすると、残りのセクションが追加されます。',
 		recordsMissing: '以前の記録が残っていないセクションがあります（このレポートのデータが削除または変更されました）。ここのページ数と添付ファイル数は不完全な場合があります。',
 		missingItems: count => `画像または添付ファイル ${num(count)} 個が欠けています（ダウンロードにデータがありません）`,
+		update: record => `今回はインポート済みのノートを更新しました。変更点は${record}を参照してください。`,
+	},
+	update: {
+		title: time => `更新記録 ${time}`,
+		intro: folder => `今回の更新で変わった内容です。${folder ? `置き換えた以前の版は「${folder}」にあります。新しい版に問題がなければ、このフォルダーは削除してかまいません。` : ''}`,
+		counts: c => [
+			c.sectionsUpdated ? `セクション ${num(c.sectionsUpdated)} 個を更新` : '',
+			c.sectionsAdded ? `セクション ${num(c.sectionsAdded)} 個を追加` : '',
+			c.pagesAdded ? `${num(c.pagesAdded)} ページを追加` : '',
+			c.pagesModified ? `${num(c.pagesModified)} ページを変更` : '',
+			c.pagesRemoved ? `OneNote で削除された ${num(c.pagesRemoved)} ページ（保管庫には残しています）` : '',
+		].filter(Boolean).join('、') || 'ページの変更はありません',
+		stopped: '更新は途中で停止しました。まだ更新していないセクションがあります。もう一度更新を確認すると続きを行います。',
+		resumed: 'この更新は途中で中断され、次に実行したときに締めくくりました。各セクションの結果は以下のとおりです。',
+		attention: '確認が必要な項目',
+		nothingToNote: '確認が必要な項目はありません。',
+		bothEdited: '次のページは両方で変更されています（OneNote で変更され、Obsidian でもあなたが変更しました）。現在は OneNote の新しい版です。あなたが変更した版は残してあるので、残したい内容を見比べて戻せます：',
+		bothEditedPage: (page, yours) => `${page}（${yours}）`,
+		yourVersion: 'あなたが変更した版',
+		rolledBack: (section, reason) => `セクション「${section}」は更新を完了できなかったため、更新前の状態に戻しました：${reason}`,
+		interrupted: '更新が途中で中断され、続きを行うときには変換済みの新しい版が残っていませんでした',
+		notConverted: (section, reason) => `セクション「${section}」は今回読み込めなかったため、保管庫の内容はそのままです：${reason}`,
+		notUpdated: (section, reason) => `セクション「${section}」は今回更新できなかったため、保管庫の内容はそのままです：${reason}`,
+		folderTaken: folder => `必要なフォルダー「${folder}」にすでに別のものがあります`,
+		keptAside: (files, folder) => `${num(files)} 個のファイルが更新の想定と違っていたため（更新の中断中に変更した場合など）、上書きする前に「${folder}」にコピーしました。以前のバージョンを削除する前に、これらのファイルを確認してください。`,
+		occupiedNotebook: notebook => `ノートブック「${notebook}」のフォルダーにプラグインが書いていないファイルがあるため、書き込みませんでした。`,
+		missingSection: name => `セクション「${name}」をもう一度インポートしました（以前インポートしたもので、保管庫に見つからなくなっていました）`,
+		gone: sections => `新しいダウンロードにないセクション（保管庫の内容はそのままです）：${sections.join('、')}`,
+		occupied: sections => `フォルダーにプラグインが書いていないファイルがあるため、書き込まなかったセクション：${sections.join('、')}`,
+		different: notebook => `保管庫の「${notebook}」は、ダウンロードの同じ名前のノートブックと共通するページがありません。別のノートブックなので、そのままにしました。`,
+		moved: '次のページとセクションは、名前や場所が変わりました。ほかのノートからのリンクは直す必要があるかもしれません：',
+		changes: '変更点',
+		section: (name, was) => `セクション「${name}」${was ? `（以前は「${was}」）` : ''}`,
+		newSection: name => `新しいセクション「${name}」`,
+		added: page => `追加：${page}`,
+		modified: (page, before, was) => `変更：${page}（${before}${was !== undefined ? `、以前のタイトル「${was}」` : ''}）`,
+		before: '更新前',
+		removed: page => `OneNote にはもうないため、そのまま残しています：${page}`,
+		restored: page => `削除したページを戻しました：${page}`,
+		notRestored: pages => `Obsidian で削除したページは戻していません：${pages.join('、')}。戻したい場合は、更新を確認するときにチェックしてください。`,
+		reordered: pages => `${num(pages)} ページは順序または階層だけが変わりました`,
+		bothEditedMark: '（両方で変更）',
 	},
 	imageWord: '図',
 	inkWord: '手書き',
@@ -316,6 +561,7 @@ export const ko: Strings = {
 	untitledPage: '제목 없음',
 	conflictPageSuffix: ' (충돌 버전)',
 	tocTitle: name => `${name} 목차`,
+	noLongerInOneNote: 'OneNote에 더 이상 없는 페이지',
 	sectionOrderNote: '> 섹션은 이름순으로 정렬됩니다 (OneDrive에서 다운로드한 파일에는 OneNote의 섹션 순서가 들어 있지 않습니다).',
 	conversionFailedSuffix: ' (변환 실패)',
 	passwordProtectedSuffix: ' (암호로 보호되어 변환하지 않음)',
@@ -329,6 +575,7 @@ export const ko: Strings = {
 	tocFileName: '_목차',
 	oldVersionsFolder: '_이전 버전',
 	updateLogFolder: '_업데이트 기록',
+	notAppliedFolder: '_적용 안 됨',
 	reportName: '_변환 보고서',
 	report: {
 		title: 'OneNote 변환 보고서',
@@ -350,6 +597,48 @@ export const ko: Strings = {
 		unfinished: '이 가져오기가 아직 끝나지 않았거나 도중에 Obsidian이 종료되었습니다. 다시 가져오면 나머지 섹션이 추가됩니다.',
 		recordsMissing: '이전 기록이 없는 섹션이 있습니다(이 보고서의 데이터가 삭제되었거나 바뀌었습니다). 여기의 페이지 수와 첨부 파일 수는 정확하지 않을 수 있습니다.',
 		missingItems: count => `그림 또는 첨부 파일 ${num(count)}개 없음 (다운로드에 데이터가 없음)`,
+		update: record => `이번에는 이전에 가져온 노트를 업데이트했습니다. 바뀐 내용은 ${record}에 있습니다.`,
+	},
+	update: {
+		title: time => `업데이트 기록 ${time}`,
+		intro: folder => `이번 업데이트로 바뀐 내용입니다.${folder ? ` 바꾼 이전 버전은 "${folder}"에 있습니다. 새 버전에 문제가 없으면 이 폴더를 삭제해도 됩니다.` : ''}`,
+		counts: c => [
+			c.sectionsUpdated ? `섹션 ${num(c.sectionsUpdated)}개 업데이트` : '',
+			c.sectionsAdded ? `섹션 ${num(c.sectionsAdded)}개 추가` : '',
+			c.pagesAdded ? `페이지 ${num(c.pagesAdded)}개 추가` : '',
+			c.pagesModified ? `페이지 ${num(c.pagesModified)}개 변경` : '',
+			c.pagesRemoved ? `OneNote에서 삭제된 페이지 ${num(c.pagesRemoved)}개 (보관함에는 남겨 둠)` : '',
+		].filter(Boolean).join(', ') || '바뀐 페이지 없음',
+		stopped: '업데이트가 중간에 중지되어 아직 업데이트하지 않은 섹션이 있습니다. 업데이트를 다시 확인하면 마저 합니다.',
+		resumed: '이 업데이트는 중간에 끊겼고, 다음에 실행했을 때 마무리했습니다. 섹션별 결과는 아래와 같습니다.',
+		attention: '확인이 필요한 항목',
+		nothingToNote: '확인이 필요한 항목이 없습니다.',
+		bothEdited: '다음 페이지는 양쪽에서 바뀌었습니다. OneNote에서 바뀌었고, Obsidian에서도 직접 고쳤습니다. 지금은 OneNote의 새 버전이며, 고친 버전은 남겨 두었으니 필요한 내용을 비교해서 옮기면 됩니다:',
+		bothEditedPage: (page, yours) => `${page} (${yours})`,
+		yourVersion: '고친 버전',
+		rolledBack: (section, reason) => `섹션 "${section}"은(는) 업데이트를 끝내지 못해 업데이트 전 상태로 되돌렸습니다: ${reason}`,
+		interrupted: '업데이트가 중간에 끊겼고, 이어서 하려고 할 때 변환해 둔 새 버전이 없었습니다',
+		notConverted: (section, reason) => `섹션 "${section}"은(는) 이번에 읽을 수 없어 보관함의 내용을 그대로 두었습니다: ${reason}`,
+		notUpdated: (section, reason) => `섹션 "${section}"은(는) 이번에 업데이트하지 못해 보관함의 내용을 그대로 두었습니다: ${reason}`,
+		folderTaken: folder => `필요한 폴더 "${folder}"에 이미 다른 것이 있습니다`,
+		keptAside: (files, folder) => `파일 ${num(files)}개가 업데이트가 예상한 상태와 달라(업데이트가 끊긴 동안 고친 경우 등) 덮어쓰기 전에 "${folder}"에 복사했습니다. 이전 버전을 삭제하기 전에 이 파일들을 먼저 확인하세요.`,
+		occupiedNotebook: notebook => `전자 필기장 "${notebook}"의 폴더에 플러그인이 쓰지 않은 파일이 있어 쓰지 않았습니다.`,
+		missingSection: name => `섹션 "${name}"을(를) 다시 가져옴 (이전에 가져왔지만 보관함에서 찾을 수 없었음)`,
+		gone: sections => `새 다운로드에 없는 섹션 (보관함의 내용은 그대로 둠): ${sections.join(', ')}`,
+		occupied: sections => `폴더에 플러그인이 쓰지 않은 파일이 있어 쓰지 않은 섹션: ${sections.join(', ')}`,
+		different: notebook => `보관함의 "${notebook}"은(는) 다운로드에 있는 같은 이름의 전자 필기장과 같은 페이지가 하나도 없습니다. 다른 전자 필기장이므로 그대로 두었습니다.`,
+		moved: '다음 페이지와 섹션은 이름이나 위치가 바뀌었습니다. 다른 노트에서 연결한 링크는 고쳐야 할 수 있습니다:',
+		changes: '바뀐 내용',
+		section: (name, was) => `섹션 "${name}"${was ? ` (이전 이름 "${was}")` : ''}`,
+		newSection: name => `새 섹션 "${name}"`,
+		added: page => `추가: ${page}`,
+		modified: (page, before, was) => `변경: ${page} (${before}${was !== undefined ? `, 이전 제목 "${was}"` : ''})`,
+		before: '업데이트 전',
+		removed: page => `OneNote에 더 이상 없어 그대로 남겨 둠: ${page}`,
+		restored: page => `삭제했던 페이지를 되살림: ${page}`,
+		notRestored: pages => `Obsidian에서 삭제한 페이지는 되살리지 않았습니다: ${pages.join(', ')}. 되살리려면 업데이트를 확인할 때 선택하세요.`,
+		reordered: pages => `페이지 ${num(pages)}개는 순서나 수준만 바뀜`,
+		bothEditedMark: ' (양쪽에서 바뀜)',
 	},
 	imageWord: '그림',
 	inkWord: '손글씨',

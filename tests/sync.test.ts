@@ -74,7 +74,75 @@ test('only the order or the level of pages changed: the section is changed, thos
 test('a section renamed or moved into a group in OneNote: matched by its pages, moving to its new folder', async () => {
 	const sink = await vault({ 'Old name': [['{A}', 'One'], ['{B}', 'Two']] });
 	assert.deepEqual(states((await plan([scan('New name', [p('{A}', 'One'), p('{B}', 'Two')])], sink)).items), [['Tides/New name', 'changed', 'Old name', 'New name']]);
-	assert.deepEqual(states((await plan([scan('Old name', [p('{A}', 'One'), p('{B}', 'Two')], ['Group'])], sink)).items), [['Tides/Group/Old name', 'changed', 'Old name', 'Group/Old name']]);
+	// Moved to another group in OneNote: told from what the report recorded of the folder (§11.5 item 52.2).
+	const previous = new Map([['old name', { groups: [], name: 'Old name' }]]);
+	assert.deepEqual(states((await plan([scan('Old name', [p('{A}', 'One'), p('{B}', 'Two')], ['Group'])], sink, { previous })).items), [['Tides/Group/Old name', 'changed', 'Old name', 'Group/Old name']]);
+});
+
+test('a section folder the user moved within the notebook stays where the user put it; renamed in OneNote, it is renamed there', async () => {
+	const sink = await vault({ 'Archive/Winter': { status: 'complete', name: 'Winter', pages: [['{A}', 'One']] } });
+	const previous = new Map([['archive/winter', { groups: [], name: 'Winter' }]]);
+	assert.deepEqual(states((await plan([scan('Winter', [p('{A}', 'One')])], sink, { previous })).items), [['Tides/Winter', 'same', 'Archive/Winter', 'Archive/Winter']]);
+	assert.deepEqual(states((await plan([scan('Snow', [p('{A}', 'One')])], sink, { previous })).items), [['Tides/Snow', 'changed', 'Archive/Winter', 'Archive/Snow']]);
+	// Moved to another group in OneNote: into that group's folder.
+	assert.deepEqual(states((await plan([scan('Winter', [p('{A}', 'One')], ['Cold'])], sink, { previous })).items), [['Tides/Cold/Winter', 'changed', 'Archive/Winter', 'Cold/Winter']]);
+});
+
+test('a section imported before that is not in the vault any more is missing, not new', async () => {
+	const sink = await vault({ Spring: [['{A}', 'a']] });
+	const { items } = await plan([scan('Spring', [p('{A}', 'a')]), scan('Gone away', [p('{G}', 'g')]), scan('Brand new', [p('{N}', 'n')])], sink, { imported: new Set(['Gone away']) });
+	assert.deepEqual(states(items), [['Tides/Spring', 'same', 'Spring', 'Spring'], ['Tides/Gone away', 'missing', null, 'Gone away'], ['Tides/Brand new', 'new', null, 'Brand new']]);
+});
+
+test('a page moved to another section in OneNote does not pull that section into the wrong folder', async () => {
+	const sink = await vault({ 'Archive/Inbox': [['{M}', 'Moved'], ['{I}', 'Inbox page']], Notes: [['{N}', 'Notes page']] });
+	const { items } = await plan([scan('Notes', [p('{M}', 'Moved'), p('{N}', 'Notes page')]), scan('Inbox', [p('{I}', 'Inbox page')], ['Archive'])], sink);
+	assert.deepEqual(states(items), [['Tides/Notes', 'changed', 'Notes', 'Notes'], ['Tides/Archive/Inbox', 'changed', 'Archive/Inbox', 'Archive/Inbox']]);
+});
+
+test('a section moved into a new group named like another section does not go inside that section\'s folder', async () => {
+	const sink = await vault({ Notes: [['{A}', 'Alpha']], Work: [['{B}', 'Beta']] });
+	const previous = new Map([['notes', { groups: [], name: 'Notes' }], ['work', { groups: [], name: 'Work' }]]);
+	const { items } = await plan([scan('Work', [p('{B}', 'Beta')]), scan('Notes', [p('{A}', 'Alpha')], ['Work'])], sink, { previous });
+	const notes = items.find(item => item.label === 'Notes')!;
+	assert.ok(!notes.new!.toLowerCase().startsWith('work/'), notes.new);
+});
+
+test('the user\'s copy of a page (same page id) is not taken for the page: the one the contents page lists is', async () => {
+	const sink = await vault({ Spring: [['{A}', 'One']] });
+	await sink.writeText('Tides/Spring/A copy of One.md', pageText('{A}', 'One'), new Date(T1));
+	const archive = (await readArchive(sink, 'Tides'))!;
+	assert.equal(archive.sections[0]!.pages.get('{A}')!.file, 'One.md');
+});
+
+test('pages the user deleted are told by page id when the report has ids, and a page with no title or a backslash in it is still told', async () => {
+	const sink = await vault({ Spring: [['{A}', ''], ['{B}', 'a\\b'], ['{C}', 'Three']] });
+	sink.files.delete('Tides/Spring/.md');
+	sink.files.delete('Tides/Spring/a\\b.md');
+	// No ids in the report: by title, untitled pages and backslashes included.
+	await sink.writeText('Tides/Spring/_目录.md', toc('complete', 'Spring', ['无标题.md', 'a\\b.md', 'Three.md']).replace('[无标题]', '[无标题]'));
+	sink.files.set('Tides/Spring/_目录.md', (sink.files.get('Tides/Spring/_目录.md') as string).replace('(<无标题.md>)', '(<无标题.md>)'));
+	const byTitle = (await plan([scan('Spring', [p('{A}', ''), p('{B}', 'a\\b'), p('{C}', 'Three')])], sink)).items[0]!;
+	assert.deepEqual(byTitle.added.map(page => [page.title, !!page.userDeleted]), [['', true], ['a\\b', true]]);
+	// With ids: a new OneNote page of a deleted page's title is new, not taken for the deleted one.
+	const recorded = [{ groups: [], section: 'Spring', dir: 'Tides/Spring', report: { section: 'Spring', dir: 'Tides/Spring', pageCount: 3, attachments: 0, reusedAttachments: 0, pages: [{ id: '{A}', title: '', file: '无标题.md', level: 0, chars: 0, assets: 0, skipped: [] }, { id: '{B}', title: 'a\\b', file: 'a\\b.md', level: 0, chars: 0, assets: 0, skipped: [] }, { id: '{C}', title: 'Three', file: 'Three.md', level: 0, chars: 0, assets: 0, skipped: [] }] } }];
+	const byId = planNotebook('Tides', [scan('Spring', [p('{A}', ''), p('{Z}', 'a\\b'), p('{C}', 'Three')])], await readArchive(sink, 'Tides', recorded), zhHans);
+	assert.deepEqual(byId.items[0]!.added.map(page => [page.id, !!page.userDeleted]), [['{A}', true], ['{Z}', false]]);
+});
+
+test('a page OneNote brought back after it was listed as no longer in OneNote makes its section changed', async () => {
+	const sink = await vault({ Spring: [['{A}', 'One'], ['{B}', 'Two']] });
+	await sink.writeText('Tides/Spring/_目录.md', `${toc('complete', 'Spring', ['One.md'])}\n## OneNote 里已经没有的页面\n\n- [Two](<Two.md>)\n`);
+	const item = (await plan([scan('Spring', [p('{A}', 'One'), p('{B}', 'Two', T1, 1)])], sink)).items[0]!;
+	assert.equal(item.status, 'changed');
+});
+
+test('a heading the user adds to a contents page does not hide pages they deleted', async () => {
+	const sink = await vault({ Spring: [['{A}', 'One'], ['{B}', 'Two']] });
+	await sink.writeText('Tides/Spring/_目录.md', `${toc('complete', 'Spring', [])}\n## My notes\n\n- [One](<One.md>)\n- [Two](<Two.md>)\n`);
+	sink.files.delete('Tides/Spring/Two.md');
+	const item = (await plan([scan('Spring', [p('{A}', 'One'), p('{B}', 'Two')])], sink)).items[0]!;
+	assert.deepEqual(item.added.map(page => [page.title, !!page.userDeleted]), [['Two', true]]);
 });
 
 test('one old folder goes to one section: renamed, then a new section of the old name', async () => {
@@ -130,6 +198,11 @@ test('a section cut off or failed before is unfinished; one left unticked before
 	assert.deepEqual(states(items), [['Tides/Spring', 'unfinished', 'Spring', 'Spring'], ['Tides/Summer', 'unfinished', 'Summer', 'Summer'], ['Tides/Autumn', 'skipped', null, 'Autumn']]);
 });
 
+test('a section an update was cut off in (its record gone) is unfinished, even with no change', async () => {
+	const sink = await vault({ Spring: { status: 'syncing', pages: [['{A}', 'a']] } });
+	assert.deepEqual(states((await plan([scan('Spring', [p('{A}', 'a')])], sink)).items), [['Tides/Spring', 'unfinished', 'Spring', 'Spring']]);
+});
+
 test('a section no longer in the download is listed as gone (nothing is done to it), unless the download is partial', async () => {
 	const sink = await vault({ Spring: [['{A}', 'a']], Old: [['{O}', 'o']] });
 	assert.deepEqual(states((await plan([scan('Spring', [p('{A}', 'a')])], sink)).items), [['Tides/Spring', 'same', 'Spring', 'Spring'], ['Tides/Old', 'gone', 'Old', null]]);
@@ -157,6 +230,27 @@ test('pages the user edited or deleted in Obsidian are marked', async () => {
 	assert.equal(modified.userEdited, true);
 	const deleted = items[0]!.added.find(page => page.title === 'Two')!;
 	assert.equal(deleted.userDeleted, true);
+});
+
+// A page OneNote deleted stays where it is (§11.5 item 51): the update lists it in its section's
+// contents page as no longer in OneNote, and from then on it is not a change.
+test('a page OneNote deleted makes its section changed once; listed as no longer in OneNote, it does not', async () => {
+	const sink = await vault({ Spring: [['{A}', 'One'], ['{B}', 'Two']] });
+	const first = (await plan([scan('Spring', [p('{A}', 'One')])], sink)).items[0]!;
+	assert.equal(first.status, 'changed');
+	assert.deepEqual(first.removed.map(page => page.title), ['Two']);
+	await sink.writeText('Tides/Spring/_目录.md', `${toc('complete', 'Spring', ['One.md'])}\n## OneNote 里已经没有的页面\n\n- [Two](<Two.md>)\n`);
+	const again = (await plan([scan('Spring', [p('{A}', 'One')])], sink)).items[0]!;
+	assert.equal(again.status, 'same');
+	assert.deepEqual(again.removed, []);
+});
+
+test('a page the user deleted in Obsidian alone does not make its section changed (bringing it back is a choice)', async () => {
+	const sink = await vault({ Spring: [['{A}', 'One'], ['{B}', 'Two']] });
+	sink.files.delete('Tides/Spring/Two.md');
+	const item = (await plan([scan('Spring', [p('{A}', 'One'), p('{B}', 'Two')])], sink)).items[0]!;
+	assert.equal(item.status, 'same');
+	assert.deepEqual(item.added.map(page => [page.title, page.userDeleted]), [['Two', true]]);
 });
 
 test('two notebooks of one name with no page in common are not the same notebook', async () => {

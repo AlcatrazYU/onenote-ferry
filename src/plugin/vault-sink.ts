@@ -3,7 +3,7 @@
 
 import { normalizePath, TFile, TFolder } from 'obsidian';
 import type { App } from 'obsidian';
-import type { Sink } from '../core/io.ts';
+import type { UpdateSink } from '../core/io.ts';
 
 /** The bytes as an ArrayBuffer of their own (the vault takes ArrayBuffers). */
 function arrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -32,7 +32,7 @@ export function vaultSpelling(app: App, path: string): string {
 	return found.join('/');
 }
 
-export class VaultSink implements Sink {
+export class VaultSink implements UpdateSink {
 	private readonly app: App;
 	/** The vault folder everything goes under ('' for the vault's root), as the vault spells it. */
 	readonly root: string;
@@ -42,8 +42,12 @@ export class VaultSink implements Sink {
 		this.root = root === '' || root === '/' ? '' : vaultSpelling(app, normalizePath(root));
 	}
 
+	/** The vault path of a path under the root. A `.` or `..` part would leave the root (a journal changed by hand, say): it throws. */
 	private full(path: string): string {
-		return normalizePath(this.root ? `${this.root}/${path}` : path);
+		// Checked as normalizePath leaves it too (it may turn other separators into slashes).
+		const full = normalizePath(this.root ? `${this.root}/${path}` : path);
+		if ([path, full].some(value => value.split(/[\\/]/).some(part => part === '.' || part === '..'))) throw new Error(`Not a path in the output folder: ${path}`);
+		return full;
 	}
 
 	private async makeFolder(full: string): Promise<void> {
@@ -113,6 +117,45 @@ export class VaultSink implements Sink {
 	async stat(path: string): Promise<{ mtime: number, size: number } | undefined> {
 		const file = this.app.vault.getFileByPath(this.full(path));
 		return file ? { mtime: file.stat.mtime, size: file.stat.size } : undefined;
+	}
+
+	async readBinary(path: string): Promise<Uint8Array | undefined> {
+		const file = this.app.vault.getFileByPath(this.full(path));
+		return file ? new Uint8Array(await this.app.vault.readBinary(file)) : undefined;
+	}
+
+	/**
+	 * Moves a file or folder with Vault.rename, which changes no link anywhere (FileManager.renameFile
+	 * would rewrite links all over the vault, §11.5 item 49).
+	 */
+	async move(from: string, to: string): Promise<void> {
+		const item = this.app.vault.getAbstractFileByPath(this.full(from));
+		if (!item) throw new Error(`Nothing to move at ${from}`);
+		const target = this.full(to);
+		if (this.app.vault.getAbstractFileByPath(target) && key(target) !== key(item.path)) throw new Error(`Something is at ${to} already`);
+		await this.makeFolder(this.parentOf(target));
+		await this.app.vault.rename(item, target);
+	}
+
+	/** A copy with the original's modification time. */
+	async copy(from: string, to: string): Promise<void> {
+		const file = this.app.vault.getFileByPath(this.full(from));
+		if (!file) throw new Error(`Nothing to copy at ${from}`);
+		const target = this.full(to);
+		if (this.app.vault.getAbstractFileByPath(target)) throw new Error(`Something is at ${to} already`);
+		await this.makeFolder(this.parentOf(target));
+		await this.app.vault.createBinary(target, await this.app.vault.readBinary(file), { mtime: file.stat.mtime });
+	}
+
+	async appendText(path: string, text: string): Promise<void> {
+		const full = this.full(path);
+		const file = this.app.vault.getFileByPath(full);
+		if (file) {
+			await this.app.vault.append(file, text);
+			return;
+		}
+		await this.makeFolder(this.parentOf(full));
+		await this.app.vault.create(full, text);
 	}
 
 	/** Folders directly under the root. */

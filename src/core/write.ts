@@ -21,9 +21,18 @@ export interface SectionWriteOptions {
 	/** Write images' alternative text in a collapsed callout below them (see PageRenderOptions). */
 	imageAltText?: boolean;
 	isCancelled?: () => boolean;
+	/**
+	 * File names (without `.md`) to keep, by page id in upper case: an update gives each page the
+	 * file it has in the vault (§11.5 item 49). Other pages get names that none of these take.
+	 */
+	names?: ReadonlyMap<string, string>;
+	/** File names (composed, lower case, with `.md`) no page may take: files in the folder that are not pages being written. */
+	taken?: ReadonlySet<string>;
 }
 
 export interface PageReport {
+	/** The page id (as the parser gives it), to tell pages apart in a later update (absent in reports before M3). */
+	id?: string;
 	title: string;
 	file: string;
 	level: number;
@@ -63,14 +72,18 @@ const pad = (n: number, width: number) => String(n).padStart(width, '0');
  * contents with it is ours: a folder without one is never written into.
  */
 export const IMPORT_PROPERTY = 'onenote-import';
-export type ImportStatus = 'importing' | 'complete' | 'failed';
+/**
+ * `syncing`: an update is replacing some of the section's files (§11.5 item 49). An import leaves
+ * such a section alone, as one that is there; the update finishes it or puts it back as it was.
+ */
+export type ImportStatus = 'importing' | 'complete' | 'failed' | 'syncing';
 
 /** The import status a table of contents records, or undefined when it is not one of ours. */
 export function importStatusOf(text: string | undefined): ImportStatus | undefined {
 	if (!text?.startsWith('---\n')) return undefined;
 	const end = text.indexOf('\n---', 3);
 	if (end < 0) return undefined;
-	return text.slice(4, end).match(/^onenote-import: (importing|complete|failed)$/m)?.[1] as ImportStatus | undefined;
+	return text.slice(4, end).match(/^onenote-import: (importing|complete|failed|syncing)$/m)?.[1] as ImportStatus | undefined;
 }
 
 /** The name heading a table of contents (its first `# ` line), or undefined. */
@@ -78,7 +91,7 @@ export function tocHeading(text: string | undefined): string | undefined {
 	return text?.match(/^# (.+)$/m)?.[1];
 }
 
-const tocHead = (name: string, strings: Strings, status: ImportStatus) =>
+export const tocHead = (name: string, strings: Strings, status: ImportStatus) =>
 	['---', `title: ${yaml(strings.tocTitle(name))}`, `${IMPORT_PROPERTY}: ${status}`, '---', '', `# ${name}`, ''];
 
 /** The extension a suggested attachment name ends with, as the original converter read it. */
@@ -107,15 +120,23 @@ export async function writeSection(section: Section, source: SectionSource, sink
 	const pages = section.pages.filter(page => !page.isDeleted);
 	const used = new Set<string>();
 	const fileOf = new Map<string, string>();
-	const titleToFile = new Map<string, string>();
+	// Names kept from the vault first, so no other page takes one.
 	for (const page of pages) {
+		const kept = options.names?.get(page.id.toUpperCase());
+		if (kept === undefined || TOC_NAMES.has(fold(kept)) || used.has(fold(kept))) continue;
+		used.add(fold(kept));
+		fileOf.set(page.id, kept);
+	}
+	for (const page of pages) {
+		if (fileOf.has(page.id)) continue;
 		const base = safeName(page.title || strings.untitledPage, strings.untitledPage) + (page.isConflictPage ? strings.conflictPageSuffix : '');
 		let name = base, n = 2;
-		while (used.has(fold(name)) || TOC_NAMES.has(fold(name))) name = `${base} (${n++})`;
+		while (used.has(fold(name)) || TOC_NAMES.has(fold(name)) || options.taken?.has(fold(`${name}.md`))) name = `${base} (${n++})`;
 		used.add(fold(name));
 		fileOf.set(page.id, name);
-		if (!titleToFile.has(page.title)) titleToFile.set(page.title, name);
 	}
+	const titleToFile = new Map<string, string>();
+	for (const page of pages) if (!titleToFile.has(page.title)) titleToFile.set(page.title, fileOf.get(page.id)!);
 
 	const byKey = new Map<string, string>();
 	const usedAttachments = new Set<string>();
@@ -197,7 +218,7 @@ export async function writeSection(section: Section, source: SectionSource, sink
 		].filter(Boolean).join('\n');
 		const path = joinPath(dir, `${noteName}.md`);
 		await sink.writeText(path, `${frontMatter}\n\n${rendered.markdown}\n`, page.lastModifiedUtc && !isNaN(+page.lastModifiedUtc) ? page.lastModifiedUtc : undefined);
-		report.pages.push({ title: page.title, file: `${noteName}.md`, level: page.level, chars: rendered.markdown.length, assets: rendered.attachments.length, skipped });
+		report.pages.push({ id: page.id, title: page.title, file: `${noteName}.md`, level: page.level, chars: rendered.markdown.length, assets: rendered.attachments.length, skipped });
 	}
 
 	// Last, the table of contents with every page: the section is complete.
@@ -227,6 +248,8 @@ export interface NotebookTocEntry {
 	skipped?: boolean;
 	/** Its folder inside the notebook's folder, when known (see sectionFolders). */
 	folder?: string;
+	/** Listed without a link: it has no folder (it could not be read, and an update wrote nothing of it). */
+	unlinked?: true;
 }
 
 /** A section's place in its notebook (section groups and name), for matching it across imports. */
@@ -297,6 +320,10 @@ export function notebookToc(notebookName: string, entries: NotebookTocEntry[], s
 			continue;
 		}
 		const suffix = entry.locked ? strings.passwordProtectedSuffix : entry.failed ? strings.conversionFailedSuffix : '';
+		if (entry.unlinked) {
+			lines.push(`${'\t'.repeat(groups.length)}- ${escapeLineStart(escapeInline(composedText(entry.section)))}${suffix}`);
+			continue;
+		}
 		const folder = entry.folder ?? sectionFolder(entry.groups, entry.section, strings);
 		lines.push(`${'\t'.repeat(groups.length)}- [${escapeInline(composedText(entry.section))}](<${folder}/${strings.tocFileName}.md>)${suffix}`);
 	}

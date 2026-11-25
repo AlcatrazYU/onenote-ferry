@@ -320,6 +320,17 @@ test('a notebook has its contents page before its first section; a section cut o
 	assert.deepEqual(result.notebooks[0]!.sections.map(s => [s.section, !!s.earlier, !!s.skipped]), [['A', true, false], ['B', false, false], ['C', false, true]]);
 });
 
+test('an import leaves alone a section an update is in the middle of, as one that is there', async () => {
+	const sink = memorySink();
+	await sink.writeText('Ferry log/_目录.md', ours('complete', 'Ferry log'));
+	await sink.writeText('Ferry log/A/_目录.md', ours('syncing', 'A'));
+	await sink.writeText('Ferry log/A/A page.md', 'half updated');
+	await sink.writeText('Ferry log/Gone/_目录.md', ours('syncing', 'Gone'));
+	const earlier = await earlierNotebook(sink, 'Ferry log', NOTEBOOKS()[0]!);
+	assert.deepEqual([...earlier!.sections.keys()], ['A', 'Gone']);
+	assert.deepEqual([...earlier!.occupied], []);
+});
+
 test('links within a notebook are rewritten as its sections are written; the rest wait for the end, which gives the same pages', async () => {
 	const A1 = '{AAAAAAAA-0000-0000-0000-0000000000A1}', B1 = '{BBBBBBBB-0000-0000-0000-0000000000B1}';
 	const linkTo = (id: string, text: string) => rich([run(text, { link: true, href: `onenote:https://x.example/Ferry%20log/X.one#t&section-id={DDDDDDDD-0000-0000-0000-000000000001}&page-id=${id}&end` })]);
