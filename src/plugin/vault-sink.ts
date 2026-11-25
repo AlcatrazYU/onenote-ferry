@@ -4,13 +4,7 @@
 import { normalizePath, TFile, TFolder } from 'obsidian';
 import type { App } from 'obsidian';
 import type { UpdateSink } from '../core/io.ts';
-
-/** The bytes as an ArrayBuffer of their own (the vault takes ArrayBuffers). */
-function arrayBuffer(bytes: Uint8Array): ArrayBuffer {
-	return bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
-		? bytes.buffer as ArrayBuffer
-		: bytes.slice().buffer as ArrayBuffer;
-}
+import { ownArrayBuffer } from './bytes.ts';
 
 const key = (text: string) => text.normalize('NFC').toLowerCase();
 
@@ -87,11 +81,11 @@ export class VaultSink implements UpdateSink {
 		const full = this.full(path);
 		const file = this.app.vault.getFileByPath(full);
 		if (file) {
-			await this.app.vault.modifyBinary(file, arrayBuffer(bytes));
+			await this.app.vault.modifyBinary(file, ownArrayBuffer(bytes));
 			return;
 		}
 		await this.makeFolder(this.parentOf(full));
-		await this.app.vault.createBinary(full, arrayBuffer(bytes));
+		await this.app.vault.createBinary(full, ownArrayBuffer(bytes));
 	}
 
 	async readText(path: string): Promise<string | undefined> {

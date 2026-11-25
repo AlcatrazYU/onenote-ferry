@@ -16,6 +16,7 @@ import type { ScannedPage } from '../core/sync.ts';
 import { openDownload, parseWithWasm, passwordProtected } from '../node/download.ts';
 import type { Download, WasmParser } from '../node/download.ts';
 import { fileSink } from '../node/file-sink.ts';
+import { copyOf } from './bytes.ts';
 import type { OpenedDownload, SinkCall, ToWorker } from './protocol.ts';
 
 declare const require: (id: string) => any;
@@ -49,7 +50,7 @@ const sink: Sink = {
 	writeText: (path, text, modified) => callWindow('writeText', [path, text, modified?.getTime()]),
 	writeBinary: (path, bytes) => {
 		// A copy of its own to hand over: the original may still be needed here.
-		const copy = bytes.slice();
+		const copy = copyOf(bytes);
 		return callWindow('writeBinary', [path, copy], [copy.buffer]);
 	},
 	readText: path => callWindow('readText', [path]),
