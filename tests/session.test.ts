@@ -572,6 +572,28 @@ test('OneDrive: a notebook imported before is brought up to date whole before it
 	assert.equal(client.scanned, 6, 'the section not downloaded is not read');
 });
 
+test('OneDrive: stopped while downloading, the result says what came down is kept (a stop is no failure)', async () => {
+	const drive = fakeOneDrive([{ id: 'n1', name: 'Atlas', files: ['A.one', 'B.one'] }, { id: 'n2', name: 'Tides', files: ['C.one'] }]);
+	const { s } = await oneDriveSession({}, drive);
+	let copies = 0;
+	// The first notebook's download is under way when the stop comes, and ends as a cancelled one does.
+	(drive.access as any).copy = async (_notebook: unknown, _files: unknown, _only: unknown, signal: AbortSignal, onProgress?: (progress: object) => void) => {
+		copies++;
+		onProgress?.({ files: 0, totalFiles: 1, bytes: 5, totalBytes: 10 });
+		s.requestStop();
+		await new Promise((_resolve, reject) => {
+			if (signal.aborted) reject(new Error('cancelled'));
+			else signal.addEventListener('abort', () => reject(new Error('cancelled')));
+		});
+	};
+	const going = new Set(s.choices.flatMap(choice => choice.notebook.sections));
+	await (s as any).fetchChosen(s.choices, going);
+	assert.equal(copies, 1, 'the next notebook is not begun');
+	assert.equal(s.downloadsCut, true);
+	assert.equal(s.downloading, undefined);
+	assert.equal(s.notDownloaded, 0);
+});
+
 test('OneDrive: an import downloads the chosen sections and every table of contents, nothing else', () => {
 	const files = ['Spring.one', 'Open Notebook.onetoc2', 'Group/Summer.one', 'Group/Open Notebook.onetoc2', 'Autumn.one'].map((path, i) => ({ id: `f${i}`, path, size: 1, eTag: '"1"' }));
 	assert.deepEqual([...filesToFetch('n1/Tides', files, ['n1/Tides/Group/Summer.one'])].sort(), ['f1', 'f2', 'f3']);

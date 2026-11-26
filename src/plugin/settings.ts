@@ -1,5 +1,6 @@
 // The settings page: a button to start an import, and the defaults each new import starts from.
 
+import { homedir } from 'node:os';
 import { AbstractInputSuggest, ButtonComponent, Modal, normalizePath, Notice, PluginSettingTab, Setting, TFolder } from 'obsidian';
 import type { App, Plugin } from 'obsidian';
 import type { SectionOptions } from '../core/importer.ts';
@@ -117,13 +118,17 @@ export class FerrySettingTab extends PluginSettingTab {
 		toggle(ui.fontColor, ui.fontColorDesc, 'keepFontColor');
 		toggle(ui.altText, ui.altTextDesc, 'imageAltText');
 
-		// The Microsoft account (§11.5 item 61): who is signed in, signing in and out, and where the
-		// access is withdrawn (Microsoft's own pages: signing out here only forgets it on this device).
+		// Importing from OneDrive (§11.5 item 61): the Microsoft account, and the download cache.
+		new Setting(containerEl).setName(ui.settingsOneDrive).setHeading();
+		// The account: signed in or not, and while signed in, where its access is withdrawn (Microsoft's
+		// own page: signing out here only forgets the sign-in on this device).
 		const account = this.host.microsoft;
-		new Setting(containerEl).setName(ui.settingsAccount).setHeading();
-		const status = new Setting(containerEl)
-			.setName(!account.signedIn ? ui.accountNone : account.kind === 'organization' ? ui.accountOrganization : ui.accountPersonal)
-			.setDesc(ui.accountRevoke);
+		const status = new Setting(containerEl).setName(ui.settingsAccount).setDesc(!account.signedIn ? ui.accountNone : createFragment(fragment => {
+			const organization = account.kind === 'organization';
+			fragment.appendText(`${organization ? ui.accountOrganization : ui.accountPersonal}${ui.accountRevoke.before}`);
+			fragment.createEl('a', { text: ui.accountRevoke.link, href: organization ? 'https://myapps.microsoft.com' : 'https://account.live.com/consent/Manage' });
+			fragment.appendText(ui.accountRevoke.after);
+		}));
 		if (account.signedIn) status.addButton(button => button.setButtonText(ui.signOut).onClick(() => {
 			account.signOut();
 			this.display();
@@ -139,18 +144,25 @@ export class FerrySettingTab extends PluginSettingTab {
 			this.display();
 		}));
 
-		// The notebooks downloaded from OneDrive (outside the vault): where, how large, and deleting them.
+		// The download cache (the notebooks downloaded from OneDrive, outside the vault): what it is for,
+		// how much it takes on this computer and where, and clearing it.
 		const folder2 = copiesFolder(systemCacheFolder());
 		const copies = allCopies(folder2);
 		const bytes = copies.reduce((n, copy) => n + copy.bytes, 0);
-		const kept = new Setting(containerEl).setName(ui.settingsCopy).setDesc(copies.length ? ui.copyDesc(formatBytes(bytes), folder2) : ui.copyNone);
+		const kept = new Setting(containerEl).setName(ui.settingsCopy).setDesc(copies.length ? ui.copyDesc(formatBytes(bytes), shownPath(folder2)) : ui.copyNone);
 		if (copies.length) kept.addButton(button => button.setButtonText(ui.deleteCopy).setWarning().onClick(() => {
-			new ConfirmModal(this.app, ui.settingsCopy, ui.deleteCopyConfirm(copies.length, formatBytes(bytes)), ui.deleteCopy, ui.cancel, async () => {
+			new ConfirmModal(this.app, ui.deleteCopyTitle, ui.deleteCopyConfirm(formatBytes(bytes)), ui.deleteCopy, ui.cancel, async () => {
 				await removeCopies(copies.map(copy => copy.dir));
 				this.display();
 			}).open();
 		}));
 	}
+}
+
+/** A folder as people read it: the home folder as `~` (not on Windows, where that is not how paths are written). */
+function shownPath(path: string): string {
+	const home = homedir();
+	return process.platform !== 'win32' && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path;
 }
 
 /** Asks before something is done that cannot be undone. */

@@ -63,7 +63,7 @@ Importing from OneDrive is optional: importing a download needs no account and w
 - **Permissions.** The plugin asks to read your files (`Files.Read`), to stay signed in (`offline_access`), and for your basic sign-in profile (`openid`, `profile`), which tells a personal account from a work or school one. It cannot change or delete anything in your OneDrive. A sign-in page in the plugin's name that asks for more is not this plugin's.
 - **Network.** The plugin connects only to Microsoft: its sign-in service, Microsoft Graph (`graph.microsoft.com`) to list notebooks and files, and Microsoft's file servers to download them. Your notes go straight from Microsoft to your computer. There is no other server and no telemetry, and nothing is uploaded.
 - **Staying signed in.** The sign-in is kept in Obsidian's secret storage, not in the plugin's settings file. `Sign out` in the plugin's settings forgets it on this device. To withdraw the plugin's access altogether, go to account.live.com/consent/Manage for a personal account, or myapps.microsoft.com for a work or school account.
-- **Downloaded notebooks.** Notebooks downloaded from OneDrive are kept outside your vault, in your system's cache folder (on macOS, `~/Library/Caches/onenote-ferry/onedrive`), so that later only changes are downloaded. Checking a notebook for updates keeps the whole notebook there. The plugin checks for free disk space before downloading. Under `Downloaded notebooks`, the plugin's settings show their size and location and can delete them; your notes in the vault stay.
+- **Download cache.** Notebooks downloaded from OneDrive are kept outside your vault, in your system's cache folder (on macOS, `~/Library/Caches/onenote-ferry/onedrive`), so that later only changes are downloaded. Checking a notebook for updates keeps the whole notebook there. The plugin checks for free disk space before downloading. Under `Download cache`, the plugin's settings show its size and location and can clear it; your notes in the vault stay.
 - OneNote Ferry is an independent project, not made or endorsed by Microsoft. OneNote and OneDrive are trademarks of Microsoft.
 
 ## Privacy and Safety
@@ -165,7 +165,7 @@ OneNote Ferry（OneNote 摆渡）是一个 Obsidian 社区插件（附命令行�
 - **权限**：插件请求读取你的文件（`Files.Read`）、保持登录（`offline_access`）和基本的登录资料（`openid`、`profile`，用来分辨个人账号和工作或学校账号）。它不能修改或删除 OneDrive 里的任何东西。以本插件名义请求更多权限的登录页，不是本插件的。
 - **联网**：插件只连接微软：登录服务、Microsoft Graph（`graph.microsoft.com`，列出笔记本和文件）和微软的文件服务器（下载文件）。笔记从微软直接到你的电脑；没有别的服务器，没有遥测，不上传任何东西。
 - **保持登录**：登录信息存在 Obsidian 的密钥存储里，不在插件的设置文件里。在插件设置里点“退出登录”，就会忘掉这台设备上的登录。要彻底收回插件的访问权限，个人账号去 account.live.com/consent/Manage，工作或学校账号去 myapps.microsoft.com。
-- **下载的笔记本**：从 OneDrive 下载的笔记本放在仓库外面、系统的缓存文件夹里（macOS 上是 `~/Library/Caches/onenote-ferry/onedrive`），以后只需下载变化的部分。检查更新时，以前导入过的笔记本会在这里保存整本。下载前会检查剩余空间。插件设置里的“下载的笔记本”显示它们的大小和位置，也可以删除；仓库里的笔记不受影响。
+- **下载缓存**：从 OneDrive 下载的笔记本放在仓库外面、系统的缓存文件夹里（macOS 上是 `~/Library/Caches/onenote-ferry/onedrive`），以后只需下载变化的部分。检查更新时，以前导入过的笔记本会在这里保存整本。下载前会检查剩余空间。插件设置里的“下载缓存”显示占用和位置，也可以清除；仓库里的笔记不受影响。
 - OneNote Ferry 是独立项目，不是微软制作的，也没有得到微软认可。OneNote 和 OneDrive 是微软的商标。
 
 ### 隐私与安全
@@ -258,7 +258,7 @@ OneDrive からのインポートは任意です。ダウンロードしたフ�
 - **アクセス許可**：プラグインが求めるのは、ファイルの読み取り（`Files.Read`）、サインインの維持（`offline_access`）、基本的なサインイン情報（`openid`、`profile`。個人アカウントか職場または学校のアカウントかを見分けるため）だけです。OneDrive の中のものを変更したり削除したりはできません。このプラグインの名前でこれ以上の許可を求めるサインインページは、このプラグインのものではありません。
 - **ネットワーク**：プラグインが接続するのは Microsoft だけです。サインインのサービス、Microsoft Graph（`graph.microsoft.com`、ノートブックとファイルの一覧）、Microsoft のファイルサーバー（ファイルのダウンロード）です。ノートは Microsoft からお使いのコンピューターへ直接届きます。ほかのサーバーはなく、テレメトリーもなく、何もアップロードしません。
 - **サインインの維持**：サインイン情報は Obsidian のシークレットストレージに保存し、プラグインの設定ファイルには書きません。プラグインの設定で「サインアウト」すると、このデバイスのサインイン情報が消えます。プラグインのアクセス権そのものを取り消すには、個人アカウントは account.live.com/consent/Manage、職場または学校のアカウントは myapps.microsoft.com で行います。
-- **ダウンロードしたノートブック**：OneDrive からダウンロードしたノートブックは、保管庫の外、システムのキャッシュフォルダー（macOS では `~/Library/Caches/onenote-ferry/onedrive`）に置き、次からは変更分だけをダウンロードします。更新を確認すると、以前インポートしたノートブックはここにまるごと保存されます。ダウンロードの前に空き容量を確認します。プラグインの設定の「ダウンロードしたノートブック」で、大きさと場所を確認でき、削除もできます。保管庫のノートはそのまま残ります。
+- **ダウンロードキャッシュ**：OneDrive からダウンロードしたノートブックは、保管庫の外、システムのキャッシュフォルダー（macOS では `~/Library/Caches/onenote-ferry/onedrive`）に置き、次からは変更分だけをダウンロードします。更新を確認すると、以前インポートしたノートブックはここにまるごと保存されます。ダウンロードの前に空き容量を確認します。プラグインの設定の「ダウンロードキャッシュ」で、容量と場所を確認でき、クリアもできます。保管庫のノートはそのまま残ります。
 - OneNote Ferry は独立したプロジェクトで、Microsoft が作成したものでも、Microsoft が認めたものでもありません。OneNote と OneDrive は Microsoft の商標です。
 
 ### プライバシーと安全性
@@ -351,7 +351,7 @@ OneDrive에서 가져오기는 선택 사항입니다. 다운로드한 폴더를
 - **권한**: 플러그인이 요청하는 것은 파일 읽기(`Files.Read`), 로그인 유지(`offline_access`), 기본 로그인 정보(`openid`, `profile`, 개인 계정인지 회사 또는 학교 계정인지 구분하는 데 사용)뿐입니다. OneDrive 안의 어떤 것도 바꾸거나 삭제할 수 없습니다. 이 플러그인의 이름으로 그보다 많은 권한을 요청하는 로그인 페이지는 이 플러그인의 것이 아닙니다.
 - **네트워크**: 플러그인은 Microsoft에만 연결합니다. 로그인 서비스, Microsoft Graph(`graph.microsoft.com`, 전자 필기장과 파일 목록), Microsoft의 파일 서버(파일 다운로드)입니다. 노트는 Microsoft에서 사용자 컴퓨터로 바로 옵니다. 다른 서버도, 원격 분석도 없으며, 아무것도 업로드하지 않습니다.
 - **로그인 유지**: 로그인 정보는 Obsidian의 보안 저장소에 두고, 플러그인 설정 파일에는 쓰지 않습니다. 플러그인 설정에서 "로그아웃"하면 이 기기의 로그인 정보가 지워집니다. 플러그인의 접근 권한 자체를 거두려면 개인 계정은 account.live.com/consent/Manage, 회사 또는 학교 계정은 myapps.microsoft.com에서 할 수 있습니다.
-- **다운로드한 전자 필기장**: OneDrive에서 다운로드한 전자 필기장은 보관함 밖, 시스템의 캐시 폴더(macOS에서는 `~/Library/Caches/onenote-ferry/onedrive`)에 두어, 다음부터는 바뀐 부분만 다운로드합니다. 업데이트를 확인하면 이전에 가져온 전자 필기장은 여기에 통째로 저장됩니다. 다운로드하기 전에 남은 공간을 확인합니다. 플러그인 설정의 "다운로드한 전자 필기장"에서 크기와 위치를 볼 수 있고 삭제할 수도 있습니다. 보관함의 노트는 그대로 남습니다.
+- **다운로드 캐시**: OneDrive에서 다운로드한 전자 필기장은 보관함 밖, 시스템의 캐시 폴더(macOS에서는 `~/Library/Caches/onenote-ferry/onedrive`)에 두어, 다음부터는 바뀐 부분만 다운로드합니다. 업데이트를 확인하면 이전에 가져온 전자 필기장은 여기에 통째로 저장됩니다. 다운로드하기 전에 남은 공간을 확인합니다. 플러그인 설정의 "다운로드 캐시"에서 크기와 위치를 볼 수 있고 지울 수도 있습니다. 보관함의 노트는 그대로 남습니다.
 - OneNote Ferry는 독립 프로젝트이며, Microsoft가 만들거나 승인한 것이 아닙니다. OneNote와 OneDrive는 Microsoft의 상표입니다.
 
 ### 개인정보와 안전

@@ -226,6 +226,11 @@ export class ImportSession {
 	downloading?: CopyProgress;
 	/** Sections chosen from OneDrive that could not be downloaded when the import started (left out). */
 	notDownloaded = 0;
+	/**
+	 * The import was stopped before the sections chosen from OneDrive were all downloaded: what came
+	 * down stays in the local copy, a file cut off part way included, and the next import goes on from there.
+	 */
+	downloadsCut = false;
 	/** The import is about to start: the target folder is looked at once more. */
 	private starting = false;
 	/** Names given again after a look at the target folder, since the user last changed anything (see lookUp). */
@@ -521,8 +526,12 @@ export class ImportSession {
 		const totalFiles = work.reduce((n, one) => n + one.only.size, 0);
 		const totalBytes = work.reduce((n, one) => n + one.files.filter(file => one.only.has(file.id)).reduce((m, file) => m + file.size, 0), 0);
 		let files = 0, bytes = 0;
+		const cut = () => {
+			this.downloadsCut = true;
+			this.downloading = undefined;
+		};
 		for (const one of work) {
-			if (this.stopRequested) return;
+			if (this.stopRequested) return cut();
 			const stop = () => one.source.controller.abort();
 			const off = this.onChange(() => {
 				if (this.stopRequested) stop();
@@ -535,7 +544,7 @@ export class ImportSession {
 				for (const failed of result.failed) one.source.failed.set(`${notebookPath(one.notebook)}/${failed.path}`, failed.detail);
 			}
 			catch (error) {
-				if (this.stopRequested) return;
+				if (this.stopRequested) return cut();
 				for (const section of one.sections) one.source.failed.set(section.path, message(error));
 			}
 			finally {

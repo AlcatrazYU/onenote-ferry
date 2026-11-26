@@ -917,6 +917,8 @@ export class ImportWizard extends Modal {
 		}
 		// Sections chosen from OneDrive that could not be downloaded (password-protected ones are counted with those not converted).
 		if (session.notDownloaded) notes.push(ui.leftOutNotDownloaded(session.notDownloaded));
+		// Stopped while downloading from OneDrive: nothing of it is lost.
+		if (session.downloadsCut) notes.push(ui.downloadsKept);
 		if (notes.length) {
 			const list = box.createEl('ul', { cls: 'onenote-ferry-result-notes' });
 			for (const note of notes) list.createEl('li', { text: note });
