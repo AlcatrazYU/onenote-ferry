@@ -84,6 +84,11 @@
 	pointer-events: none;
 }
 
+/* There already, left as it is: dimmed like a row that cannot be ticked, but a click converts it again (§11.5 item 65). */
+.onenote-ferry-tree .tree-item-self.onenote-ferry-kept {
+	opacity: 0.5;
+}
+
 /* An update: what it will take unless unticked stands out; pages the user also edited, more so. */
 .onenote-ferry-tree .tree-item-flair.onenote-ferry-flair-strong {
 	color: var(--text-accent);
@@ -152,12 +157,18 @@
 }
 
 /* The footer: what the import will do on the left, the button on the right. */
+/* The button keeps its place when the line beside it grows to two: the window keeps its height and
+   the footer grows upward. A single line still sits level with the button. */
 .onenote-ferry-footer {
-	align-items: center;
+	align-items: flex-end;
 }
 
 .onenote-ferry-summary {
 	margin-inline-end: auto;
+	min-height: var(--input-height);
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
 	color: var(--text-muted);
 	font-size: var(--font-ui-small);
 	font-variant-numeric: tabular-nums;

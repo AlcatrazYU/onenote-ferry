@@ -191,7 +191,7 @@ test('a page the user deleted comes back only when chosen', async () => {
 	assert.deepEqual(snapshot(vault, 'Tides/Spring'), snapshot(await imported(V1), 'Tides/Spring'));
 	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /- 补回在 Obsidian 中删除的页面：\[Two\]/);
 	// Counted as a page brought back, not as a section updated (§11.5 item 51.2).
-	assert.deepEqual(back!.counts, { sectionsUpdated: 0, sectionsAdded: 0, pagesAdded: 0, pagesModified: 0, pagesRemoved: 0, pagesRestored: 1 });
+	assert.deepEqual(back!.counts, { sectionsUpdated: 0, sectionsAdded: 0, sectionsReconverted: 0, pagesAdded: 0, pagesModified: 0, pagesRemoved: 0, pagesRestored: 1 });
 	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /- 补回 1 页\n/);
 });
 
@@ -307,6 +307,68 @@ test('what the user did in Obsidian: edits are kept or set aside, deleted pages 
 	assert.match(record, /以下页面在 OneNote 和 Obsidian 中都有修改/);
 	assert.match(record, /\t- \[One\]\(<\.\.\/Tides\/Spring\/One\.md>\)（\[你的版本\]\(<\.\.\/_旧版本\/2026-12-01 1430\/Tides\/Spring\/One\.md>\)）/);
 	assert.match(record, /修改：\[One\][^\n]*（Obsidian 中也已修改）/);
+});
+
+// Converting again with other settings (§11.5 item 65): sections without changes, chosen, are written
+// anew with the settings chosen now; pages edited in Obsidian stay; each section keeps its settings.
+
+const coloured = (name: string, title: string) => pageJson(title, [outline([element([rich([run('red words', { color: '#C00000' })])])])], { id: id(name), updated: hour(1) });
+const COLOURED: Version = {
+	Spring: { pages: [page('a', 'One', 'one'), coloured('b', 'Two'), coloured('c', 'Three')] },
+	Summer: { pages: [coloured('s', 'Sun')] },
+};
+const PLAIN = { boxMarkers: true, keepFontColor: false };
+const reconvert = async (vault: MemorySink, version: Version, keys: string[], defaults = PLAIN) => {
+	const asked = (await requests(version, keys)).map(request => ({ ...request, reconvert: new Set(keys) }));
+	return updateNotebooks(asked, host(vault, version), { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults, links: true, sources: ['same.zip'] });
+};
+
+test('a section without changes, chosen, is converted again with the settings chosen now; the others are left alone', async () => {
+	const vault = await imported(COLOURED);
+	assert.match(textOf(vault, 'Tides/Spring/Two.md')!, /color:#c00000/i);
+	const summer = textOf(vault, 'Tides/Summer/Sun.md');
+	const result = await reconvert(vault, COLOURED, ['Spring']);
+	assert.ok(result);
+	assert.doesNotMatch(textOf(vault, 'Tides/Spring/Two.md')!, /color:/);
+	assert.match(textOf(vault, `${BACKUP}/Tides/Spring/Two.md`)!, /color:#c00000/i, 'the version before goes aside');
+	assert.equal(textOf(vault, 'Tides/Summer/Sun.md'), summer, 'a section not chosen is not touched');
+	assert.equal(result!.counts.sectionsReconverted, 1);
+	assert.equal(result!.counts.sectionsUpdated, 0);
+	assert.equal(result!.counts.pagesModified, 0, 'pages written anew are not counted as changed in OneNote');
+	// The report keeps each section's settings: the one converted again has the new ones.
+	const report = JSON.parse(textOf(vault, '_转换报告.json')!);
+	const sections = report.notebooks[0].sections as { section: string, options?: unknown }[];
+	assert.deepEqual(sections.find(section => section.section === 'Spring')!.options, PLAIN);
+	assert.equal(sections.find(section => section.section === 'Summer')!.options, undefined);
+	const record = textOf(vault, '_更新记录/2026-12-01 1430.md')!;
+	assert.match(record, /重新转换 1 个分区/);
+	assert.match(record, /按现在的设置重新转换“\[Spring\]\(<[^>]+>\)”（重写 3 页）/);
+});
+
+test('converting again leaves a page edited in Obsidian as it is, and says so', async () => {
+	const vault = await imported(COLOURED);
+	await vault.writeText('Tides/Spring/Two.md', `${textOf(vault, 'Tides/Spring/Two.md')}my words\n`, new Date(9e12));
+	const mine = textOf(vault, 'Tides/Spring/Two.md');
+	const result = await reconvert(vault, COLOURED, ['Spring']);
+	assert.equal(textOf(vault, 'Tides/Spring/Two.md'), mine);
+	assert.doesNotMatch(textOf(vault, 'Tides/Spring/Three.md')!, /color:/);
+	assert.equal(result!.attention.keptEdited, 1);
+	const record = textOf(vault, '_更新记录/2026-12-01 1430.md')!;
+	assert.match(record, /以下页面在 Obsidian 中改过，保持原样，没有按新设置重写：\n\t- \[Two\]/);
+	assert.match(record, /（重写 2 页）/);
+});
+
+test('settings go with each section: one updated because OneNote changed it keeps its own, a new one takes those chosen now', async () => {
+	const vault = await imported(COLOURED, section => section.label === 'Spring');
+	const V2: Version = { Spring: { pages: [page('a', 'One', 'one'), coloured('b', 'Two'), pageJson('Three', [outline([element([rich([run('changed', { color: '#C00000' })])])])], { id: id('c'), updated: hour(2) })] }, Summer: COLOURED.Summer! };
+	await updateNotebooks(await requests(V2), host(vault, V2), { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults: PLAIN, links: true, sources: ['new.zip'] });
+	// Spring changed in OneNote: written as it was imported (colours kept); Summer, added now: as chosen now.
+	assert.match(textOf(vault, 'Tides/Spring/Three.md')!, /color:#c00000/i);
+	assert.doesNotMatch(textOf(vault, 'Tides/Summer/Sun.md')!, /color:/);
+	const report = JSON.parse(textOf(vault, '_转换报告.json')!);
+	const sections = report.notebooks[0].sections as { section: string, options?: unknown }[];
+	assert.deepEqual(sections.find(section => section.section === 'Summer')!.options, PLAIN);
+	assert.deepEqual(sections.find(section => section.section === 'Spring')!.options, OPTIONS);
 });
 
 test('attachments: a changed picture replaces its file; one a page that stays uses is never overwritten; unused ones go aside', async () => {

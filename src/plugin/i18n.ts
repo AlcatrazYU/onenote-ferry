@@ -80,7 +80,12 @@ export interface UiStrings {
 	// when opened to check for updates, and what the tree and the bottom say.
 	updateTitle: string;
 	/** Beside the settings heading while language and options are greyed: they apply to new notebooks only. */
-	settingsKept: string;
+	/** Under the bottom line, when sections updated because OneNote changed them are chosen with ones the settings apply to. */
+	ownSettingsKept: string;
+	/** A section without changes the user clicked: it is converted again with the settings chosen now. */
+	reconvertMark: string;
+	reconvertTip: string;
+	sectionsReconverting(count: number): string;
 	/** A section, or a notebook, being read. */
 	checkingRow: string;
 	unchanged: string;
@@ -125,9 +130,10 @@ export interface UiStrings {
 	sectionWas(was: string): string;
 	checkingUpdates(done: number, total: number): string;
 	/** `folder`: where the versions replaced go (said when sections are updated). */
-	willUpdate(updated: number, added: number, restored: number, folder: string): string;
+	willUpdate(updated: number, added: number, restored: number, reconverted: number, folder: string): string;
 	bothEditedWarning(count: number, folder: string): string;
 	noUpdates: string;
+	noUpdatesReconvert: string;
 	startUpdate: string;
 
 	// The import window while the import runs.
@@ -156,7 +162,9 @@ export interface UiStrings {
 	updateFinished: string;
 	updateStopped: string;
 	updateFailed: string;
-	updateSummary(updated: number, added: number, pagesAdded: number, pagesModified: number, pagesRestored: number): string;
+	updateSummary(updated: number, added: number, reconverted: number, pagesAdded: number, pagesModified: number, pagesRestored: number): string;
+	/** Converted again: pages edited in Obsidian left as they were. */
+	attnKeptEdited(count: number): string;
 	/** New notebooks imported with the update: `summary` is what summary() says of them. */
 	alsoImported(summary: string): string;
 	attnBothEdited(count: number, folder: string): string;
@@ -306,7 +314,10 @@ const en: UiStrings = {
 	willImport: (notebooks, sections, size, unreadable) => `${plural(sections, 'section', 'sections')} from ${plural(notebooks, 'notebook', 'notebooks')}${unreadable ? ` (${n(unreadable)} cannot be read)` : ''}, ${size}.`,
 
 	updateTitle: 'Check for OneNote updates',
-	settingsKept: 'Notebooks imported before keep their own settings',
+	ownSettingsKept: 'Sections updated because OneNote changed them keep their own settings.',
+	reconvertMark: 'Convert again',
+	reconvertTip: 'Click to convert again with the settings chosen now.',
+	sectionsReconverting: count => `${plural(count, 'section', 'sections')} to convert again`,
 	checkingRow: 'Checking...',
 	unchanged: 'No changes',
 	changed: 'Changed',
@@ -342,12 +353,13 @@ const en: UiStrings = {
 	pagesReordered: count => `${plural(count, 'page', 'pages')} only moved or changed level`,
 	sectionWas: was => `Was "${was}"`,
 	checkingUpdates: (done, total) => `Checking for updates ${n(done)}/${n(total)}...`,
-	willUpdate: (updated, added, restored, folder) => {
-		const parts = [updated ? `update ${plural(updated, 'section', 'sections')}` : '', added ? `add ${plural(added, 'section', 'sections')}` : '', restored ? `bring back ${plural(restored, 'page', 'pages')}` : ''].filter(Boolean);
-		return `Will ${parts.join(', ')}.${updated ? ` The current versions go to "${folder}".` : ''}`;
+	willUpdate: (updated, added, restored, reconverted, folder) => {
+		const parts = [updated ? `update ${plural(updated, 'section', 'sections')}` : '', added ? `add ${plural(added, 'section', 'sections')}` : '', reconverted ? `convert ${plural(reconverted, 'section', 'sections')} again` : '', restored ? `bring back ${plural(restored, 'page', 'pages')}` : ''].filter(Boolean);
+		return `Will ${parts.join(', ')}.${updated || reconverted ? ` The current versions go to "${folder}".` : ''}`;
 	},
 	bothEditedWarning: (count, folder) => `${plural(count, 'page', 'pages')} also edited in Obsidian: your ${count === 1 ? 'version goes' : 'versions go'} to "${folder}" too.`,
 	noUpdates: 'No updates found.',
+	noUpdatesReconvert: 'No updates found. Click a section to convert it again with the settings chosen now.',
 	startUpdate: 'Start update',
 
 	sectionCount: (current, total) => `Section ${n(current)} of ${n(total)}`,
@@ -370,13 +382,14 @@ const en: UiStrings = {
 	updateFinished: 'Update finished',
 	updateStopped: 'Update stopped',
 	updateFailed: 'Update failed',
-	updateSummary: (updated, added, pagesAdded, pagesModified, pagesRestored) => {
-		const sections = [updated ? `${plural(updated, 'section', 'sections')} updated` : '', added ? `${plural(added, 'section', 'sections')} added` : ''].filter(Boolean).join(', ');
+	updateSummary: (updated, added, reconverted, pagesAdded, pagesModified, pagesRestored) => {
+		const sections = [updated ? `${plural(updated, 'section', 'sections')} updated` : '', added ? `${plural(added, 'section', 'sections')} added` : '', reconverted ? `${plural(reconverted, 'section', 'sections')} converted again` : ''].filter(Boolean).join(', ');
 		const pages = [pagesAdded ? plural(pagesAdded, 'page added', 'pages added') : '', pagesModified ? plural(pagesModified, 'page changed', 'pages changed') : '', pagesRestored ? plural(pagesRestored, 'page brought back', 'pages brought back') : ''].filter(Boolean).join(', ');
 		return sections || pages ? `${[sections, pages].filter(Boolean).join('; ')}.` : 'No section was updated.';
 	},
 	alsoImported: summary => `Also imported: ${summary}`,
 	attnBothEdited: (count, folder) => `${plural(count, 'page', 'pages')} also edited in Obsidian: your ${count === 1 ? 'version is' : 'versions are'} in "${folder}".`,
+	attnKeptEdited: count => `${plural(count, 'page', 'pages')} edited in Obsidian stayed as ${count === 1 ? 'it was' : 'they were'}, not written with the new settings.`,
 	attnRolledBack: count => `${plural(count, 'section', 'sections')} could not be updated: put back as before.`,
 	attnNotConverted: count => `${plural(count, 'section', 'sections')} could not be read: left as before.`,
 	attnNotUpdated: count => `${plural(count, 'section', 'sections')} not updated: the folder needed holds something else.`,
@@ -512,7 +525,10 @@ const zh: UiStrings = {
 	willImport: (notebooks, sections, size, unreadable) => `将导入 ${n(notebooks)} 本笔记本、${n(sections)} 个分区${unreadable ? `（${n(unreadable)} 个无法读取）` : ''}，共 ${size}。`,
 
 	updateTitle: '检查 OneNote 更新',
-	settingsKept: '已导入的笔记本沿用原来的设置',
+	ownSettingsKept: '有更新的分区沿用原来的设置。',
+	reconvertMark: '重新转换',
+	reconvertTip: '点击后按现在的设置重新转换。',
+	sectionsReconverting: count => `${n(count)} 个分区重新转换`,
 	checkingRow: '正在检查...',
 	unchanged: '无变化',
 	changed: '有更新',
@@ -548,12 +564,13 @@ const zh: UiStrings = {
 	pagesReordered: count => `${n(count)} 页仅调整了顺序或层级`,
 	sectionWas: was => `原为“${was}”`,
 	checkingUpdates: (done, total) => `正在检查更新 ${n(done)}/${n(total)}...`,
-	willUpdate: (updated, added, restored, folder) => {
-		const parts = [updated ? `更新 ${n(updated)} 个分区` : '', added ? `新增 ${n(added)} 个分区` : '', restored ? `补回 ${n(restored)} 页` : ''].filter(Boolean);
-		return `将${parts.join('、')}${updated ? `，更新前的版本会放进“${folder}”` : ''}。`;
+	willUpdate: (updated, added, restored, reconverted, folder) => {
+		const parts = [updated ? `更新 ${n(updated)} 个分区` : '', added ? `新增 ${n(added)} 个分区` : '', reconverted ? `重新转换 ${n(reconverted)} 个分区` : '', restored ? `补回 ${n(restored)} 页` : ''].filter(Boolean);
+		return `将${parts.join('、')}${updated || reconverted ? `，更新前的版本会放进“${folder}”` : ''}。`;
 	},
 	bothEditedWarning: (count, folder) => `其中 ${n(count)} 页在 Obsidian 中也已修改，你的版本同样会放进“${folder}”。`,
 	noUpdates: '没有发现更新。',
+	noUpdatesReconvert: '没有发现更新。点击分区可以按现在的设置重新转换。',
 	startUpdate: '开始更新',
 
 	sectionCount: (current, total) => `第 ${n(current)} / ${n(total)} 个分区`,
@@ -576,8 +593,8 @@ const zh: UiStrings = {
 	updateFinished: '更新完成',
 	updateStopped: '更新已停止',
 	updateFailed: '更新失败',
-	updateSummary: (updated, added, pagesAdded, pagesModified, pagesRestored) => {
-		const sections = [updated ? `更新 ${n(updated)} 个分区` : '', added ? `新增 ${n(added)} 个分区` : ''].filter(Boolean).join('、');
+	updateSummary: (updated, added, reconverted, pagesAdded, pagesModified, pagesRestored) => {
+		const sections = [updated ? `更新 ${n(updated)} 个分区` : '', added ? `新增 ${n(added)} 个分区` : '', reconverted ? `重新转换 ${n(reconverted)} 个分区` : ''].filter(Boolean).join('、');
 		const pages = [pagesAdded ? `新增 ${n(pagesAdded)} 页` : '', pagesModified ? `修改 ${n(pagesModified)} 页` : ''].filter(Boolean).join('、');
 		const restored = pagesRestored ? `补回 ${n(pagesRestored)} 页` : '';
 		if (!sections) return restored ? `${restored}。` : '没有分区更新。';
@@ -585,6 +602,7 @@ const zh: UiStrings = {
 	},
 	alsoImported: summary => `新导入 ${summary}`,
 	attnBothEdited: (count, folder) => `${n(count)} 页在 Obsidian 中也已修改，你的版本在“${folder}”中。`,
+	attnKeptEdited: count => `${n(count)} 页在 Obsidian 中改过，保持原样，没有按新设置重写。`,
 	attnRolledBack: count => `${n(count)} 个分区未能更新，已恢复原状。`,
 	attnNotConverted: count => `${n(count)} 个分区无法读取，保持原样。`,
 	attnNotUpdated: count => `${n(count)} 个分区所需的文件夹已被占用，保持原样。`,
@@ -720,7 +738,10 @@ const ja: UiStrings = {
 	willImport: (notebooks, sections, size, unreadable) => `ノートブック ${n(notebooks)} 冊のセクション ${n(sections)} 個${unreadable ? `（うち ${n(unreadable)} 個は読み込めません）` : ''}をインポートします。合計 ${size}。`,
 
 	updateTitle: 'OneNote の更新を確認',
-	settingsKept: 'インポート済みのノートブックは元の設定のままです',
+	ownSettingsKept: '更新のあるセクションは元の設定のままです。',
+	reconvertMark: '変換し直す',
+	reconvertTip: 'クリックすると、現在の設定で変換し直します。',
+	sectionsReconverting: count => `セクション ${n(count)} 個を変換し直し`,
 	checkingRow: '確認中...',
 	unchanged: '変更なし',
 	changed: '更新あり',
@@ -756,12 +777,13 @@ const ja: UiStrings = {
 	pagesReordered: count => `${n(count)} ページは順序か階層だけが変わりました`,
 	sectionWas: was => `元は「${was}」`,
 	checkingUpdates: (done, total) => `更新を確認中 ${n(done)}/${n(total)}...`,
-	willUpdate: (updated, added, restored, folder) => {
-		const parts = [updated ? `セクション ${n(updated)} 個を更新` : '', added ? `セクション ${n(added)} 個を追加` : '', restored ? `${n(restored)} ページを戻す` : ''].filter(Boolean);
-		return `${parts.join('、')}予定です。${updated ? `更新前の版は「${folder}」に移します。` : ''}`;
+	willUpdate: (updated, added, restored, reconverted, folder) => {
+		const parts = [updated ? `セクション ${n(updated)} 個を更新` : '', added ? `セクション ${n(added)} 個を追加` : '', reconverted ? `セクション ${n(reconverted)} 個を変換し直し` : '', restored ? `${n(restored)} ページを戻す` : ''].filter(Boolean);
+		return `${parts.join('、')}予定です。${updated || reconverted ? `更新前の版は「${folder}」に移します。` : ''}`;
 	},
 	bothEditedWarning: (count, folder) => `うち ${n(count)} ページは Obsidian でも編集済みです。あなたの版も「${folder}」に移します。`,
 	noUpdates: '更新はありません。',
+	noUpdatesReconvert: '更新はありません。セクションをクリックすると、現在の設定で変換し直せます。',
 	startUpdate: '更新を開始',
 
 	sectionCount: (current, total) => `セクション ${n(current)} / ${n(total)}`,
@@ -784,14 +806,15 @@ const ja: UiStrings = {
 	updateFinished: '更新完了',
 	updateStopped: '更新を停止しました',
 	updateFailed: '更新に失敗しました',
-	updateSummary: (updated, added, pagesAdded, pagesModified, pagesRestored) => {
-		const sections = [updated ? `セクション ${n(updated)} 個を更新` : '', added ? `セクション ${n(added)} 個を追加` : ''].filter(Boolean).join('、');
+	updateSummary: (updated, added, reconverted, pagesAdded, pagesModified, pagesRestored) => {
+		const sections = [updated ? `セクション ${n(updated)} 個を更新` : '', added ? `セクション ${n(added)} 個を追加` : '', reconverted ? `セクション ${n(reconverted)} 個を変換し直し` : ''].filter(Boolean).join('、');
 		const pages = [pagesAdded ? `${n(pagesAdded)} ページ追加` : '', pagesModified ? `${n(pagesModified)} ページ変更` : '', pagesRestored ? `${n(pagesRestored)} ページ復元` : ''].filter(Boolean).join('、');
 		if (!sections) return pagesRestored ? `${n(pagesRestored)} ページを戻しました。` : '更新したセクションはありません。';
 		return `${sections}${pages ? `（${pages}）` : ''}。`;
 	},
 	alsoImported: summary => `新しくインポート：${summary}`,
 	attnBothEdited: (count, folder) => `${n(count)} ページは Obsidian でも編集されていました。あなたの版は「${folder}」にあります。`,
+	attnKeptEdited: count => `${n(count)} ページは Obsidian で編集されていたため、そのまま残しました（新しい設定では書き直していません）。`,
 	attnRolledBack: count => `${n(count)} 個のセクションは更新できなかったため、元に戻しました。`,
 	attnNotConverted: count => `${n(count)} 個のセクションは読み込めないため、そのままです。`,
 	attnNotUpdated: count => `${n(count)} 個のセクションは必要なフォルダーにほかのものがあるため、そのままです。`,
@@ -927,7 +950,10 @@ const ko: UiStrings = {
 	willImport: (notebooks, sections, size, unreadable) => `전자 필기장 ${n(notebooks)}개의 섹션 ${n(sections)}개${unreadable ? `(그중 ${n(unreadable)}개는 읽을 수 없음)` : ''}를 가져옵니다. 모두 ${size}.`,
 
 	updateTitle: 'OneNote 업데이트 확인',
-	settingsKept: '이미 가져온 전자 필기장은 원래 설정을 그대로 씁니다',
+	ownSettingsKept: '업데이트가 있는 섹션은 원래 설정을 그대로 씁니다.',
+	reconvertMark: '다시 변환',
+	reconvertTip: '클릭하면 현재 설정으로 다시 변환합니다.',
+	sectionsReconverting: count => `섹션 ${n(count)}개 다시 변환`,
 	checkingRow: '확인 중...',
 	unchanged: '변경 없음',
 	changed: '업데이트 있음',
@@ -963,12 +989,13 @@ const ko: UiStrings = {
 	pagesReordered: count => `${n(count)}페이지는 순서나 수준만 바뀜`,
 	sectionWas: was => `원래 "${was}"`,
 	checkingUpdates: (done, total) => `업데이트 확인 중 ${n(done)}/${n(total)}...`,
-	willUpdate: (updated, added, restored, folder) => {
-		const parts = [updated ? `섹션 ${n(updated)}개 업데이트` : '', added ? `섹션 ${n(added)}개 추가` : '', restored ? `${n(restored)}페이지 복원` : ''].filter(Boolean);
-		return `${parts.join(', ')} 예정입니다.${updated ? ` 업데이트 전 버전은 "${folder}"(으)로 옮깁니다.` : ''}`;
+	willUpdate: (updated, added, restored, reconverted, folder) => {
+		const parts = [updated ? `섹션 ${n(updated)}개 업데이트` : '', added ? `섹션 ${n(added)}개 추가` : '', reconverted ? `섹션 ${n(reconverted)}개 다시 변환` : '', restored ? `${n(restored)}페이지 복원` : ''].filter(Boolean);
+		return `${parts.join(', ')} 예정입니다.${updated || reconverted ? ` 업데이트 전 버전은 "${folder}"(으)로 옮깁니다.` : ''}`;
 	},
 	bothEditedWarning: (count, folder) => `그중 ${n(count)}페이지는 Obsidian에서도 수정되었습니다. 사용자의 버전도 "${folder}"(으)로 옮깁니다.`,
 	noUpdates: '업데이트가 없습니다.',
+	noUpdatesReconvert: '업데이트가 없습니다. 섹션을 클릭하면 현재 설정으로 다시 변환할 수 있습니다.',
 	startUpdate: '업데이트 시작',
 
 	sectionCount: (current, total) => `섹션 ${n(current)} / ${n(total)}`,
@@ -991,14 +1018,15 @@ const ko: UiStrings = {
 	updateFinished: '업데이트 완료',
 	updateStopped: '업데이트 중지됨',
 	updateFailed: '업데이트 실패',
-	updateSummary: (updated, added, pagesAdded, pagesModified, pagesRestored) => {
-		const sections = [updated ? `섹션 ${n(updated)}개 업데이트` : '', added ? `섹션 ${n(added)}개 추가` : ''].filter(Boolean).join(', ');
+	updateSummary: (updated, added, reconverted, pagesAdded, pagesModified, pagesRestored) => {
+		const sections = [updated ? `섹션 ${n(updated)}개 업데이트` : '', added ? `섹션 ${n(added)}개 추가` : '', reconverted ? `섹션 ${n(reconverted)}개 다시 변환` : ''].filter(Boolean).join(', ');
 		const pages = [pagesAdded ? `${n(pagesAdded)}페이지 추가` : '', pagesModified ? `${n(pagesModified)}페이지 수정` : '', pagesRestored ? `${n(pagesRestored)}페이지 복원` : ''].filter(Boolean).join(', ');
 		if (!sections) return pagesRestored ? `${n(pagesRestored)}페이지를 복원했습니다.` : '업데이트한 섹션이 없습니다.';
 		return `${sections}${pages ? ` (${pages})` : ''}.`;
 	},
 	alsoImported: summary => `새로 가져옴: ${summary}`,
 	attnBothEdited: (count, folder) => `${n(count)}페이지는 Obsidian에서도 수정되어 있었습니다. 사용자의 버전은 "${folder}"에 있습니다.`,
+	attnKeptEdited: count => `${n(count)}페이지는 Obsidian에서 수정되어 그대로 두었습니다(새 설정으로 다시 쓰지 않음).`,
 	attnRolledBack: count => `섹션 ${n(count)}개를 업데이트하지 못해 원래대로 되돌렸습니다.`,
 	attnNotConverted: count => `섹션 ${n(count)}개는 읽을 수 없어 그대로 두었습니다.`,
 	attnNotUpdated: count => `섹션 ${n(count)}개는 필요한 폴더에 다른 것이 있어 그대로 두었습니다.`,

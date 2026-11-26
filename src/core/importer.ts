@@ -106,6 +106,11 @@ export interface SectionResult extends NotebookTocEntry {
 	incomplete?: true;
 	/** Written by an earlier import and kept as it was (this import added other sections). */
 	earlier?: true;
+	/**
+	 * How it was converted, when an update wrote it (§11.5 item 65: settings go with each section).
+	 * None: as its notebook's report entry says.
+	 */
+	options?: SectionOptions;
 	stats?: unknown;
 }
 

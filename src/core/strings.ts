@@ -99,6 +99,8 @@ export interface ReportStrings {
 export interface UpdateCounts {
 	sectionsUpdated: number;
 	sectionsAdded: number;
+	/** Sections without changes converted again with the settings chosen now. */
+	sectionsReconverted: number;
 	pagesAdded: number;
 	pagesModified: number;
 	pagesRemoved: number;
@@ -125,6 +127,8 @@ export interface UpdateStrings {
 	bothEdited: string;
 	/** A page changed on both sides: the new version, and the user's (a link to its copy). */
 	bothEditedPage(page: string, yours: string): string;
+	/** Above the pages a conversion again left as they were (edited in Obsidian). */
+	keptEdited: string;
 	yourVersion: string;
 	rolledBack(section: string, reason: string): string;
 	/** Why a section was put back: the update was cut off and its converted version was gone. */
@@ -147,6 +151,8 @@ export interface UpdateStrings {
 	changes: string;
 	section(name: string, was?: string): string;
 	newSection(name: string): string;
+	/** A section converted again with the settings chosen now, and how many of its pages were written anew. */
+	reconvertedSection(name: string, pages: number): string;
 	added(page: string): string;
 	/** A changed page, a link to its version before, and its title before when OneNote changed that. */
 	modified(page: string, before: string, was?: string): string;
@@ -223,6 +229,7 @@ export const en: Strings = {
 		counts: c => [
 			c.sectionsUpdated ? plural(c.sectionsUpdated, 'section updated', 'sections updated') : '',
 			c.sectionsAdded ? plural(c.sectionsAdded, 'new section', 'new sections') : '',
+			c.sectionsReconverted ? plural(c.sectionsReconverted, 'section converted again', 'sections converted again') : '',
 			c.pagesAdded ? plural(c.pagesAdded, 'page added', 'pages added') : '',
 			c.pagesModified ? plural(c.pagesModified, 'page changed', 'pages changed') : '',
 			c.pagesRemoved ? `${plural(c.pagesRemoved, 'page', 'pages')} no longer in OneNote (kept in the vault)` : '',
@@ -234,6 +241,7 @@ export const en: Strings = {
 		nothingToNote: 'Nothing needs attention.',
 		bothEdited: 'These pages were changed on both sides: in OneNote, and by you in Obsidian. They now hold the new version from OneNote. Your version is kept, so you can copy back what you want:',
 		bothEditedPage: (page, yours) => `${page} (${yours})`,
+		keptEdited: 'These pages were edited in Obsidian and stay as they were: they were not written with the new settings.',
 		yourVersion: 'your version',
 		rolledBack: (section, reason) => `Section "${section}" could not be finished and was put back as it was: ${reason}`,
 		interrupted: 'the update was cut off, and the converted section was gone by the time it could go on',
@@ -250,6 +258,7 @@ export const en: Strings = {
 		changes: 'Changes',
 		section: (name, was) => `Section "${name}"${was ? ` (was "${was}")` : ''}`,
 		newSection: name => `New section "${name}"`,
+		reconvertedSection: (name, pages) => `"${name}" converted again with the settings chosen now (${plural(pages, 'page', 'pages')} written anew)`,
 		added: page => `Added: ${page}`,
 		modified: (page, before, was) => `Changed: ${page} (${before}${was !== undefined ? `; was "${was}"` : ''})`,
 		before: 'before',
@@ -321,6 +330,7 @@ export const zhHans: Strings = {
 		counts: c => [
 			c.sectionsUpdated ? `更新 ${num(c.sectionsUpdated)} 个分区` : '',
 			c.sectionsAdded ? `新增 ${num(c.sectionsAdded)} 个分区` : '',
+			c.sectionsReconverted ? `重新转换 ${num(c.sectionsReconverted)} 个分区` : '',
 			c.pagesAdded ? `新增 ${num(c.pagesAdded)} 页` : '',
 			c.pagesModified ? `修改 ${num(c.pagesModified)} 页` : '',
 			c.pagesRemoved ? `OneNote 中移除 ${num(c.pagesRemoved)} 页（仓库中保留）` : '',
@@ -332,6 +342,7 @@ export const zhHans: Strings = {
 		nothingToNote: '没有需要注意的地方。',
 		bothEdited: '以下页面在 OneNote 和 Obsidian 中都有修改。现在是 OneNote 的新版，你的版本已另存，可以对照后把需要的内容移回：',
 		bothEditedPage: (page, yours) => `${page}（${yours}）`,
+		keptEdited: '以下页面在 Obsidian 中改过，保持原样，没有按新设置重写：',
 		yourVersion: '你的版本',
 		rolledBack: (section, reason) => `分区“${section}”未能更新，已恢复原状：${reason}`,
 		interrupted: '更新中断后，转换好的新版已不存在',
@@ -348,6 +359,7 @@ export const zhHans: Strings = {
 		changes: '变化',
 		section: (name, was) => `分区“${name}”${was ? `（原为“${was}”）` : ''}`,
 		newSection: name => `新分区“${name}”`,
+		reconvertedSection: (name, pages) => `按现在的设置重新转换“${name}”（重写 ${num(pages)} 页）`,
 		added: page => `新增：${page}`,
 		modified: (page, before, was) => `修改：${page}（${before}${was !== undefined ? `，原标题“${was}”` : ''}）`,
 		before: '更新前',
@@ -419,6 +431,7 @@ export const zhHant: Strings = {
 		counts: c => [
 			c.sectionsUpdated ? `更新 ${num(c.sectionsUpdated)} 個節` : '',
 			c.sectionsAdded ? `新增 ${num(c.sectionsAdded)} 個節` : '',
+			c.sectionsReconverted ? `重新轉換 ${num(c.sectionsReconverted)} 個節` : '',
 			c.pagesAdded ? `新增 ${num(c.pagesAdded)} 頁` : '',
 			c.pagesModified ? `修改 ${num(c.pagesModified)} 頁` : '',
 			c.pagesRemoved ? `OneNote 中移除 ${num(c.pagesRemoved)} 頁（儲存庫中保留）` : '',
@@ -430,6 +443,7 @@ export const zhHant: Strings = {
 		nothingToNote: '沒有需要注意的地方。',
 		bothEdited: '以下頁面在 OneNote 和 Obsidian 中都有修改。現在是 OneNote 的新版，你的版本已另存，可以對照後把需要的內容移回：',
 		bothEditedPage: (page, yours) => `${page}（${yours}）`,
+		keptEdited: '以下頁面在 Obsidian 中改過，保持原樣，沒有按新設定重寫：',
 		yourVersion: '你的版本',
 		rolledBack: (section, reason) => `節「${section}」未能更新，已恢復原狀：${reason}`,
 		interrupted: '更新中斷後，轉換好的新版已不存在',
@@ -446,6 +460,7 @@ export const zhHant: Strings = {
 		changes: '變化',
 		section: (name, was) => `節「${name}」${was ? `（原為「${was}」）` : ''}`,
 		newSection: name => `新的節「${name}」`,
+		reconvertedSection: (name, pages) => `按現在的設定重新轉換「${name}」（重寫 ${num(pages)} 頁）`,
 		added: page => `新增：${page}`,
 		modified: (page, before, was) => `修改：${page}（${before}${was !== undefined ? `，原標題「${was}」` : ''}）`,
 		before: '更新前',
@@ -517,6 +532,7 @@ export const ja: Strings = {
 		counts: c => [
 			c.sectionsUpdated ? `セクション ${num(c.sectionsUpdated)} 個を更新` : '',
 			c.sectionsAdded ? `セクション ${num(c.sectionsAdded)} 個を追加` : '',
+			c.sectionsReconverted ? `セクション ${num(c.sectionsReconverted)} 個を変換し直し` : '',
 			c.pagesAdded ? `${num(c.pagesAdded)} ページを追加` : '',
 			c.pagesModified ? `${num(c.pagesModified)} ページを変更` : '',
 			c.pagesRemoved ? `OneNote にはもうない ${num(c.pagesRemoved)} ページ（保管庫には残しています）` : '',
@@ -528,6 +544,7 @@ export const ja: Strings = {
 		nothingToNote: '確認が必要な項目はありません。',
 		bothEdited: '次のページは両方で変更されています（OneNote で変更され、Obsidian でもあなたが変更しました）。現在は OneNote の新しい版です。あなたが変更した版は残してあるので、残したい内容を見比べて戻せます：',
 		bothEditedPage: (page, yours) => `${page}（${yours}）`,
+		keptEdited: '次のページは Obsidian で編集されていたため、そのまま残し、新しい設定では書き直していません：',
 		yourVersion: 'あなたが変更した版',
 		rolledBack: (section, reason) => `セクション「${section}」は更新を完了できなかったため、更新前の状態に戻しました：${reason}`,
 		interrupted: '更新が途中で中断され、続きを行うときには変換済みの新しい版が残っていませんでした',
@@ -544,6 +561,7 @@ export const ja: Strings = {
 		changes: '変更点',
 		section: (name, was) => `セクション「${name}」${was ? `（以前は「${was}」）` : ''}`,
 		newSection: name => `新しいセクション「${name}」`,
+		reconvertedSection: (name, pages) => `「${name}」を現在の設定で変換し直しました（${num(pages)} ページを書き直し）`,
 		added: page => `追加：${page}`,
 		modified: (page, before, was) => `変更：${page}（${before}${was !== undefined ? `、以前のタイトル「${was}」` : ''}）`,
 		before: '更新前',
@@ -615,6 +633,7 @@ export const ko: Strings = {
 		counts: c => [
 			c.sectionsUpdated ? `섹션 ${num(c.sectionsUpdated)}개 업데이트` : '',
 			c.sectionsAdded ? `섹션 ${num(c.sectionsAdded)}개 추가` : '',
+			c.sectionsReconverted ? `섹션 ${num(c.sectionsReconverted)}개 다시 변환` : '',
 			c.pagesAdded ? `페이지 ${num(c.pagesAdded)}개 추가` : '',
 			c.pagesModified ? `페이지 ${num(c.pagesModified)}개 변경` : '',
 			c.pagesRemoved ? `OneNote에 더 이상 없는 페이지 ${num(c.pagesRemoved)}개 (보관함에는 남겨 둠)` : '',
@@ -626,6 +645,7 @@ export const ko: Strings = {
 		nothingToNote: '확인이 필요한 항목이 없습니다.',
 		bothEdited: '다음 페이지는 양쪽에서 바뀌었습니다. OneNote에서 바뀌었고, Obsidian에서도 직접 고쳤습니다. 지금은 OneNote의 새 버전이며, 사용자의 버전은 남겨 두었으니 필요한 내용을 비교해서 옮기면 됩니다:',
 		bothEditedPage: (page, yours) => `${page} (${yours})`,
+		keptEdited: '다음 페이지는 Obsidian에서 수정되어 그대로 두었으며, 새 설정으로 다시 쓰지 않았습니다:',
 		yourVersion: '사용자의 버전',
 		rolledBack: (section, reason) => `섹션 "${section}"은(는) 업데이트를 끝내지 못해 업데이트 전 상태로 되돌렸습니다: ${reason}`,
 		interrupted: '업데이트가 중간에 끊겼고, 이어서 하려고 할 때 변환해 둔 새 버전이 없었습니다',
@@ -642,6 +662,7 @@ export const ko: Strings = {
 		changes: '바뀐 내용',
 		section: (name, was) => `섹션 "${name}"${was ? ` (이전 이름 "${was}")` : ''}`,
 		newSection: name => `새 섹션 "${name}"`,
+		reconvertedSection: (name, pages) => `"${name}"을(를) 현재 설정으로 다시 변환했습니다(${num(pages)}페이지 다시 씀)`,
 		added: page => `추가: ${page}`,
 		modified: (page, before, was) => `변경: ${page} (${before}${was !== undefined ? `, 이전 제목 "${was}"` : ''})`,
 		before: '업데이트 전',

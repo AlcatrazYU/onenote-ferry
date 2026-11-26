@@ -82,6 +82,11 @@ export interface UpdateRequest {
 	partial?: boolean;
 	/** Ids (upper case) of pages the user deleted in Obsidian that are to be written back; none is otherwise (§11.5 item 51). */
 	restore?: ReadonlySet<string>;
+	/**
+	 * sectionKeys of sections without changes to convert again, whole, with `defaults` (§11.5 item 65):
+	 * every page is written anew but those edited in Obsidian, which stay as they are.
+	 */
+	reconvert?: ReadonlySet<string>;
 }
 
 export interface UpdateOptions {
@@ -90,7 +95,11 @@ export interface UpdateOptions {
 	strings: Strings;
 	/** Language of a notebook not imported before. */
 	languageFor(notebook: DownloadNotebook): Language;
-	/** How a notebook's sections are converted when its report entry does not say (it was imported without one). */
+	/**
+	 * The settings chosen now: for sections written now for the first time (new, left unticked before,
+	 * imported again) and those converted again; and for a notebook's sections when its report entry
+	 * does not say. A section updated because OneNote changed it keeps its own.
+	 */
 	defaults: SectionOptions;
 	links: boolean;
 	/** The downloads (file or folder names, not full paths). */
@@ -119,6 +128,8 @@ export interface UpdateResult {
 export interface UpdateAttention {
 	/** Pages changed in OneNote and in Obsidian: the new version went in, the user's was kept aside. */
 	bothEdited: number;
+	/** Converted again: pages edited in Obsidian, left as they were (not written with the new settings). */
+	keptEdited: number;
 	/** Files that were not as the update expected, copied aside before they were written over. */
 	keptAside: number;
 	rolledBack: number;
@@ -215,6 +226,11 @@ interface Summary {
 	/** Titles of pages the user deleted, not written back. */
 	notRestored: string[];
 	reordered: number;
+	/** Converted again with the settings chosen now (§11.5 item 65): how many pages were written anew. */
+	reconverted?: true;
+	rewritten?: number;
+	/** Converted again: pages left as they were because they were edited in Obsidian. */
+	kept?: PageChange[];
 }
 
 interface Move { from: string, to: string, folder?: true }
@@ -456,7 +472,7 @@ interface NotebookState {
  * Works out the steps for one section, staged at `staged`. `item` is its plan, `archived` the
  * folder of ours it was matched to (none for a new section).
  */
-async function prepareSection(vault: UpdateSink, start: StartEntry, nb: NotebookState, s: number, item: PlanItem, archived: ArchivedSection | undefined, staged: Staging, result: SectionResult, restore: ReadonlySet<string> = new Set()): Promise<SectionEntry> {
+async function prepareSection(vault: UpdateSink, start: StartEntry, nb: NotebookState, s: number, item: PlanItem, archived: ArchivedSection | undefined, staged: Staging, result: SectionResult, restore: ReadonlySet<string> = new Set(), reconvert = false): Promise<SectionEntry> {
 	const strings = nb.strings;
 	const notebook = nb.entry;
 	const tocName = `${strings.tocFileName}.md`;
@@ -499,7 +515,9 @@ async function prepareSection(vault: UpdateSink, start: StartEntry, nb: Notebook
 	}
 	const newIds = new Set(pages.map(page => page.id));
 
-	interface Write { file: string, text: string, title: string, existing?: ArchivedPage, edited?: true, restored?: true }
+	interface Write { file: string, text: string, title: string, existing?: ArchivedPage, edited?: true, restored?: true, rewritten?: true }
+	/** Converted again (reconvert): pages left as they are because they were edited in Obsidian. */
+	const keptEdited: ArchivedPage[] = [];
 	const writes: Write[] = [];
 	const renames: { from: string, to: string }[] = [];
 	const props: { file: string, base: string, mtime: number | null, set: Record<string, string | null>, moved: boolean }[] = [];
@@ -525,6 +543,16 @@ async function prepareSection(vault: UpdateSink, start: StartEntry, nb: Notebook
 			writes.push({ file: page.file, text: page.text, title: page.title, existing: before, ...(editedNow(before) ? { edited: true as const } : {}) });
 			replaced.add(fold(before.file));
 			continue;
+		}
+		// Converted again with other settings: every page is written anew, but one the user edited in
+		// Obsidian stays as it is (OneNote did not change it: nothing would justify putting their work aside).
+		if (reconvert) {
+			if (editedNow(before)) keptEdited.push(before);
+			else {
+				writes.push({ file: page.file, text: page.text, title: page.title, existing: before, rewritten: true });
+				replaced.add(fold(before.file));
+				continue;
+			}
 		}
 		// OneNote did not change it: only where it sits, when that changed (compared as values: Obsidian
 		// may have written the properties again in its own way).
@@ -704,7 +732,8 @@ async function prepareSection(vault: UpdateSink, start: StartEntry, nb: Notebook
 		...(item.status === 'missing' ? { missing: true as const } : {}),
 		...(moving ? { was: wasCalled(item, archived!, label) } : {}),
 		added: writes.filter(write => !write.existing && !write.restored).map(write => ({ title: write.title, path: joinPath(N, write.file) })),
-		modified: writes.filter(write => write.existing).map(write => ({
+		...(reconvert ? { reconverted: true as const, rewritten: writes.filter(write => write.rewritten).length, kept: keptEdited.map(page => ({ title: page.title, path: joinPath(N, page.file) })) } : {}),
+		modified: writes.filter(write => write.existing && !write.rewritten).map(write => ({
 			title: write.title, path: joinPath(N, spelling.get(write.file) ?? write.file), before: joinPath(B, write.existing!.file),
 			...(composedText(write.existing!.title) !== write.title ? { was: write.existing!.title } : {}),
 			...(write.edited ? { edited: true as const } : {}),
@@ -1079,7 +1108,9 @@ export async function updateNotebooks(requests: UpdateRequest[], host: UpdateHos
 		const occupied = !archive && (await vault.listFiles(dir)).length > 0;
 		// Sections chosen that changed, are new or unfinished; and those with a page the user deleted that is to come back.
 		const restoring = (item: PlanItem) => item.status === 'same' && item.added.some(page => page.userDeleted && request.restore?.has(page.id));
-		const chosen = plan.identity === 'different' || occupied ? [] : plan.items.filter(item => (UPDATED.has(item.status) || restoring(item)) && request.chosen.has(sectionKey(item.groups, item.label)));
+		// And those without changes the user chose to convert again with the settings chosen now.
+		const reconverting = (item: PlanItem) => item.status === 'same' && !!request.reconvert?.has(sectionKey(item.groups, item.label));
+		const chosen = plan.identity === 'different' || occupied ? [] : plan.items.filter(item => (UPDATED.has(item.status) || restoring(item) || reconverting(item)) && request.chosen.has(sectionKey(item.groups, item.label)));
 		const todo = inMovingOrder(chosen, archive, strings);
 		planned.push({ request, dir, archive, language, strings, plan, occupied, todo });
 	}
@@ -1137,7 +1168,8 @@ export async function updateNotebooks(requests: UpdateRequest[], host: UpdateHos
 			host.onProgress?.({ notebook: notebook.notebook, section, done, total });
 			const archived = item.old !== undefined ? entry.archive?.sections.find(candidate => candidate.folder === item.old) : undefined;
 			const names = namesFor(archived, entry.archive?.files ?? [], entry.request.scanned.find(scanned => sectionKey(scanned.groups, scanned.label) === key), entry.strings);
-			const outcome = await updateSection(host, ctx, nb, item, section, archived, names, entry.request.restore);
+			const reconvert = item.status === 'same' && !!entry.request.reconvert?.has(key);
+			const outcome = await updateSection(host, ctx, nb, item, section, archived, names, entry.request.restore, reconvert);
 			done++;
 			host.onSectionDone?.(notebook.notebook, section, outcome);
 		}
@@ -1157,7 +1189,7 @@ class Blocked extends Error {
 }
 
 /** Converts one section outside the vault, then puts it in (or back, when that cannot be finished). */
-async function updateSection(host: UpdateHost, ctx: Context, nb: NotebookState, item: PlanItem, section: DownloadSection, archived: ArchivedSection | undefined, names: SectionNames, restore?: ReadonlySet<string>): Promise<SectionOutcome> {
+async function updateSection(host: UpdateHost, ctx: Context, nb: NotebookState, item: PlanItem, section: DownloadSection, archived: ArchivedSection | undefined, names: SectionNames, restore?: ReadonlySet<string>, reconvert = false): Promise<SectionOutcome> {
 	const { journal, state } = ctx;
 	const notebook = nb.entry;
 	const key = sectionKey(item.groups, item.label);
@@ -1174,11 +1206,16 @@ async function updateSection(host: UpdateHost, ctx: Context, nb: NotebookState, 
 	};
 	const staged = await host.newStaging();
 	const dir = joinPath(notebook.dir, item.new!);
+	// Settings go with each section (§11.5 item 65): one written now for the first time, or converted
+	// again by choice, takes those chosen now; one OneNote changed keeps its own, so its pages stay alike.
+	const firstTime = item.status === 'new' || item.status === 'skipped' || item.status === 'missing' || item.status === 'unfinished';
+	const options = reconvert || firstTime ? state.start.defaults : (archived?.recorded?.options ?? notebook.options);
 	let result: SectionResult;
 	try {
 		result = host.convertSection
-			? await host.convertSection(section, dir, notebook.language, notebook.options, names, staged.sink)
-			: await convertSection(section, dir, nb.strings, { sink: staged.sink, parse: host.parse, isPasswordProtected: host.isPasswordProtected }, notebook.options, names);
+			? await host.convertSection(section, dir, notebook.language, options, names, staged.sink)
+			: await convertSection(section, dir, nb.strings, { sink: staged.sink, parse: host.parse, isPasswordProtected: host.isPasswordProtected }, options, names);
+		result = { ...result, options };
 	}
 	catch (error) {
 		// Converting failed outside the parser (the worker stopped, the staging is full): nothing was written.
@@ -1191,7 +1228,7 @@ async function updateSection(host: UpdateHost, ctx: Context, nb: NotebookState, 
 	}
 	let entry: SectionEntry;
 	try {
-		entry = await prepareSection(host.vault, state.start, nb, state.sections.length, item, archived, staged, result, restore);
+		entry = await prepareSection(host.vault, state.start, nb, state.sections.length, item, archived, staged, result, restore, reconvert);
 	}
 	catch (error) {
 		await host.releaseStaging(staged.id);
@@ -1429,8 +1466,9 @@ function countsOf(state: RunState): UpdateCounts {
 	// A section whose only change is pages the user brought back is not counted as updated (§11.5 item 51.2).
 	const onlyRestored = (summary: Summary) => !summary.added.length && !summary.modified.length && !summary.removed.length && !summary.reordered && summary.was === undefined && summary.restored.length > 0;
 	return {
-		sectionsUpdated: done.filter(entry => !entry.summary.isNew && !onlyRestored(entry.summary)).length,
+		sectionsUpdated: done.filter(entry => !entry.summary.isNew && !entry.summary.reconverted && !onlyRestored(entry.summary)).length,
 		sectionsAdded: done.filter(entry => entry.summary.isNew).length,
+		sectionsReconverted: done.filter(entry => entry.summary.reconverted).length,
 		pagesAdded: done.reduce((n, entry) => n + entry.summary.added.length, 0),
 		pagesModified: done.reduce((n, entry) => n + entry.summary.modified.length, 0),
 		pagesRemoved: done.reduce((n, entry) => n + entry.summary.removed.length, 0),
@@ -1443,6 +1481,7 @@ function attentionOf(state: RunState): UpdateAttention {
 	const done = state.sections.filter(run => run.outcome === 'done').map(run => run.entry);
 	return {
 		bothEdited: done.reduce((n, entry) => n + entry.summary.modified.filter(page => page.edited).length, 0),
+		keptEdited: done.reduce((n, entry) => n + (entry.summary.kept?.length ?? 0), 0),
 		keptAside: state.kept.length,
 		rolledBack: state.sections.filter(run => run.outcome === 'rolled back').length,
 		notConverted: state.failed.filter(entry => entry.blocked === undefined).length,
@@ -1473,6 +1512,8 @@ function recordMarkdown(state: RunState, backupMade: boolean, reportName: string
 	const both = done.flatMap(entry => entry.summary.modified.filter(page => page.edited)
 		.map(page => u.bothEditedPage(link(page.title || reader.untitledPage, to(page.path)), link(u.yourVersion, to(page.before!)))));
 	if (both.length) notes.push(`- ${u.bothEdited}`, ...both.map(line => `\t- ${line}`));
+	const keptEdited = done.flatMap(entry => (entry.summary.kept ?? []).map(page => link(page.title || reader.untitledPage, to(page.path))));
+	if (keptEdited.length) notes.push(`- ${u.keptEdited}`, ...keptEdited.map(line => `\t- ${line}`));
 	const notRestored = done.flatMap(entry => (entry.summary.notRestored ?? []).map(title => name([entry.summary.notebook, ...entry.summary.groups, entry.summary.label], title || reader.untitledPage)));
 	if (notRestored.length) notes.push(`- ${u.notRestored(notRestored)}`);
 	if (state.kept.length) notes.push(`- ${u.keptAside(state.kept.length, text(joinPath(state.start.backup, reader.notAppliedFolder)))}`);
@@ -1505,7 +1546,7 @@ function recordMarkdown(state: RunState, backupMade: boolean, reportName: string
 				const summary = entry.summary;
 				const toc = joinPath(notebook.dir, entry.listed.folder!, `${STRINGS[notebook.language].tocFileName}.md`);
 				const section = link([...summary.groups, summary.label].join(' / '), to(toc));
-				lines.push(`- ${summary.missing ? u.missingSection(section) : summary.isNew ? u.newSection(section) : u.section(section, summary.was === undefined ? undefined : text(summary.was))}`);
+				lines.push(`- ${summary.missing ? u.missingSection(section) : summary.isNew ? u.newSection(section) : summary.reconverted ? u.reconvertedSection(section, summary.rewritten ?? 0) : u.section(section, summary.was === undefined ? undefined : text(summary.was))}`);
 				const mark = (page: PageChange) => (page.edited ? u.bothEditedMark : '');
 				for (const page of summary.added) lines.push(`\t- ${u.added(link(page.title || reader.untitledPage, to(page.path)))}`);
 				for (const page of summary.modified) {

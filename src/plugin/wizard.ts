@@ -147,6 +147,8 @@ export class ImportWizard extends Modal {
 	/** How the line shows now, since when; and a look again once it may change. */
 	private lineShown?: LineShown;
 	private lineTimer?: number;
+	/** The tip shown where the pointer rests on a section's row (see restTip). */
+	private rowTip?: HTMLElement;
 	/** Microsoft's sign-in page is open in the browser, for adding OneDrive. */
 	private signingIn = false;
 
@@ -172,6 +174,7 @@ export class ImportWizard extends Modal {
 	}
 
 	onClose(): void {
+		this.hideRowTip();
 		this.off?.();
 		window.clearInterval(this.timer);
 		window.clearTimeout(this.lineTimer);
@@ -221,14 +224,10 @@ export class ImportWizard extends Modal {
 			});
 		const tree = treeGroup.listEl.createDiv('import-section file-tree publish-section onenote-ferry-tree').createDiv('publish-change-list');
 
-		// The settings. Language and options are for notebooks new to the target folder: one imported
-		// before keeps its own (sections added to it too), which the heading says whenever one is ticked.
-		const settingsHeading = createFragment(fragment => {
-			fragment.appendText(ui.settings);
-			fragment.createSpan({ cls: 'onenote-ferry-heading-note', text: ui.settingsKept });
-		});
-		const settings = new SettingGroup(body).setHeading(settingsHeading).addClass('onenote-ferry-settings');
-		const kept = body.querySelector<HTMLElement>('.onenote-ferry-settings .onenote-ferry-heading-note');
+		// The settings (§11.5 item 65): the language is for notebooks new to the target folder (a notebook
+		// keeps one); the options for every section written now for the first time or converted again. A
+		// section updated because OneNote changed it keeps its own, which the bottom line says when it matters.
+		const settings = new SettingGroup(body).setHeading(ui.settings).addClass('onenote-ferry-settings');
 		let folderWarning!: HTMLElement;
 		settings.addSetting(setting => {
 			setting.setName(ui.importInto).setDesc(ui.importIntoDesc);
@@ -238,10 +237,11 @@ export class ImportWizard extends Modal {
 				new FolderSuggest(this.app, text.inputEl);
 			});
 		});
-		// Rows greyed as a whole (name, description and control) when only updating.
-		const forNew: Setting[] = [];
+		// Rows greyed as a whole (name, description and control) when nothing chosen uses them.
+		const forNotebooks: Setting[] = [];
+		const forSections: Setting[] = [];
 		settings.addSetting(setting => {
-			forNew.push(setting);
+			forNotebooks.push(setting);
 			setting
 				.setName(ui.language)
 				.setDesc(ui.languageDesc)
@@ -251,7 +251,7 @@ export class ImportWizard extends Modal {
 				});
 		});
 		const option = (name: string, desc: string, key: keyof typeof session.options) => settings.addSetting(setting => {
-			forNew.push(setting);
+			forSections.push(setting);
 			setting
 				.setName(name)
 				.setDesc(desc)
@@ -288,20 +288,24 @@ export class ImportWizard extends Modal {
 			for (const update of rows) update();
 			const updating = session.updating;
 			const choosable = session.choices.some(choice => session.choosable(choice).length > 0);
-			all.setButtonText(session.allChosen && choosable ? ui.deselectAll : ui.selectAll).setDisabled(!choosable);
+			const selectable = session.selectable;
+			all.setButtonText(session.allChosen && selectable ? ui.deselectAll : ui.selectAll).setDisabled(!selectable);
 			folderWarning.setText(folderProblem(session.folder) ? ui.badFolder : '');
 			folderWarning.toggle(folderProblem(session.folder));
-			// Language and options change nothing when only notebooks imported before are written.
+			// A setting what is chosen does not use is greyed. With nothing chosen yet, the page settings
+			// can be set first: they go with what is chosen next (new sections, those converted again).
 			const included = session.included();
-			const onlyUpdates = updating && !included.some(choice => !choice.earlier);
-			kept?.toggle(included.some(choice => choice.earlier));
-			for (const setting of forNew) setting.setDisabled(onlyUpdates);
+			const settingsUsed = !updating || session.settingsUsed || !included.length;
+			for (const setting of forNotebooks) setting.setDisabled(updating && !session.languageUsed);
+			for (const setting of forSections) setting.setDisabled(!settingsUsed);
 			const counts = session.counts();
 			const changes = session.updateCounts();
 			const folder = session.oldVersionsFolder;
 			const will = [
 				counts.sections ? ui.willImport(counts.notebooks, counts.sections, formatBytes(counts.bytes), counts.unreadable) : '',
-				changes.updated || changes.added || changes.restored ? ui.willUpdate(changes.updated, changes.added, changes.restored, folder) : '',
+				changes.updated || changes.added || changes.restored || changes.reconverted ? ui.willUpdate(changes.updated, changes.added, changes.restored, changes.reconverted, folder) : '',
+				// Why the settings do not reach sections updated because OneNote changed them: said once, where the plan is.
+				updating && session.ownSettingsKept ? ui.ownSettingsKept : '',
 			].filter(Boolean);
 			// Nothing differs in the notebooks imported before.
 			const noChange = updating && !session.choices.some(choice => choice.earlier && choice.notebook.sections.some(section => STRONG.has(session.sectionState(choice, section))));
@@ -320,7 +324,8 @@ export class ImportWizard extends Modal {
 			else if (session.checking || session.findingLocked) summary.setText(ui.checking);
 			else if (session.downloading) summary.setText(ui.downloadingFiles(session.downloading.files, session.downloading.totalFiles, formatBytes(session.downloading.bytes), formatBytes(session.downloading.totalBytes)));
 			else if (will.length) for (const line of will) summary.createDiv({ text: line });
-			else summary.setText(noChange ? ui.noUpdates
+			// Nothing to update: a click converts a section again (§11.5 item 65), said where the user looks.
+			else summary.setText(noChange ? session.selectable ? ui.noUpdatesReconvert : ui.noUpdates
 				: choosable ? ui.nothingChosen
 				: !session.choices.length ? ''
 				// Why nothing can be imported, when there is one reason for all.
@@ -544,6 +549,7 @@ export class ImportWizard extends Modal {
 	/** Draws the tree; answers what updates each row in place (ticks, names, notes). */
 	private drawTree(listEl: HTMLElement): (() => void)[] {
 		const session = this.session;
+		this.hideRowTip();
 		listEl.empty();
 		const rows: (() => void)[] = [];
 		// Nothing chosen yet: the place says what will come here, so the page keeps its shape.
@@ -577,6 +583,52 @@ export class ImportWizard extends Modal {
 		// Why, on hover: a quiet card in the window's own colours rather than Obsidian's dark bubble.
 		if (flair.tip) setTooltip(el, flair.tip, { placement: 'top', gap: 6, classes: ['onenote-ferry-tip'] });
 		else el.removeAttribute('aria-label');
+	}
+
+	/**
+	 * Shows what a click on `row` does where the pointer comes to rest on it, as a tooltip does, while
+	 * `when` holds: the row is as wide as the window, and a tip pinned to its middle is far from the
+	 * pointer. Gone when the pointer leaves the row or clicks.
+	 */
+	private restTip(row: HTMLElement, when: () => boolean): void {
+		let timer = 0;
+		let shown = false;
+		const end = () => {
+			row.win.clearTimeout(timer);
+			if (shown) this.hideRowTip();
+			shown = false;
+		};
+		row.addEventListener('mousemove', event => {
+			if (shown) return;
+			row.win.clearTimeout(timer);
+			if (!when()) return;
+			const { clientX: x, clientY: y } = event;
+			timer = row.win.setTimeout(() => {
+				if (!when() || !row.isConnected) return;
+				shown = true;
+				this.showRowTip(row, x, y);
+			}, 500);
+		});
+		row.addEventListener('mouseleave', end);
+		row.addEventListener('click', end);
+	}
+
+	/** Obsidian's tooltip, in our quiet card, centred above the pointer (below it at the window's top). */
+	private showRowTip(row: HTMLElement, x: number, y: number): void {
+		this.hideRowTip();
+		const tip = row.doc.body.createDiv({ cls: 'tooltip onenote-ferry-tip', text: this.ui.reconvertTip });
+		const half = tip.offsetWidth / 2;
+		const above = y - tip.offsetHeight - 12;
+		tip.setCssStyles({
+			left: `${Math.min(Math.max(x, half + 8), row.win.innerWidth - half - 8)}px`,
+			top: `${above >= 8 ? above : y + 20}px`,
+		});
+		this.rowTip = tip;
+	}
+
+	private hideRowTip(): void {
+		this.rowTip?.remove();
+		this.rowTip = undefined;
 	}
 
 	/** One row of the tree, and the rows under it (for a section that changed, its pages). */
@@ -637,27 +689,62 @@ export class ImportWizard extends Modal {
 			event.stopPropagation();
 			toggleOpen();
 		});
-		// Only the download's own sections can be ticked.
-		const tickable = () => node.sections.filter(one => !isGone(one) && TICKABLE.has(session.sectionState(choice, one)));
+		// Only the download's own sections can be ticked: those with something to do, and (§11.5 item 65)
+		// those without changes, which are converted again only when clicked.
+		const pending = () => node.sections.filter(one => !isGone(one) && TICKABLE.has(session.sectionState(choice, one)));
+		const unchanged = () => node.sections.filter(one => !isGone(one) && session.sectionState(choice, one) === 'same');
+		// A click ticks or unticks what there is to do; with nothing to do, it converts the unchanged
+		// sections again, or stops doing so.
+		const click = () => {
+			const todo = pending();
+			if (todo.length) session.setSections(choice, todo, !todo.every(one => session.ticked(choice, one) === true));
+			else {
+				const same = unchanged();
+				session.setSections(choice, same, !same.every(one => session.isChosen(choice, one)));
+			}
+		};
 		box.addEventListener('click', event => event.stopPropagation());
-		box.addEventListener('change', () => session.setSections(choice, tickable(), box.checked));
+		box.addEventListener('change', click);
 		// A notebook or group row opens and closes; a section row ticks (its arrow opens it).
 		self.addEventListener('click', () => {
 			if (kind !== 'section') toggleOpen();
-			else if (!box.disabled) session.setSections(choice, tickable(), !box.checked);
+			else if (!box.disabled) click();
 		});
+		// A section's row converts again on a click anywhere: said where the pointer rests on it.
+		if (kind === 'section') this.restTip(self, () => self.hasClass('onenote-ferry-kept'));
 
 		rows.push(() => {
 			const states = node.sections.map(stateOf);
-			const ticks = tickable().map(one => session.ticked(choice, one));
-			const disabled = ticks.length === 0;
-			const every = ticks.length > 0 && ticks.every(tick => tick === true);
-			box.disabled = disabled;
-			// Nothing to tick: ticked (and dimmed) when what can be there is there already.
-			box.checked = disabled ? states.some(state => state === 'same') && states.every(state => state !== 'blocked' && state !== 'different') : every;
-			box.indeterminate = !disabled && !every && ticks.some(tick => tick !== false);
+			const todo = pending();
+			const same = unchanged();
+			const ticks = todo.map(one => session.ticked(choice, one));
+			// There already and left as it is: a dimmed tick, which a click turns into converting it again.
+			let kept = false;
+			if (todo.length) {
+				const every = ticks.every(tick => tick === true);
+				box.disabled = false;
+				box.checked = every;
+				box.indeterminate = !every && ticks.some(tick => tick !== false);
+			}
+			else if (same.length) {
+				const chosen = same.filter(one => session.isChosen(choice, one)).length;
+				box.disabled = false;
+				box.checked = true;
+				box.indeterminate = chosen > 0 && chosen < same.length;
+				kept = chosen === 0;
+			}
+			else {
+				box.disabled = true;
+				// Nothing to tick: ticked (and dimmed) when what can be there is there already.
+				box.checked = states.some(state => state === 'same') && states.every(state => state !== 'blocked' && state !== 'different');
+				box.indeterminate = false;
+			}
 			box.setAttr('data-indeterminate', String(box.indeterminate));
-			self.toggleClass('is-disabled', disabled);
+			self.toggleClass('is-disabled', box.disabled);
+			self.toggleClass('onenote-ferry-kept', kept);
+			// On a notebook's or group's row only the box converts again (a click elsewhere opens it).
+			if (kind !== 'section' && kept) setTooltip(box, this.ui.reconvertTip, { placement: 'top', gap: 6, classes: ['onenote-ferry-tip'] });
+			else if (kind !== 'section') box.removeAttribute('aria-label');
 			if (kind === 'notebook') title.setText(choice.notebook.name);
 			ImportWizard.showFlair(flair, this.note(kind, choice, node, states));
 		});
@@ -766,6 +853,8 @@ export class ImportWizard extends Modal {
 			const both = node.sections.some((section, i) => states[i] === 'changed' && session.itemOf(choice, section)?.modified.some(page => page.userEdited));
 			return { text: ui.sectionsChanged(changed), tone: both ? 'warn' : 'strong' };
 		}
+		const reconverting = node.sections.filter((section, i) => states[i] === 'same' && session.isChosen(choice, section)).length;
+		if (reconverting) return { text: ui.sectionsReconverting(reconverting), tone: 'strong' };
 		if (!states.every(state => QUIET.has(state))) return { text: '' };
 		// Imported in part, the rest left unticked then: "no changes" would read as all of it being there.
 		const skipped = states.filter(state => state === 'skipped').length;
@@ -793,7 +882,11 @@ export class ImportWizard extends Modal {
 				return { text: ui.unreadable, ...(error ? { tip: error } : {}) };
 			}
 			case 'checking': return { text: ui.checkingRow };
-			case 'same': return { text: ui.unchanged };
+			case 'same': {
+				// Clicked: converted again with the settings chosen now (§11.5 item 65).
+				const chosen = node.sections.filter(one => session.isChosen(choice, one)).length;
+				return chosen && chosen === node.sections.length ? { text: ui.reconvertMark, tone: 'strong' } : { text: ui.unchanged };
+			}
 			case 'gone': return { text: ui.gone, tip: ui.keptAsIs };
 			case 'restorable': return { text: ui.restorable(session.deletedPages(choice, section).length), tip: ui.restorableTip };
 			case 'changed': {
@@ -887,10 +980,11 @@ export class ImportWizard extends Modal {
 		const done = session.updateResult;
 		if (update) {
 			const counts = done?.counts;
-			box.createDiv({ cls: 'onenote-ferry-result-line', text: counts ? ui.updateSummary(counts.sectionsUpdated, counts.sectionsAdded, counts.pagesAdded, counts.pagesModified, counts.pagesRestored) : ui.updateSummary(0, 0, 0, 0, 0) });
+			box.createDiv({ cls: 'onenote-ferry-result-line', text: counts ? ui.updateSummary(counts.sectionsUpdated, counts.sectionsAdded, counts.sectionsReconverted, counts.pagesAdded, counts.pagesModified, counts.pagesRestored) : ui.updateSummary(0, 0, 0, 0, 0, 0) });
 			const attention = done?.attention;
 			const backup = done?.backup ?? session.oldVersionsFolder;
 			if (attention?.bothEdited) notes.push(ui.attnBothEdited(attention.bothEdited, backup));
+			if (attention?.keptEdited) notes.push(ui.attnKeptEdited(attention.keptEdited));
 			if (attention?.rolledBack) notes.push(ui.attnRolledBack(attention.rolledBack));
 			if (attention?.notConverted) notes.push(ui.attnNotConverted(attention.notConverted));
 			if (attention?.notUpdated) notes.push(ui.attnNotUpdated(attention.notUpdated));

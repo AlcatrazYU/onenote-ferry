@@ -185,8 +185,105 @@ test('a notebook imported before is updated: the section there is compared, one 
 	assert.equal(s.choices[0]!.earlier?.language, 'zh-Hans');
 	assert.equal(s.updating, true);
 	assert.deepEqual(s.counts(), { notebooks: 0, sections: 0, unreadable: 0, bytes: 0 });
-	assert.deepEqual(s.updateCounts(), { updated: 1, added: 1, restored: 0, bothEdited: 0 });
+	assert.deepEqual(s.updateCounts(), { updated: 1, added: 1, restored: 0, bothEdited: 0, reconverted: 0 });
 	assert.equal(s.ready, true);
+});
+
+test('a section without changes is converted again only when clicked; with nothing to do, select all converts them all again', async () => {
+	const vault = {
+		'T/Tides/_目录.md': toc('complete'),
+		'T/Tides/Spring/_目录.md': toc('complete', 'Spring'),
+		'T/Tides/Spring/Tide table.md': 'page',
+		'T/Tides/Summer/_目录.md': toc('complete', 'Summer'),
+		'T/Tides/Summer/Low water.md': 'page',
+	};
+	const { s } = await session(vault, { a: [notebook('Tides', ['Spring', 'Summer'])] });
+	assert.deepEqual(states(s), ['same', 'same']);
+	const [choice] = s.choices as [typeof s.choices[0]];
+	const [spring, summer] = choice.notebook.sections as [DownloadSection, DownloadSection];
+	// Nothing to do: nothing chosen, and the settings shown are not used.
+	assert.equal(s.isChosen(choice, spring), false);
+	assert.equal(s.ready, false);
+	assert.equal(s.settingsUsed, false);
+	s.setSections(choice, [spring], true);
+	await settled(s);
+	assert.equal(s.isChosen(choice, spring), true);
+	assert.equal(s.isChosen(choice, summer), false);
+	assert.deepEqual(s.updateCounts(), { updated: 0, added: 0, restored: 0, bothEdited: 0, reconverted: 1 });
+	assert.equal(s.ready, true);
+	// Converted again with the settings shown; the language stays the notebook's.
+	assert.equal(s.settingsUsed, true);
+	assert.equal(s.languageUsed, false);
+	assert.equal(s.ownSettingsKept, false);
+	assert.equal(s.selectable, true);
+	assert.equal(s.allChosen, false);
+	// Nothing to update: select all takes every section without changes, as a notebook's row does.
+	s.selectAll(true);
+	await settled(s);
+	assert.equal(s.isChosen(choice, summer), true);
+	assert.equal(s.isChosen(choice, spring), true);
+	assert.equal(s.allChosen, true);
+	assert.equal(s.updateCounts().reconverted, 2);
+	s.selectAll(false);
+	await settled(s);
+	assert.equal(s.isChosen(choice, spring), false);
+	assert.equal(s.allChosen, false);
+	assert.equal(s.ready, false);
+});
+
+test('with something to do, select all takes that only, not the sections without changes', async () => {
+	const vault = {
+		'T/Tides/_目录.md': toc('complete'),
+		'T/Tides/Spring/_目录.md': toc('complete', 'Spring'),
+		'T/Tides/Spring/Tide table.md': 'page',
+	};
+	const { s } = await session(vault, { a: [notebook('Tides', ['Spring', 'Summer'])] });
+	assert.deepEqual(states(s), ['same', 'new']);
+	const [choice] = s.choices as [typeof s.choices[0]];
+	const [spring, summer] = choice.notebook.sections as [DownloadSection, DownloadSection];
+	s.setSections(choice, [summer], false);
+	await settled(s);
+	s.selectAll(true);
+	await settled(s);
+	assert.equal(s.isChosen(choice, summer), true);
+	assert.equal(s.isChosen(choice, spring), false);
+	assert.equal(s.allChosen, true);
+	// The new section takes the settings shown; nothing keeps its own.
+	assert.equal(s.settingsUsed, true);
+	assert.equal(s.ownSettingsKept, false);
+});
+
+test('a download chosen before the target folder is put right: compared again with the right folder, and nothing ticked as a new notebook is converted again', async () => {
+	const vault = {
+		'T/Tides/_目录.md': toc('complete'),
+		'T/Tides/Spring/_目录.md': toc('complete', 'Spring'),
+		'T/Tides/Spring/Tide table.md': 'page',
+		'T/Tides/Summer/_目录.md': toc('complete', 'Summer'),
+		'T/Tides/Summer/Low water.md': 'page',
+	};
+	const { s } = await session(vault, { a: [notebook('Tides', ['Spring', 'Summer'])] });
+	const [choice] = s.choices as [typeof s.choices[0]];
+	// The wrong folder first: a new notebook, ticked by hand.
+	s.setFolder('Other');
+	await settled(s);
+	assert.deepEqual(states(s), ['free', 'free']);
+	s.setSections(choice, choice.notebook.sections, true);
+	await settled(s);
+	assert.equal(s.ready, true);
+	// The right folder: compared with what is there, and nothing to do.
+	s.setFolder('T');
+	await settled(s);
+	assert.deepEqual(states(s), ['same', 'same']);
+	assert.deepEqual(s.updateCounts(), { updated: 0, added: 0, restored: 0, bothEdited: 0, reconverted: 0 });
+	assert.equal(s.ready, false);
+	// Clicked to convert again, then the folder changes and comes back: the click was for the other comparison.
+	s.setSections(choice, [choice.notebook.sections[0]!], true);
+	assert.equal(s.updateCounts().reconverted, 1);
+	s.setFolder('Other');
+	await settled(s);
+	s.setFolder('T');
+	await settled(s);
+	assert.equal(s.updateCounts().reconverted, 0);
 });
 
 test('what our contents pages say decides: cut off half way can be imported again; a folder without one of ours is never written into', async () => {
@@ -208,7 +305,7 @@ test('what our contents pages say decides: cut off half way can be imported agai
 	const { s } = await session(vault, { a: [notebook('Tides', ['Spring', 'Summer', 'Autumn', 'Winter', 'Spring 2'])] }, { folders });
 	assert.ok(!s.choices[0]!.blocked);
 	assert.deepEqual(states(s), ['same', 'unfinished', 'occupied', 'occupied', 'new']);
-	assert.deepEqual(s.updateCounts(), { updated: 1, added: 1, restored: 0, bothEdited: 0 });
+	assert.deepEqual(s.updateCounts(), { updated: 1, added: 1, restored: 0, bothEdited: 0, reconverted: 0 });
 });
 
 test('a folder of the notebook\'s name holding a note called like our contents page is still not ours', async () => {
@@ -230,7 +327,7 @@ test('a notebook all imported already takes no name from a newer download of it:
 	assert.deepEqual(names(s), ['Tides', 'Tides']);
 	assert.deepEqual(states(s, 1), ['same', 'new']);
 	assert.deepEqual(s.included().map(choice => choice.download.input), ['fresh']);
-	assert.deepEqual(s.updateCounts(), { updated: 0, added: 1, restored: 0, bothEdited: 0 });
+	assert.deepEqual(s.updateCounts(), { updated: 0, added: 1, restored: 0, bothEdited: 0, reconverted: 0 });
 });
 
 test('the target folder that cannot be read: the window says so and nothing starts', async () => {
@@ -387,8 +484,11 @@ test('a notebook imported before is read and compared: each section says what ch
 	const [choice] = s.choices as [typeof s.choices[0]];
 	assert.deepEqual(choice.notebook.sections.map(section => s.isChosen(choice, section)), [true, true, false, false, true, false, false]);
 	assert.deepEqual(s.gone(choice).map(item => item.label), ['Winter']);
-	assert.deepEqual(s.updateCounts(), { updated: 2, added: 1, restored: 0, bothEdited: 1 });
+	assert.deepEqual(s.updateCounts(), { updated: 2, added: 1, restored: 0, bothEdited: 1, reconverted: 0 });
 	assert.equal(s.ready, true);
+	// The new section takes the settings shown; the changed ones keep their own.
+	assert.equal(s.settingsUsed, true);
+	assert.equal(s.ownSettingsKept, true);
 	// Changed in OneNote and edited in Obsidian: said on the page.
 	assert.deepEqual(s.itemOf(choice, choice.notebook.sections[1]!)!.modified.map(page => page.userEdited), [true]);
 });
@@ -422,7 +522,7 @@ test('select all takes everything that can be ticked, including what is left unt
 	s.selectAll(true);
 	await settled(s);
 	assert.equal(s.allChosen, true);
-	assert.deepEqual(s.updateCounts(), { updated: 3, added: 3, restored: 1, bothEdited: 1 });
+	assert.deepEqual(s.updateCounts(), { updated: 3, added: 3, restored: 1, bothEdited: 1, reconverted: 0 });
 	s.selectAll(false);
 	await settled(s);
 	assert.deepEqual(s.included(), []);

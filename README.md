@@ -38,7 +38,7 @@ The import window lists your notebooks and their sections, and you tick the ones
 2. Open the import window as above, and choose `Choose zip files or folders`.
 3. Tick the notebooks and sections you want, and click `Start import`.
 
-When the target folder already holds some of these notebooks, the sections you tick are added to them, and a notebook imported only in part is marked `Partly imported`. The settings in the window apply to notebooks imported for the first time; notebooks imported before keep their own.
+When the target folder already holds some of these notebooks, the sections you tick are added to them, and a notebook imported only in part is marked `Partly imported`. The settings in the window apply to the sections imported now, except the language of contents pages and notices, which stays the notebook's.
 
 ## Checking for Updates
 
@@ -51,6 +51,7 @@ Each notebook imported before is then compared with your vault, section by secti
 
 - Only the pages OneNote changed are replaced. Before a page is replaced, the vault's copy goes to `_previous versions/<time>/`. Pages OneNote did not change are not touched, so bookmarks, canvases and open tabs stay on them.
 - A page changed in OneNote and also edited in Obsidian: the new version goes in, your version is kept in `_previous versions`, and both the window and the log point it out.
+- To convert sections again with other settings, change the settings in the window, then click a section marked `No changes`, or its notebook, or `Select all` when nothing has updates: it shows `Convert again`. Its pages are written anew and the old ones go to `_previous versions`; pages you edited in Obsidian stay as they are. A section updated because OneNote changed it keeps its own settings.
 - Nothing is ever deleted. Pages and sections OneNote no longer has stay where they are. Pages you deleted in Obsidian come back only if you tick them.
 - Each update writes a page in `_sync log` that lists what changed. The `_conversion report` is the overview of every notebook in the folder; the two point to each other.
 - If Obsidian quits during an update, the update is finished the next time Obsidian starts: each section ends up all old or all new.
@@ -80,6 +81,7 @@ Your OneNote files are only read, never modified: in OneDrive, the plugin only h
 - The free layout of a page (fonts, sizes, exact positions) is not reproduced. Text boxes are put in reading order, with an optional comment giving each one's position.
 - Sections are sorted by name, because OneDrive's files do not record their order.
 - A page moved to another section in OneNote ends up twice: in its old section, listed under `Pages no longer in OneNote`, and in the new one.
+- A notebook keeps the language of its contents pages and notices. To change it, move the notebook's folder out of the target folder, then import the notebook again.
 
 ## Languages
 
@@ -140,7 +142,7 @@ OneNote Ferry（OneNote 摆渡）是一个 Obsidian 社区插件（附命令行�
 2. 照上面打开导入窗口，选“选择 zip 文件或文件夹”。
 3. 勾选要导入的笔记本和分区，点“开始导入”。
 
-目标文件夹里已经有其中的笔记本时，勾上的分区会补进原来的笔记本；只导入了一部分的笔记本标“部分导入”。窗口里的设置只对第一次导入的笔记本起作用，已导入的笔记本沿用原来的设置。
+目标文件夹里已经有其中的笔记本时，勾上的分区会补进原来的笔记本；只导入了一部分的笔记本标“部分导入”。窗口里的设置用于这次导入的分区；目录和提示的语言沿用笔记本原来的。
 
 ### 检查更新
 
@@ -153,6 +155,7 @@ OneNote Ferry（OneNote 摆渡）是一个 Obsidian 社区插件（附命令行�
 
 - 只换 OneNote 里改过的页面。换之前，仓库里那份先复制进 `_旧版本/<时间>/`。OneNote 里没改的页面一个字节不动，书签、白板、打开的标签页都留在原页面上。
 - OneNote 里改了、你在 Obsidian 里也改过的页面：换成新版，你的版本留在 `_旧版本` 里，窗口和更新记录都会标出。
+- 想按别的设置重新转换：在窗口里改好设置，再点标着“无变化”的分区、它的笔记本，或者在没有更新时点“全选”，它们会标成“重新转换”。分区的页面全部重写，旧的放进 `_旧版本`；你在 Obsidian 里改过的页面保持原样。因 OneNote 有更新而更新的分区沿用自己原来的设置。
 - 任何东西都不删除。OneNote 里已经没有的页面和分区留在原处。你在 Obsidian 里删掉的页面，勾选了才会补回。
 - 每次更新在 `_更新记录` 里写一页，列出改了什么。`_转换报告` 是整个文件夹所有笔记本的总览，两页开头互相指引。
 - 更新时退出了 Obsidian，下次打开时会自动处理完毕，每个分区要么全旧、要么全新。
@@ -182,6 +185,7 @@ OneNote Ferry（OneNote 摆渡）是一个 Obsidian 社区插件（附命令行�
 - 不还原页面的自由版面（字体、字号、精确位置）。文本框排成阅读顺序，可选在每块前加一行注释写明它的位置。
 - 分区按名称排序，因为 OneDrive 上的文件没有记下分区的顺序。
 - 在 OneNote 里把页面挪到别的分区后，仓库里会有两份：旧分区里那份（列在“OneNote 中已移除的页面”下）和新分区里的。
+- 笔记本的目录和提示的语言不能改。要换语言，把这本的文件夹移出目标文件夹，再重新导入。
 
 ### 语言
 
@@ -233,7 +237,7 @@ OneNote Ferry は、Obsidian コミュニティプラグイン（コマンドラ
 2. 上と同じようにインポート画面を開き、「zip ファイルまたはフォルダーを選択」を選びます。
 3. インポートするノートブックとセクションにチェックを入れ、「インポートを開始」をクリックします。
 
-保存先のフォルダーにすでにその中のノートブックがある場合は、チェックを入れたセクションを元のノートブックに追加し、一部だけインポートしたノートブックには「一部インポート済み」と表示します。画面の設定は初めてインポートするノートブックに適用され、以前インポートしたノートブックは元の設定を引き継ぎます。
+保存先のフォルダーにすでにその中のノートブックがある場合は、チェックを入れたセクションを元のノートブックに追加し、一部だけインポートしたノートブックには「一部インポート済み」と表示します。画面の設定は今回インポートするセクションに適用されます。目次と注記の言語はノートブックの元の言語のままです。
 
 ### 更新の確認
 
@@ -246,6 +250,7 @@ OneNote を使い続ける場合は、コマンドパレットで「OneNote の�
 
 - 置き換えるのは OneNote で変更されたページだけです。置き換える前に、保管庫にある版を `_旧バージョン/<日時>/` にコピーします。OneNote で変更のないページには一切手を触れないので、ブックマーク、キャンバス、開いているタブはそのまま残ります。
 - OneNote で変更され、Obsidian でも編集したページは、新しい版に置き換え、あなたの版は `_旧バージョン` に残します。画面と更新記録の両方で知らせます。
+- 別の設定で変換し直すには、画面で設定を変えてから「変更なし」のセクションかそのノートブックをクリックします。更新がないときは「すべて選択」でも構いません。「変換し直す」と表示されます。ページはすべて書き直され、元の版は `_旧バージョン` に入ります。Obsidian で編集したページはそのまま残ります。OneNote で変更があって更新されるセクションは元の設定のままです。
 - 何も削除しません。OneNote にもうないページやセクションはその場に残ります。Obsidian で削除したページは、チェックを入れたときだけ戻します。
 - 更新のたびに `_更新記録` に変更点を記したページを書きます。`_変換レポート` はフォルダー内のすべてのノートブックの概要で、二つのページは互いを案内します。
 - 更新中に Obsidian が終了した場合は、次に起動したときに処理を終えます。各セクションは、すべて古いままか、すべて新しくなるかのどちらかです。
@@ -275,6 +280,7 @@ OneNote のファイルは読み込むだけで、変更しません。OneDrive 
 - ページの自由なレイアウト（フォント、文字サイズ、正確な位置）は再現しません。テキストボックスは読む順に並べ、オプションで各ブロックの位置を記したコメントを付けます。
 - OneDrive のファイルにはセクションの順序が記録されていないため、セクションは名前順に並びます。
 - OneNote でページをほかのセクションに移すと、保管庫には 2 つ残ります。元のセクションのもの（「OneNote にはもうないページ」の下に表示）と、新しいセクションのものです。
+- ノートブックの目次と注記の言語は変えられません。変えるには、そのノートブックのフォルダーを保存先のフォルダーの外へ移してから、もう一度インポートします。
 
 ### 言語
 
@@ -326,7 +332,7 @@ OneNote Ferry는 Obsidian 커뮤니티 플러그인(명령줄 버전 포함)입�
 2. 위와 같이 가져오기 창을 열고 "zip 파일 또는 폴더 선택"을 선택합니다.
 3. 가져올 전자 필기장과 섹션을 선택하고 "가져오기 시작"을 클릭합니다.
 
-대상 폴더에 그중 일부 전자 필기장이 이미 있으면, 선택한 섹션을 원래 전자 필기장에 추가하고, 일부만 가져온 전자 필기장에는 "일부만 가져옴"이라고 표시합니다. 창의 설정은 처음 가져오는 전자 필기장에 적용되며, 이전에 가져온 전자 필기장은 원래 설정을 유지합니다.
+대상 폴더에 그중 일부 전자 필기장이 이미 있으면, 선택한 섹션을 원래 전자 필기장에 추가하고, 일부만 가져온 전자 필기장에는 "일부만 가져옴"이라고 표시합니다. 창의 설정은 이번에 가져오는 섹션에 적용됩니다. 목차와 안내 문구의 언어는 전자 필기장의 원래 언어를 그대로 씁니다.
 
 ### 업데이트 확인
 
@@ -339,6 +345,7 @@ OneNote를 계속 쓴다면, 명령 팔레트에서 "OneNote 업데이트 확인
 
 - OneNote에서 바뀐 페이지만 바꿉니다. 바꾸기 전에 보관함에 있던 버전을 `_이전 버전/<시간>/`에 복사합니다. OneNote에서 바뀌지 않은 페이지는 전혀 건드리지 않으므로 북마크, 캔버스, 열린 탭이 그대로 남습니다.
 - OneNote에서 바뀌었고 Obsidian에서도 수정한 페이지는 새 버전으로 바꾸고, 사용자의 버전은 `_이전 버전`에 남깁니다. 창과 업데이트 기록 모두에서 알려 줍니다.
+- 다른 설정으로 다시 변환하려면, 창에서 설정을 바꾼 뒤 "변경 없음"으로 표시된 섹션이나 그 전자 필기장을 클릭합니다. 업데이트가 없을 때는 "모두 선택"을 눌러도 됩니다. "다시 변환"으로 표시됩니다. 페이지를 모두 새로 쓰고, 이전 버전은 `_이전 버전`에 들어갑니다. Obsidian에서 수정한 페이지는 그대로 남습니다. OneNote에서 바뀌어 업데이트되는 섹션은 원래 설정을 유지합니다.
 - 아무것도 삭제하지 않습니다. OneNote에 더 이상 없는 페이지와 섹션은 그 자리에 남습니다. Obsidian에서 삭제한 페이지는 선택했을 때만 복원합니다.
 - 업데이트할 때마다 `_업데이트 기록`에 바뀐 내용을 적은 페이지를 씁니다. `_변환 보고서`는 폴더 안 모든 전자 필기장의 개요이며, 두 페이지는 서로를 안내합니다.
 - 업데이트 중에 Obsidian이 종료되면, 다음에 Obsidian을 시작할 때 마무리합니다. 각 섹션은 모두 이전 상태이거나 모두 새 상태입니다.
@@ -368,6 +375,7 @@ OneNote 파일은 읽기만 하고 수정하지 않습니다. OneDrive에서 플
 - 페이지의 자유로운 레이아웃(글꼴, 글자 크기, 정확한 위치)은 재현하지 않습니다. 텍스트 상자는 읽는 순서대로 정렬하고, 선택에 따라 각 블록 앞에 위치를 적은 주석을 붙입니다.
 - OneDrive의 파일에는 섹션 순서가 기록되지 않으므로 섹션은 이름순으로 정렬됩니다.
 - OneNote에서 페이지를 다른 섹션으로 옮기면 보관함에 두 개가 남습니다. 원래 섹션에 있는 것("OneNote에 더 이상 없는 페이지" 아래에 표시)과 새 섹션에 있는 것입니다.
+- 전자 필기장의 목차와 안내 문구의 언어는 바꿀 수 없습니다. 바꾸려면 그 전자 필기장의 폴더를 대상 폴더 밖으로 옮긴 뒤 다시 가져옵니다.
 
 ### 언어
 
