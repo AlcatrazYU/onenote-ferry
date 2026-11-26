@@ -122,6 +122,40 @@ test('progress is counted in sections, as the import counts them: a table of con
 	}
 });
 
+test('fetching some sections keeps what a cut-off download had of another; a part of a file OneDrive no longer has goes', async () => {
+	const s = await setup();
+	try {
+		const parts = join(s.root, 'N', '.downloading');
+		mkdirSync(parts, { recursive: true });
+		// Half of One, from a check that was stopped; and a part of a file deleted in OneDrive since.
+		writeFileSync(join(parts, 's1.part'), s.items.get('s1')!.body!.subarray(0, 100));
+		writeFileSync(join(parts, 's1.part.json'), JSON.stringify({ eTag: '"{s1},1"', size: s.items.get('s1')!.body!.length }));
+		writeFileSync(join(parts, 'gone.part'), new Uint8Array(10));
+		writeFileSync(join(parts, 'gone.part.json'), JSON.stringify({ eTag: '"{gone},1"', size: 10 }));
+		await updateCopy(s.options({ only: new Set(['s2', 'toc']) }));
+		assert.ok(existsSync(join(parts, 's1.part')), 'the part of One stays for the next time');
+		assert.ok(!existsSync(join(parts, 'gone.part')) && !existsSync(join(parts, 'gone.part.json')));
+	}
+	finally {
+		await s.done();
+	}
+});
+
+test('files left half-moved by a run that was cut off are cleared; the copy is fetched whole again where needed', async () => {
+	const s = await setup();
+	try {
+		await updateCopy(s.options());
+		const moving = join(s.root, 'N', '.moving');
+		mkdirSync(moving, { recursive: true });
+		writeFileSync(join(moving, 's1'), new Uint8Array(10));
+		await updateCopy(s.options());
+		assert.ok(!existsSync(moving));
+	}
+	finally {
+		await s.done();
+	}
+});
+
 test('unchanged in OneDrive: nothing is fetched again', async () => {
 	const s = await setup();
 	try {

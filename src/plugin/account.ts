@@ -63,13 +63,10 @@ export class MicrosoftAccount {
 
 	private readonly app: App;
 	private readonly pages: () => ReceiverPages;
-	/** Whether the sign-in is kept for the next time Obsidian starts. */
-	private readonly remember: () => boolean;
 
-	constructor(app: App, pages: () => ReceiverPages, remember: () => boolean = () => true) {
+	constructor(app: App, pages: () => ReceiverPages) {
 		this.app = app;
 		this.pages = pages;
-		this.remember = remember;
 	}
 
 	/** Signed in: there is a refresh token, in memory or kept. */
@@ -173,7 +170,7 @@ export class MicrosoftAccount {
 			this.account = tokens.account;
 			this.app.saveLocalStorage(KIND_KEY, tokens.account.kind);
 		}
-		this.storeToken(this.remember() ? tokens.refreshToken : '');
+		this.storeToken(tokens.refreshToken);
 	}
 
 	private forget(): void {

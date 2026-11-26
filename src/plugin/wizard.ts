@@ -25,6 +25,8 @@ import { elapsed } from './progress.ts';
 import { TICKABLE } from './session.ts';
 import type { ChosenDownload, ImportSession, NotebookChoice, SectionState } from './session.ts';
 import { cleanFolder, folderProblem, FolderSuggest } from './settings.ts';
+import { nextLine } from './line.ts';
+import type { LineMeasure, LineMode, LineShown } from './line.ts';
 
 declare const require: (id: string) => any;
 
@@ -44,8 +46,7 @@ export interface WizardHost {
 const BOTH_IN_ONE_DIALOG = process.platform === 'darwin';
 /** How long the OneDrive row's line keeps a way of showing (progress, sliding, none) before it changes to another. */
 const LINE_HOLD_MS = 400;
-/** What the OneDrive row's line counts: notebooks read, a check for updates (sections read), bytes of a download; none. */
-type LineMeasure = 'reading' | 'check' | 'list' | 'download' | 'none';
+
 
 /** An icon at the start of a setting row, the way Obsidian's own rows have one. */
 function rowIcon(setting: Setting, icon: string): void {
@@ -144,7 +145,7 @@ export class ImportWizard extends Modal {
 	/** The thin line along the bottom of the OneDrive row: set as things move, without drawing the row again. */
 	private oneDriveLine?: { holder: HTMLElement, bar: ProgressBarComponent, download: ChosenDownload };
 	/** How the line shows now, since when; and a look again once it may change. */
-	private lineShown?: { measure: LineMeasure, mode: 'idle' | 'slide' | 'bar', value: number, since: number };
+	private lineShown?: LineShown;
 	private lineTimer?: number;
 	/** Microsoft's sign-in page is open in the browser, for adding OneDrive. */
 	private signingIn = false;
@@ -210,7 +211,8 @@ export class ImportWizard extends Modal {
 		// in one group as Importer has them.
 		const treeGroup = new SettingGroup(body).addClass('onenote-ferry-tree-group');
 		let all!: ButtonComponent;
-		const heading = new Setting(treeGroup.listEl)
+		// One name, whatever the rows hold (new notebooks, updates, or both): each row says what it is.
+		new Setting(treeGroup.listEl)
 			.setName(ui.tree)
 			.addButton(button => {
 				all = button;
@@ -285,7 +287,6 @@ export class ImportWizard extends Modal {
 			}
 			for (const update of rows) update();
 			const updating = session.updating;
-			heading.setName(updating ? ui.updateTree : ui.tree);
 			const choosable = session.choices.some(choice => session.choosable(choice).length > 0);
 			all.setButtonText(session.allChosen && choosable ? ui.deselectAll : ui.selectAll).setDisabled(!choosable);
 			folderWarning.setText(folderProblem(session.folder) ? ui.badFolder : '');
@@ -458,34 +459,18 @@ export class ImportWizard extends Modal {
 			: source.refreshing ? ['list', undefined]
 			: d ? ['download', d.totalBytes ? d.bytes / d.totalBytes : undefined]
 			: ['none', null];
-		let mode: 'idle' | 'slide' | 'bar' = fraction === null ? 'idle' : fraction === undefined ? 'slide' : 'bar';
-		let value = fraction == null ? 30 : Math.floor(fraction * 100);
-		const shown = this.lineShown;
-		// Within one measure the line only goes forward: once it counts, it does not slide again, and it
-		// does not run back (more sections to read, found on the way, make the count smaller).
-		if (shown?.measure === measure && shown.mode === 'bar') {
-			if (mode === 'slide') {
-				mode = 'bar';
-				value = shown.value;
-			}
-			else if (mode === 'bar') value = Math.max(shown.value, value);
-		}
-		const now = Date.now();
-		// A change of way soon after the last one waits (a check flips between counting and sliding
-		// within moments as it goes from one notebook to the next): it shows only if it lasts.
-		if (shown && shown.mode !== mode && now - shown.since < LINE_HOLD_MS) {
+		const next = nextLine(this.lineShown, measure, fraction, Date.now(), LINE_HOLD_MS);
+		this.lineShown = next.shown;
+		if (next.wait !== undefined) {
 			this.lineTimer ??= window.setTimeout(() => {
 				this.lineTimer = undefined;
 				this.showOneDriveLine();
-			}, LINE_HOLD_MS - (now - shown.since));
-			this.paintLine(line, shown.mode, shown.value);
-			return;
+			}, next.wait);
 		}
-		this.lineShown = shown?.mode === mode ? { ...shown, measure, value } : { measure, mode, value, since: now };
-		this.paintLine(line, mode, value);
+		this.paintLine(line, next.paint.mode, next.paint.value);
 	}
 
-	private paintLine(line: { holder: HTMLElement, bar: ProgressBarComponent }, mode: 'idle' | 'slide' | 'bar', value: number): void {
+	private paintLine(line: { holder: HTMLElement, bar: ProgressBarComponent }, mode: LineMode, value: number): void {
 		line.holder.toggleClass('is-idle', mode === 'idle');
 		line.holder.toggleClass('onenote-ferry-indeterminate', mode === 'slide');
 		line.bar.setValue(mode === 'bar' ? value : 30);

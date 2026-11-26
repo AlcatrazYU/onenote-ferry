@@ -42,6 +42,8 @@ const sleep = (ms: number) => new Promise<void>(resolve => window.setTimeout(res
 export function graphFor(account: MicrosoftAccount, version: string): GraphGet {
 	return async pathOrUrl => {
 		const url = pathOrUrl.startsWith('https://') ? pathOrUrl : `${GRAPH}${pathOrUrl}`;
+		// The sign-in goes to Microsoft Graph only, whatever a next link says.
+		if (new URL(url).host !== new URL(GRAPH).host) throw new GraphError(400, 'unexpectedHost', new URL(url).host);
 		let renewed = false;
 		for (let busy = 0; ; ) {
 			const token = await account.accessToken();

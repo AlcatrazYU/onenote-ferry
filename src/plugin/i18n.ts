@@ -79,7 +79,6 @@ export interface UiStrings {
 	// The window when it updates notebooks imported before (§11.5 item 49): its title and first line
 	// when opened to check for updates, and what the tree and the bottom say.
 	updateTitle: string;
-	updateTree: string;
 	/** Beside the settings heading while language and options are greyed: they apply to new notebooks only. */
 	settingsKept: string;
 	/** A section, or a notebook, being read. */
@@ -283,7 +282,7 @@ const en: UiStrings = {
 	converterStopped: 'the converter stopped unexpectedly',
 	incompleteZip: 'This download is incomplete: only the parts it contains can be imported. Download it again to import everything.',
 	remove: 'Remove',
-	tree: 'Notebooks and sections to import',
+	tree: 'Notebooks and sections',
 	treeEmpty: 'Once you choose where to import from, the notebooks and sections show here.',
 	noSections: 'No sections',
 	selectAll: 'Select all',
@@ -307,7 +306,6 @@ const en: UiStrings = {
 	willImport: (notebooks, sections, size, unreadable) => `${plural(sections, 'section', 'sections')} from ${plural(notebooks, 'notebook', 'notebooks')}${unreadable ? ` (${n(unreadable)} cannot be read)` : ''}, ${size}.`,
 
 	updateTitle: 'Check for OneNote updates',
-	updateTree: 'Notebooks and sections to update',
 	settingsKept: 'Notebooks imported before keep their own settings',
 	checkingRow: 'Checking...',
 	unchanged: 'No changes',
@@ -490,7 +488,7 @@ const zh: UiStrings = {
 	converterStopped: '转换程序意外停止',
 	incompleteZip: 'zip 文件不完整，只能导入其中已有的部分。如需全部导入，请重新下载。',
 	remove: '移除',
-	tree: '要导入的笔记本和分区',
+	tree: '笔记本和分区',
 	treeEmpty: '选好从哪里导入后，笔记本和分区会在这里显示。',
 	noSections: '没有分区',
 	selectAll: '全选',
@@ -514,7 +512,6 @@ const zh: UiStrings = {
 	willImport: (notebooks, sections, size, unreadable) => `将导入 ${n(notebooks)} 本笔记本、${n(sections)} 个分区${unreadable ? `（${n(unreadable)} 个无法读取）` : ''}，共 ${size}。`,
 
 	updateTitle: '检查 OneNote 更新',
-	updateTree: '要更新的笔记本和分区',
 	settingsKept: '已导入的笔记本沿用原来的设置',
 	checkingRow: '正在检查...',
 	unchanged: '无变化',
@@ -699,7 +696,7 @@ const ja: UiStrings = {
 	converterStopped: '変換処理が予期せず停止しました',
 	incompleteZip: 'ダウンロードが不完全なため、含まれている部分だけをインポートできます。すべてをインポートするには、もう一度ダウンロードしてください。',
 	remove: 'リストから削除',
-	tree: 'インポートするノートブックとセクション',
+	tree: 'ノートブックとセクション',
 	treeEmpty: 'どこからインポートするかを選ぶと、ここにノートブックとセクションが並びます。',
 	noSections: 'セクションなし',
 	selectAll: 'すべて選択',
@@ -723,7 +720,6 @@ const ja: UiStrings = {
 	willImport: (notebooks, sections, size, unreadable) => `ノートブック ${n(notebooks)} 冊のセクション ${n(sections)} 個${unreadable ? `（うち ${n(unreadable)} 個は読み込めません）` : ''}をインポートします。合計 ${size}。`,
 
 	updateTitle: 'OneNote の更新を確認',
-	updateTree: '更新するノートブックとセクション',
 	settingsKept: 'インポート済みのノートブックは元の設定のままです',
 	checkingRow: '確認中...',
 	unchanged: '変更なし',
@@ -907,7 +903,7 @@ const ko: UiStrings = {
 	converterStopped: '변환이 예기치 않게 중지되었습니다',
 	incompleteZip: '다운로드가 완전하지 않아 포함된 부분만 가져올 수 있습니다. 전부 가져오려면 다시 다운로드하세요.',
 	remove: '제거',
-	tree: '가져올 전자 필기장과 섹션',
+	tree: '전자 필기장과 섹션',
 	treeEmpty: '어디에서 가져올지 고르면 여기에 전자 필기장과 섹션이 나옵니다.',
 	noSections: '섹션 없음',
 	selectAll: '모두 선택',
@@ -931,7 +927,6 @@ const ko: UiStrings = {
 	willImport: (notebooks, sections, size, unreadable) => `전자 필기장 ${n(notebooks)}개의 섹션 ${n(sections)}개${unreadable ? `(그중 ${n(unreadable)}개는 읽을 수 없음)` : ''}를 가져옵니다. 모두 ${size}.`,
 
 	updateTitle: 'OneNote 업데이트 확인',
-	updateTree: '업데이트할 전자 필기장과 섹션',
 	settingsKept: '이미 가져온 전자 필기장은 원래 설정을 그대로 씁니다',
 	checkingRow: '확인 중...',
 	unchanged: '변경 없음',

@@ -224,6 +224,9 @@ export async function updateCopy(options: UpdateCopyOptions): Promise<CopyResult
 	await mkdir(dir, { recursive: true });
 	const unlock = await lock(dir);
 	try {
+		// Files left half-moved by a run that was cut off (Obsidian quit between the two steps of a
+		// move): the record still has them at their old place, so they are fetched again; these go.
+		await rm(join(dir, '.moving'), { recursive: true, force: true });
 		const state = await readState(dir, notebook);
 		const name = notebookFolderName(notebook.name);
 		// Renamed in OneDrive: the copy's folder follows, so nothing is fetched again for it.
@@ -340,8 +343,10 @@ export async function updateCopy(options: UpdateCopyOptions): Promise<CopyResult
 		progress.current = undefined;
 		report();
 		if (signal?.aborted) throw new DownloadError('cancelled');
-		// Parts of files no longer wanted (deleted in OneDrive since an earlier, cut-off update).
-		const wanted = new Set(plan.download.map(file => `${safeId(file.id)}.part`));
+		// Parts of files OneDrive no longer has (deleted since an earlier, cut-off update). Those of files
+		// it still has stay, whether or not they were asked for now: an import of some sections does not
+		// throw away what a cut-off check had downloaded of another.
+		const wanted = new Set(remote.map(file => `${safeId(file.id)}.part`));
 		for (const entry of await readdir(parts).catch(() => [] as string[])) {
 			const base = entry.replace(/\.json$/, '');
 			if (!wanted.has(base)) await removePart(join(parts, base));
