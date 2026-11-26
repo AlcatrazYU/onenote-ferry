@@ -42,6 +42,8 @@ export interface WizardHost {
 
 /** Only macOS has an open dialog that picks files and folders together. */
 const BOTH_IN_ONE_DIALOG = process.platform === 'darwin';
+/** How long the OneDrive row's line keeps a way of showing (progress, sliding, none) before it changes to another. */
+const LINE_HOLD_MS = 400;
 
 /** An icon at the start of a setting row, the way Obsidian's own rows have one. */
 function rowIcon(setting: Setting, icon: string): void {
@@ -137,6 +139,11 @@ export class ImportWizard extends Modal {
 	private readonly expanded = new Set<string>();
 	/** The rows of the downloads, where the keyboard's focus goes back after a download is added. */
 	private sourceList?: HTMLElement;
+	/** The thin line along the bottom of the OneDrive row: set as things move, without drawing the row again. */
+	private oneDriveLine?: { holder: HTMLElement, bar: ProgressBarComponent, download: ChosenDownload };
+	/** How the line shows now, since when; and a look again once it may change. */
+	private lineShown?: { mode: 'idle' | 'slide' | 'bar', value: number, since: number };
+	private lineTimer?: number;
 	/** Microsoft's sign-in page is open in the browser, for adding OneDrive. */
 	private signingIn = false;
 
@@ -164,6 +171,7 @@ export class ImportWizard extends Modal {
 	onClose(): void {
 		this.off?.();
 		window.clearInterval(this.timer);
+		window.clearTimeout(this.lineTimer);
 		this.contentEl.empty();
 		this.host.wizardClosed(this);
 	}
@@ -261,12 +269,12 @@ export class ImportWizard extends Modal {
 		let treeShown: string | undefined;
 		let rows: (() => void)[] = [];
 		this.refresh = () => {
-			const downloading = session.downloading ? `${session.downloading.files}/${Math.floor(session.downloading.bytes / 1048576)}` : '';
-			const sourceState = `${this.signingIn}:${downloading}:` + session.downloads.map(download => `${download.input}:${download.state}:${download.notebooks.length}:${download.error ?? ''}:${download.onedrive?.reading?.done ?? ''}/${download.onedrive?.reading?.total ?? ''}:${!!download.onedrive?.refreshing}`).join('|');
+			const sourceState = `${this.signingIn}:` + session.downloads.map(download => `${download.input}:${download.state}:${download.notebooks.length}:${download.error ?? ''}:${download.onedrive?.reading?.done ?? ''}/${download.onedrive?.reading?.total ?? ''}:${!!download.onedrive?.refreshing}`).join('|');
 			if (sourceState !== sourceShown) {
 				sourceShown = sourceState;
 				this.drawSource(source.listEl);
 			}
+			this.showOneDriveLine();
 			// The empty tree says what will come there: OneDrive's notebooks being read, or a download to choose.
 			const treeState = `${session.downloads.some(download => download.onedrive && download.state === 'reading')}:` + session.choices.map(choice => `${choice.download.input}:${choice.notebook.path}:${this.shape(choice)}`).join('|');
 			if (treeState !== treeShown) {
@@ -299,13 +307,15 @@ export class ImportWizard extends Modal {
 			if (reading) summary.setText(reading.total ? ui.oneDriveReadingCount(reading.done, reading.total) : ui.oneDriveFinding);
 			// OneDrive's list first, then the notebooks imported before: one check for the user, so one line.
 			else if (session.downloads.some(download => download.onedrive?.refreshing)) {
-				summary.setText(updating ? ui.checkingUpdates(session.checkProgress.done, session.checkProgress.total) : ui.oneDriveRefreshing);
+				summary.setText(updating || session.entry === 'update' ? ui.checkingUpdates(session.checkProgress.done, session.checkProgress.total) : ui.oneDriveRefreshing);
 			}
-			else if (session.reading) summary.setText(ui.reading);
 			else if (session.folderError) summary.setText(ui.folderUnreadable(session.folderError));
+			// One check, one line: what it does on the way (downloads, a look at the target folder) does
+			// not change the words; the OneDrive row's line shows the downloads.
+			else if (session.checkingUpdates || (updating && (session.checking || session.findingLocked))) summary.setText(ui.checkingUpdates(session.checkProgress.done, session.checkProgress.total));
+			else if (session.reading) summary.setText(ui.reading);
 			else if (session.checking || session.findingLocked) summary.setText(ui.checking);
 			else if (session.downloading) summary.setText(ui.downloadingFiles(session.downloading.files, session.downloading.totalFiles, formatBytes(session.downloading.bytes), formatBytes(session.downloading.totalBytes)));
-			else if (session.checkingUpdates) summary.setText(ui.checkingUpdates(session.checkProgress.done, session.checkProgress.total));
 			else if (will.length) for (const line of will) summary.createDiv({ text: line });
 			else summary.setText(noChange ? ui.noUpdates
 				: choosable ? ui.nothingChosen
@@ -393,43 +403,82 @@ export class ImportWizard extends Modal {
 
 	/**
 	 * The OneDrive row, as it stands: being read (how far, with a way to stop), not readable (why,
-	 * and again), downloading (how far), or read (how many notebooks, what is read, where else to look).
+	 * and again), or read (how many notebooks, where else to look). It keeps one shape whatever it is
+	 * doing, so the window does not jump: one line of words, two buttons, and a thin line along its
+	 * bottom edge that shows what goes on (showOneDriveLine), taking no room.
 	 */
 	private drawOneDrive(listEl: HTMLElement, download: ChosenDownload): void {
 		const ui = this.ui;
 		const session = this.session;
 		const source = download.onedrive!;
-		const row = new Setting(listEl).setName(ui.oneDrive);
+		const row = new Setting(listEl).setName(ui.oneDrive).setClass('onenote-ferry-onedrive-row');
 		rowIcon(row, 'lucide-cloud');
-		const progress = (fraction: number | undefined) => {
-			// Not known yet how much there is: a line that slides, as Obsidian's own loading does.
-			const holder = row.descEl.createDiv(`onenote-ferry-row-progress${fraction === undefined ? ' onenote-ferry-indeterminate' : ''}`);
-			new ProgressBarComponent(holder).setValue(fraction === undefined ? 30 : Math.floor(fraction * 100));
-		};
-		const d = session.downloading;
-		if (download.state === 'reading') {
-			const reading = source.reading;
-			row.setDesc(reading?.total ? ui.oneDriveReadingCount(reading.done, reading.total) : ui.oneDriveFinding);
-			progress(reading?.total ? reading.done / reading.total : undefined);
-		}
-		else if (download.state === 'failed') {
+		if (download.state === 'failed') {
 			row.setDesc(download.error ?? '');
 			row.descEl.addClass('onenote-ferry-warning');
 			row.addExtraButton(button => button.setIcon('lucide-rotate-cw').setTooltip(ui.retry).onClick(() => void session.addOneDrive(source.access)));
-		}
-		else if (d) {
-			row.setDesc(ui.downloadingFiles(d.files, d.totalFiles, formatBytes(d.bytes), formatBytes(d.totalBytes)));
-			progress(d.totalBytes ? d.bytes / d.totalBytes : undefined);
+			this.oneDriveLine = undefined;
 		}
 		else {
-			row.setDesc(download.notebooks.length ? ui.notebooksFound(download.notebooks.length) : ui.noNotebooks);
-			// Last time's list, shown at once: OneDrive is being asked for its list now (the bottom line says so).
-			if (source.refreshing) progress(undefined);
+			const reading = download.state === 'reading' ? source.reading : undefined;
+			row.setDesc(download.state === 'reading' ? reading?.total ? ui.oneDriveReadingCount(reading.done, reading.total) : ui.oneDriveFinding
+				: download.notebooks.length ? ui.notebooksFound(download.notebooks.length) : ui.noNotebooks);
 			if (download.error) row.descEl.createDiv({ text: download.error, cls: 'onenote-ferry-warning' });
-			row.addExtraButton(button => button.setIcon('lucide-folder-search').setTooltip(ui.otherFolder).onClick(() => this.lookInFolder(source)));
+			row.addExtraButton(button => button.setIcon('lucide-folder-search').setTooltip(ui.otherFolder).setDisabled(download.state === 'reading').onClick(() => this.lookInFolder(source)));
+			const holder = row.settingEl.createDiv('onenote-ferry-row-progress');
+			this.oneDriveLine = { holder, bar: new ProgressBarComponent(holder), download };
+			this.showOneDriveLine();
 		}
 		// Removing it stops whatever it is doing.
 		row.addExtraButton(button => button.setIcon('lucide-x').setTooltip(ui.remove).onClick(() => session.remove(download)));
+	}
+
+	/**
+	 * The OneDrive row's line: how far things have come when that is known (notebooks read, sections
+	 * checked for updates, as the bottom line counts them; bytes of a download), sliding while it is
+	 * not (OneDrive's list read again, before the count is known, or while a check downloads); none
+	 * when idle. A check's downloads slide rather than show bytes, so the line never runs backwards
+	 * between two measures.
+	 */
+	private showOneDriveLine(): void {
+		const line = this.oneDriveLine;
+		if (!line?.holder.isConnected) return;
+		const session = this.session;
+		const source = line.download.onedrive!;
+		const reading = source.reading;
+		const d = session.downloading;
+		const checked = session.checkProgress;
+		const fraction = line.download.state === 'reading' ? (reading?.total ? reading.done / reading.total : undefined)
+			: source.refreshing ? undefined
+			// A download during the check is not measured in its count, and nothing is counted before the first
+			// section is read: sliding, rather than an empty or stuck line.
+			: session.checkingUpdates ? (!d && checked.total && checked.done ? checked.done / checked.total : undefined)
+			// Between the list and the check, a look at the target folder: still the check, not measured.
+			: session.updating && (session.checking || session.findingLocked) ? undefined
+			: d ? (d.totalBytes ? d.bytes / d.totalBytes : undefined)
+			: null;
+		const mode = fraction === null ? 'idle' : fraction === undefined ? 'slide' : 'bar';
+		const value = fraction == null ? 30 : Math.floor(fraction * 100);
+		const shown = this.lineShown;
+		const now = Date.now();
+		// A change of way soon after the last one waits (a check flips between counting and sliding
+		// within moments as it goes from one notebook to the next): it shows only if it lasts.
+		if (shown && shown.mode !== mode && now - shown.since < LINE_HOLD_MS) {
+			this.lineTimer ??= window.setTimeout(() => {
+				this.lineTimer = undefined;
+				this.showOneDriveLine();
+			}, LINE_HOLD_MS - (now - shown.since));
+			this.paintLine(line, shown.mode, shown.value);
+			return;
+		}
+		this.lineShown = shown?.mode === mode ? { ...shown, value } : { mode, value, since: now };
+		this.paintLine(line, mode, value);
+	}
+
+	private paintLine(line: { holder: HTMLElement, bar: ProgressBarComponent }, mode: 'idle' | 'slide' | 'bar', value: number): void {
+		line.holder.toggleClass('is-idle', mode === 'idle');
+		line.holder.toggleClass('onenote-ferry-indeterminate', mode === 'slide');
+		line.bar.setValue(mode === 'bar' ? value : 30);
 	}
 
 	/** Adds OneDrive, signing in first when not signed in (in the system browser). */

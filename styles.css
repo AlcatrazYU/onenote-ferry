@@ -227,12 +227,31 @@
 }
 
 /* OneDrive as a source: a thin progress line under the row's text while it is read or downloads. */
+/* The OneDrive row keeps one shape: what goes on is a thin line along its bottom edge, taking no room.
+   It lies on the divider below the row (the next row's ::before, 1px, inset like this), above it and
+   as wide: the track is clear, so the divider shows through and the filled part is one even thickness. */
+.onenote-ferry-onedrive-row {
+	position: relative;
+}
 .onenote-ferry-row-progress {
-	margin-top: var(--size-4-2);
-	max-width: 320px;
+	position: absolute;
+	inset-inline: var(--size-4-4);
+	bottom: 0;
+	z-index: 1;
+	overflow: hidden;
+}
+.onenote-ferry-row-progress.is-idle {
+	display: none;
 }
 .onenote-ferry-row-progress .setting-progress-bar {
-	height: 4px;
+	height: 2px;
+	margin: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+}
+.onenote-ferry-row-progress .setting-progress-bar-inner {
+	border-radius: 0;
 }
 /* How much there is is not known yet: the filled part slides back and forth. */
 .onenote-ferry-indeterminate .setting-progress-bar-inner {
