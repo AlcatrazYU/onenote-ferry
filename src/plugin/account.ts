@@ -140,6 +140,11 @@ export class MicrosoftAccount {
 		}
 	}
 
+	/** Drops the access token (Graph refused it before it ran out): the next one is renewed. */
+	renewAccessToken(): void {
+		if (this.tokens) this.tokens = { ...this.tokens, expiresAt: 0 };
+	}
+
 	/** Signs out on this device: forgets the tokens. Allowing the app is undone at Microsoft's site. */
 	signOut(): void {
 		this.cancelSignIn();

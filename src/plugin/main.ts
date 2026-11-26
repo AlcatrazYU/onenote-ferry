@@ -6,7 +6,10 @@
 import { Notice, Plugin, requestUrl } from 'obsidian';
 import * as obsidian from 'obsidian';
 import { markerLanguageFor } from '../core/strings.ts';
+import { findRemoteNotebooks } from '../core/onedrive.ts';
+import { copyRoot, systemCacheFolder, updateCopy } from '../node/mirror.ts';
 import { MicrosoftAccount } from './account.ts';
+import { driveOf, graphFor, linkFor, streamingFetch } from './onedrive.ts';
 import { ICON, registerIcon } from './icon.ts';
 import { uiStrings } from './i18n.ts';
 import type { UiStrings } from './i18n.ts';
@@ -253,6 +256,24 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 			driveType = undefined;
 		}
 		return { kind: this.microsoft.kind, status: response.status, driveType, kept: !!this.app.secretStorage.getSecret('onenote-ferry-microsoft') };
+	}
+
+	/**
+	 * For testing from the developer console (M3.5 step 3): brings the local copy of the OneDrive
+	 * notebooks named (all when none) up to date, and answers what it did.
+	 */
+	async microsoftCopy(names?: string[]) {
+		const graph = graphFor(this.microsoft, this.manifest.version);
+		const drive = await driveOf(graph);
+		const notebooks = await findRemoteNotebooks(graph);
+		const root = copyRoot(systemCacheFolder(), drive.id);
+		const copied = [];
+		for (const notebook of notebooks.filter(n => !names || names.includes(n.name))) {
+			const started = Date.now();
+			const result = await updateCopy({ graph, fetch: streamingFetch, root, notebook, link: linkFor(graph) });
+			copied.push({ name: notebook.name, seconds: Math.round((Date.now() - started) / 100) / 10, downloaded: result.downloaded, bytes: result.bytes, moved: result.moved, removed: result.removed, same: result.same, failed: result.failed, folder: result.folder });
+		}
+		return { driveType: drive.driveType, notebooks: notebooks.length, root, copied };
 	}
 
 	/** For testing from the developer console: ask the running import to stop after its current section. */
