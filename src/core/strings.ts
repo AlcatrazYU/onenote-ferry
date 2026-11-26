@@ -64,7 +64,8 @@ export interface Strings {
 /** The import report (written in the reader's language, not each notebook's). */
 export interface ReportStrings {
 	title: string;
-	intro: string;
+	/** What the page is, and where each update's changes are: `logFolder` is the update log folder's name. */
+	intro(logFolder: string): string;
 	lastImport: string;
 	time(time: string): string;
 	/** The downloads an import came from (file or folder names, already escaped). */
@@ -108,8 +109,11 @@ export interface UpdateCounts {
 /** An update's record (written in the reader's language). Names and links come already escaped. */
 export interface UpdateStrings {
 	title(time: string): string;
-	/** `folder`: where the versions the update replaced went (none when it replaced nothing). */
-	intro(folder?: string): string;
+	/**
+	 * `folder`: where the versions the update replaced went (none when it replaced nothing);
+	 * `report`: a link to the conversion report (an overview of every notebook in the folder).
+	 */
+	intro(folder?: string, report?: string): string;
 	counts(counts: UpdateCounts): string;
 	/** Stopped before every chosen section was updated. */
 	stopped: string;
@@ -193,7 +197,7 @@ export const en: Strings = {
 	reportName: '_conversion report',
 	report: {
 		title: 'OneNote conversion report',
-		intro: 'OneNote Ferry updates this page after each import. It covers every notebook imported into this folder.',
+		intro: logFolder => `An overview of this folder: the notebooks in it, and what could not be converted. It is rewritten after each import or update. What each update changed in notebooks imported before is in "${logFolder}".`,
 		lastImport: 'Last import',
 		time: time => `Time: ${time}`,
 		source: names => `From: ${names.join(', ')}`,
@@ -215,7 +219,7 @@ export const en: Strings = {
 	},
 	update: {
 		title: time => `Sync log ${time}`,
-		intro: folder => `What this update changed.${folder ? ` The versions it replaced are in "${folder}": delete that folder once you are happy with the new versions.` : ''}`,
+		intro: (folder, report) => `What this update did to notebooks imported before, sections added to them included.${folder ? ` The versions it replaced are in "${folder}": delete that folder once you are happy with the new versions.` : ''}${report ? ` For all the notebooks in this folder, see ${report}.` : ''}`,
 		counts: c => [
 			c.sectionsUpdated ? plural(c.sectionsUpdated, 'section updated', 'sections updated') : '',
 			c.sectionsAdded ? plural(c.sectionsAdded, 'new section', 'new sections') : '',
@@ -291,7 +295,7 @@ export const zhHans: Strings = {
 	reportName: '_转换报告',
 	report: {
 		title: 'OneNote 转换报告',
-		intro: '每次导入后，OneNote Ferry 会更新这一页，列出导入到这个文件夹的所有笔记本。',
+		intro: logFolder => `这一页是这个文件夹的总览：有哪些笔记本，哪些内容没能转换。每次导入或更新后都会重写。每次更新改了哪些已导入的笔记，记在“${logFolder}”里。`,
 		lastImport: '最近一次导入',
 		time: time => `时间：${time}`,
 		source: names => `来源：${names.join('、')}`,
@@ -313,7 +317,7 @@ export const zhHans: Strings = {
 	},
 	update: {
 		title: time => `更新记录 ${time}`,
-		intro: folder => `本页记录这次更新的内容。${folder ? `更新前的版本在“${folder}”中，确认新版无误后，可以删除这个文件夹。` : ''}`,
+		intro: (folder, report) => `本页记录这次更新对已导入的笔记本做了什么，包括补进的分区。${folder ? `更新前的版本在“${folder}”中，确认新版无误后，可以删除这个文件夹。` : ''}${report ? `所有笔记本的总览见${report}。` : ''}`,
 		counts: c => [
 			c.sectionsUpdated ? `更新 ${num(c.sectionsUpdated)} 个分区` : '',
 			c.sectionsAdded ? `新增 ${num(c.sectionsAdded)} 个分区` : '',
@@ -389,7 +393,7 @@ export const zhHant: Strings = {
 	reportName: '_轉換報告',
 	report: {
 		title: 'OneNote 轉換報告',
-		intro: '每次匯入後，OneNote Ferry 會更新這一頁，列出匯入到這個資料夾的所有筆記本。',
+		intro: logFolder => `這一頁是這個資料夾的總覽：有哪些筆記本，哪些內容沒能轉換。每次匯入或更新後都會重寫。每次更新改了哪些已匯入的筆記，記在「${logFolder}」裡。`,
 		lastImport: '最近一次匯入',
 		time: time => `時間：${time}`,
 		source: names => `來源：${names.join('、')}`,
@@ -411,7 +415,7 @@ export const zhHant: Strings = {
 	},
 	update: {
 		title: time => `更新記錄 ${time}`,
-		intro: folder => `本頁記錄這次更新的內容。${folder ? `更新前的版本在「${folder}」中，確認新版無誤後，可以刪除這個資料夾。` : ''}`,
+		intro: (folder, report) => `本頁記錄這次更新對已匯入的筆記本做了什麼，包括補進的節。${folder ? `更新前的版本在「${folder}」中，確認新版無誤後，可以刪除這個資料夾。` : ''}${report ? `所有筆記本的總覽見${report}。` : ''}`,
 		counts: c => [
 			c.sectionsUpdated ? `更新 ${num(c.sectionsUpdated)} 個節` : '',
 			c.sectionsAdded ? `新增 ${num(c.sectionsAdded)} 個節` : '',
@@ -487,7 +491,7 @@ export const ja: Strings = {
 	reportName: '_変換レポート',
 	report: {
 		title: 'OneNote 変換レポート',
-		intro: 'OneNote Ferry はインポートのたびにこのページを更新します。このフォルダーにインポートしたすべてのノートブックの一覧です。',
+		intro: logFolder => `このフォルダーの概要です。含まれるノートブックと、変換できなかった内容を示します。インポートや更新のたびに書き直されます。各更新でインポート済みのノートがどう変わったかは「${logFolder}」にあります。`,
 		lastImport: '最新のインポート',
 		time: time => `日時：${time}`,
 		source: names => `読み込み元：${names.join('、')}`,
@@ -509,7 +513,7 @@ export const ja: Strings = {
 	},
 	update: {
 		title: time => `更新記録 ${time}`,
-		intro: folder => `今回の更新で変わった内容です。${folder ? `置き換えた以前の版は「${folder}」にあります。新しい版に問題がなければ、このフォルダーは削除してかまいません。` : ''}`,
+		intro: (folder, report) => `今回の更新でインポート済みのノートブックがどう変わったかの記録です（追加したセクションを含む）。${folder ? `置き換えた以前の版は「${folder}」にあります。新しい版に問題がなければ、このフォルダーは削除してかまいません。` : ''}${report ? `すべてのノートブックの概要は${report}にあります。` : ''}`,
 		counts: c => [
 			c.sectionsUpdated ? `セクション ${num(c.sectionsUpdated)} 個を更新` : '',
 			c.sectionsAdded ? `セクション ${num(c.sectionsAdded)} 個を追加` : '',
@@ -585,7 +589,7 @@ export const ko: Strings = {
 	reportName: '_변환 보고서',
 	report: {
 		title: 'OneNote 변환 보고서',
-		intro: 'OneNote Ferry는 가져올 때마다 이 페이지를 업데이트합니다. 이 폴더로 가져온 모든 전자 필기장을 보여 줍니다.',
+		intro: logFolder => `이 폴더의 개요입니다. 들어 있는 전자 필기장과 변환하지 못한 내용을 보여 줍니다. 가져오거나 업데이트할 때마다 다시 씁니다. 업데이트마다 이전에 가져온 노트가 어떻게 바뀌었는지는 "${logFolder}"에 있습니다.`,
 		lastImport: '최근 가져오기',
 		time: time => `시간: ${time}`,
 		source: names => `원본: ${names.join(', ')}`,
@@ -607,7 +611,7 @@ export const ko: Strings = {
 	},
 	update: {
 		title: time => `업데이트 기록 ${time}`,
-		intro: folder => `이번 업데이트로 바뀐 내용입니다.${folder ? ` 바꾼 이전 버전은 "${folder}"에 있습니다. 새 버전에 문제가 없으면 이 폴더를 삭제해도 됩니다.` : ''}`,
+		intro: (folder, report) => `이번 업데이트로 이전에 가져온 전자 필기장에서 바뀐 내용입니다(추가한 섹션 포함).${folder ? ` 바꾼 이전 버전은 "${folder}"에 있습니다. 새 버전에 문제가 없으면 이 폴더를 삭제해도 됩니다.` : ''}${report ? ` 모든 전자 필기장의 개요는 ${report}에 있습니다.` : ''}`,
 		counts: c => [
 			c.sectionsUpdated ? `섹션 ${num(c.sectionsUpdated)}개 업데이트` : '',
 			c.sectionsAdded ? `섹션 ${num(c.sectionsAdded)}개 추가` : '',

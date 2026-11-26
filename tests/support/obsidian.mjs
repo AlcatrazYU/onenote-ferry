@@ -29,3 +29,10 @@ export class TFolder extends TAbstractFile {
 export class AbstractInputSuggest {}
 export class PluginSettingTab {}
 export class Setting {}
+// Named by modules the session reaches (the settings page, OneDrive), not used in these tests.
+export class ButtonComponent {}
+export class Modal {}
+export class Notice {}
+export async function requestUrl() {
+	throw new Error('no network in tests');
+}

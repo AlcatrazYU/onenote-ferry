@@ -9,7 +9,8 @@ import { markerLanguageFor } from '../core/strings.ts';
 import { findRemoteNotebooks } from '../core/onedrive.ts';
 import { copyRoot, systemCacheFolder, updateCopy } from '../node/mirror.ts';
 import { MicrosoftAccount } from './account.ts';
-import { driveOf, graphFor, linkFor, streamingFetch } from './onedrive.ts';
+import { driveOf, graphFor, linkFor, oneDriveAccess, streamingFetch } from './onedrive.ts';
+import type { OneDriveBrowse } from './onedrive.ts';
 import { ICON, registerIcon } from './icon.ts';
 import { uiStrings } from './i18n.ts';
 import type { UiStrings } from './i18n.ts';
@@ -173,8 +174,10 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 		const progress = new ProgressDisplay(this, this.ui, () => this.openWizard());
 		this.progress = progress;
 		const off = session.onChange(() => {
+			const d = session.downloading;
 			const p = session.progress;
-			if (p) progress.update({ done: p.done, total: p.total, notebook: p.notebook, section: p.section.label, startedAt: session.startedAt, updating: session.running === 'update' });
+			if (d) progress.update({ done: d.files, total: d.totalFiles, notebook: this.ui.oneDrive, section: d.current ?? '', startedAt: session.startedAt, downloading: true });
+			else if (p) progress.update({ done: p.done, total: p.total, notebook: p.notebook, section: p.section.label, startedAt: session.startedAt, updating: session.running === 'update' });
 		});
 		void session.start().finally(() => {
 			off();
@@ -256,6 +259,11 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 			driveType = undefined;
 		}
 		return { kind: this.microsoft.kind, status: response.status, driveType, kept: !!this.app.secretStorage.getSecret('onenote-ferry-microsoft') };
+	}
+
+	/** OneDrive through the signed-in account, for the import window (Internal-10 §22.1). */
+	oneDrive(): OneDriveBrowse {
+		return oneDriveAccess(this.app, this.microsoft, this.manifest.version, this.ui);
 	}
 
 	/**

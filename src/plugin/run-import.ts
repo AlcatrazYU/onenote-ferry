@@ -13,6 +13,7 @@ import type { ImportReport } from '../core/report.ts';
 import { STRINGS } from '../core/strings.ts';
 import type { Language, Strings } from '../core/strings.ts';
 import { failedSectionToc, notebookFolder } from '../core/write.ts';
+import { isLockedFile } from '../node/mirror.ts';
 import { VaultSink } from './vault-sink.ts';
 import { ConverterStopped } from './worker-client.ts';
 import type { WorkerClient } from './worker-client.ts';
@@ -66,7 +67,9 @@ export class AlreadyThereError extends Error {
 }
 
 /** The file or folder name of a download, without the folders above it. */
-export const downloadName = (input: string) => input.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? input;
+/** A download's name for reports: the zip's or folder's; the local copy of OneDrive (copyRoot) is "OneDrive". */
+export const downloadName = (input: string) => /[\\/]onenote-ferry[\\/]onedrive[\\/][^\\/]+[\\/]*$/.test(input) ? 'OneDrive'
+	: input.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? input;
 
 /** The notebooks whose folder is already there under the root (an import never writes over them). */
 export function existingNotebooks(app: App, root: string, notebooks: DownloadNotebook[], languageFor: (notebook: DownloadNotebook) => Language): DownloadNotebook[] {
@@ -129,10 +132,18 @@ export async function runImport(app: App, client: WorkerClient, request: ImportR
 		...(unfinished ? { unfinished: true as const } : {}),
 	});
 
+	// A folder's sections are on disk: one with a password is told by its first bytes, and the import
+	// reports it as not converted (OneDrive's are only known once downloaded, so they can be ticked).
+	// A zip's password-protected sections cannot be ticked in the window.
+	const folderOf = new Map(request.downloads.filter(download => !/\.zip$/i.test(download.input))
+		.flatMap(download => download.notebooks.flatMap(notebook => notebook.sections.map(section => [section, download.input] as const))));
 	const host: ImportHost = {
 		sink,
 		parse: () => Promise.reject(new Error('sections are converted in the worker')),
-		isPasswordProtected: async () => false,
+		isPasswordProtected: async section => {
+			const folder = folderOf.get(section);
+			return folder !== undefined && await isLockedFile(`${folder}/${section.path}`).catch(() => false);
+		},
 		listFolders: async () => sink.listFolders(),
 		isCancelled,
 		onProgress: request.onProgress,

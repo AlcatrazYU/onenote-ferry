@@ -296,6 +296,53 @@ test('a notebook added to keeps when it was imported, when nothing of it was wri
 	assert.equal(updateReport(before, added, { at: AT, sources: ['New.zip'], options: OPTIONS }, ['NB']).notebooks[0]!.source, 'New.zip');
 });
 
+test('the page says what it is, and where each update\'s changes are', async () => {
+	const sink = memorySink();
+	const report = updateReport(undefined, await imported(sink, () => 'en'), { at: AT, sources: ['Notes.zip'], options: OPTIONS }, folders(sink));
+	assert.match(reportMarkdown(report, en), /rewritten after each import or update\. What each update changed in notebooks imported before is in "\\_sync log"\./);
+	assert.match(reportMarkdown(report, zhHans), /这一页是这个文件夹的总览：.*记在“\\_更新记录”里。/);
+});
+
+test('a run that imports new notebooks and then updates others: its last import is the whole run', () => {
+	const importAt = '2026-11-24T12:00:00.000Z';
+	const pages = (section: string, dir: string, pageCount: number) => ({ section, dir, pages: [], pageCount, attachments: 0, reusedAttachments: 0 });
+	const before = {
+		format: 1,
+		lastImport: { at: importAt, sources: ['OneDrive'], cancelled: false, notebooks: ['New'], notStarted: [], links: { links: 3, resolved: 2, unresolved: 1, filesChanged: 1, unresolvedTargets: { Elsewhere: 1 } } },
+		notebooks: [
+			{ notebook: 'Old', dir: 'Old', language: 'en', importedAt: '2026-01-01T00:00:00.000Z', source: 'Old.zip', options: OPTIONS, sections: [{ groups: [], section: 'A', dir: 'Old/A' }] },
+			{ notebook: 'New', dir: 'New', language: 'en', importedAt: importAt, source: 'OneDrive', options: OPTIONS, sections: [{ groups: [], section: 'N', dir: 'New/N', report: pages('N', 'New/N', 2) }] },
+		],
+	};
+	const update: ImportResult = {
+		notebooks: [{ notebook: 'Old', dir: 'Old', language: 'en', sections: [{ groups: [], section: 'A', dir: 'Old/A', earlier: true }, { groups: [], section: 'B', dir: 'Old/B', report: pages('B', 'Old/B', 3) }] }],
+		cancelled: false, notStarted: [], links: { links: 1, resolved: 1, unresolved: 0, filesChanged: 1, unresolvedTargets: {} },
+	};
+	const updateAt = new Date('2026-11-24T12:10:00.000Z');
+	const meta = { at: updateAt, sources: ['OneDrive'], options: OPTIONS, update: '_sync log/2026-11-24 2110.md' };
+	const whole = updateReport(before, update, { ...meta, joins: importAt }, ['Old', 'New']);
+	assert.equal(whole.lastImport.at, importAt);
+	assert.deepEqual(whole.lastImport.sources, ['OneDrive']);
+	assert.deepEqual(whole.lastImport.notebooks, ['New', 'Old']);
+	assert.equal(whole.lastImport.links?.resolved, 3);
+	assert.deepEqual(whole.lastImport.links?.unresolvedTargets, { Elsewhere: 1 });
+	assert.equal(whole.lastImport.updateAt, updateAt.toISOString());
+	const page = reportMarkdown(whole, en);
+	assert.ok(page.includes(`- Time: ${reportTime(importAt)}\n`));
+	assert.match(page, /- 2 notebooks, 2 sections, 5 pages, 0 attachments\n/);
+	// The record is named by its own time, when the update began.
+	assert.ok(page.includes(`[Sync log ${reportTime(updateAt.toISOString())}](<_sync log/2026-11-24 2110.md>)`));
+	// Not after this run's import (none, another time, or an update): the update alone, as before.
+	for (const joins of [undefined, '2026-11-24T11:00:00.000Z']) {
+		const alone = updateReport(before, update, { ...meta, ...(joins ? { joins } : {}) }, ['Old', 'New']);
+		assert.deepEqual(alone.lastImport.notebooks, ['Old']);
+		assert.equal(alone.lastImport.at, updateAt.toISOString());
+		assert.equal(alone.lastImport.updateAt, undefined);
+	}
+	const afterUpdate = { ...before, lastImport: { ...before.lastImport, update: '_sync log/old.md' } };
+	assert.deepEqual(updateReport(afterUpdate, update, { ...meta, joins: importAt }, ['Old', 'New']).lastImport.notebooks, ['Old']);
+});
+
 test('simplified Chinese never uses 「」; traditional Chinese calls a section 節', () => {
 	// Every text, functions called with numbers, or with names where they take a list.
 	const call = (f: (...args: unknown[]) => unknown) => {

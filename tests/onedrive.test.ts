@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { childFolders, findRemoteNotebooks, folderPath, GraphError, notebookFiles, notebooksInFolder, planCopy } from '../src/core/onedrive.ts';
+import { findRemoteNotebooks, folderChildren, folderPath, GraphError, notebookFiles, notebooksInFolder, planCopy } from '../src/core/onedrive.ts';
 import type { DriveItem, GraphGet, LocalFile, RemoteFile } from '../src/core/onedrive.ts';
 
 const notebook = (id: string, name: string, parent: string, path: string): DriveItem =>
@@ -77,7 +77,9 @@ test('a chosen folder: the notebooks directly in it, or itself when it is one', 
 	const { graph } = drive([...ITEMS, notebook('E', 'Epsilon', 'X', '/Exported notebook')], {});
 	assert.deepEqual((await notebooksInFolder(graph, 'X')).map(n => n.id), ['E']);
 	assert.deepEqual((await notebooksInFolder(graph, 'C')).map(n => n.id), ['C']);
-	assert.deepEqual(await childFolders(graph, 'root'), [{ id: 'X', name: 'Exported notebook' }, { id: 'elsewhere', name: '新建文件夹' }]);
+	const top = await folderChildren(graph, 'root');
+	assert.deepEqual(top.folders, [{ id: 'X', name: 'Exported notebook' }, { id: 'elsewhere', name: '新建文件夹' }]);
+	assert.deepEqual((await folderChildren(graph, 'X')).notebooks.map(n => n.id), ['E']);
 });
 
 test('a notebook\'s files: sections and tables of contents in it and its groups, not the recycle bin', async () => {
@@ -153,4 +155,16 @@ test('a path another file takes over is not removed, and two sections swapping n
 	const swap = planCopy([remote('x', 'B.one'), remote('y', 'A.one')], { x: local('A.one', 100, 1, 'x'), y: local('B.one', 100, 1, 'y') }, path => disk[path]);
 	assert.deepEqual(swap.remove, []);
 	assert.equal(swap.move.length + swap.download.length, 2);
+});
+
+test('a search hit inside a notebook found already is not asked about: its path says where it is', async () => {
+	const inGroup = { ...file('t1', 'Open Notebook.onetoc2', 'A-g'), parentReference: { id: 'A-g', path: '/drive/root:/%E5%AD%A6%E4%B9%A0/%E6%96%87%E6%A1%A3/Alpha/Group' } };
+	const inBin = { ...file('t2', 'Open Notebook.onetoc2', 'A-r'), parentReference: { id: 'A-r', path: '/drive/root:/学习/文档/Alpha/OneNote_RecycleBin' } };
+	const elsewhere = { ...file('t3', 'Open Notebook.onetoc2', 'C-g'), parentReference: { id: 'C-g', path: '/drive/root:/学习/新建文件夹/Gamma/Group' } };
+	const { graph, requests } = drive(ITEMS, {
+		'/me/drive/special/documents/children': [[nbA]],
+		"/me/drive/root/search(q='onetoc2')": [[inGroup, inBin, elsewhere]],
+	});
+	assert.deepEqual((await findRemoteNotebooks(graph)).map(n => n.id), ['A', 'C']);
+	assert.deepEqual(requests.filter(r => r.startsWith('/me/drive/items/')).map(r => r.replace(/\?.*/, '')), ['/me/drive/items/C-g', '/me/drive/items/C']);
 });

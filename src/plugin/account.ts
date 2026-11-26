@@ -15,6 +15,8 @@ import type { Receiver, ReceiverPages } from '../node/loopback.ts';
 const SECRET_ID = 'onenote-ferry-microsoft';
 /** The account's kind, per vault and device. */
 const KIND_KEY = 'onenote-ferry-microsoft-kind';
+/** The signed-in account's drive (its ID names the local copy's folder), per vault and device; forgotten when the account may change. */
+export const DRIVE_KEY = 'onenote-ferry-onedrive-drive';
 /** An access token this close to running out is renewed first. */
 const RENEW_BEFORE_MS = 5 * 60 * 1000;
 /** requestUrl has no time-out of its own. */
@@ -52,6 +54,8 @@ export class MicrosoftAccount {
 	private tokens?: Tokens;
 	private renewing?: Promise<Tokens>;
 	private receiver?: Receiver;
+	/** Microsoft's sign-in page of the sign-in waited for (to open it again when its tab was lost). */
+	private pendingUrl?: string;
 	/** Goes up at every sign-in and sign-out: an answer for an earlier one is dropped. */
 	private generation = 0;
 	/** Who is signed in, once Microsoft has said so in this session. */
@@ -92,6 +96,7 @@ export class MicrosoftAccount {
 		try {
 			const request = await signInRequest(receiver.redirectUri);
 			const answer = receiver.answer(request.state);
+			this.pendingUrl = request.url;
 			window.open(request.url, '_external');
 			let reply;
 			try {
@@ -102,13 +107,23 @@ export class MicrosoftAccount {
 			}
 			const tokens = await redeem(request, reply, postForm);
 			if (generation !== this.generation) throw new SignInError('cancelled');
+			// Signed in anew, perhaps as someone else: the drive remembered may not be this account's.
+			this.app.saveLocalStorage(DRIVE_KEY, null);
 			this.keep(tokens);
 			return tokens.account;
 		}
 		finally {
 			receiver.close();
-			if (this.receiver === receiver) this.receiver = undefined;
+			if (this.receiver === receiver) {
+				this.receiver = undefined;
+				this.pendingUrl = undefined;
+			}
 		}
+	}
+
+	/** Opens the sign-in page waited for once more (the same sign-in: its answer still comes back here). */
+	reopenSignIn(): void {
+		if (this.pendingUrl) window.open(this.pendingUrl, '_external');
 	}
 
 	/** Stops waiting for a sign-in in the browser. */
@@ -165,6 +180,7 @@ export class MicrosoftAccount {
 		this.tokens = undefined;
 		this.account = undefined;
 		this.app.saveLocalStorage(KIND_KEY, null);
+		this.app.saveLocalStorage(DRIVE_KEY, null);
 		this.storeToken('');
 	}
 

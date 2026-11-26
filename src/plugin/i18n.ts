@@ -33,8 +33,6 @@ export interface UiStrings {
 
 	// The import window, before the import: what to import, and how.
 	wizardTitle: string;
-	/** The one line shown while nothing is chosen: where the download comes from and what to choose. */
-	sourceEmpty: string;
 	chooseBoth: string;
 	chooseZips: string;
 	chooseFolders: string;
@@ -81,7 +79,6 @@ export interface UiStrings {
 	// The window when it updates notebooks imported before (§11.5 item 49): its title and first line
 	// when opened to check for updates, and what the tree and the bottom say.
 	updateTitle: string;
-	updateSourceEmpty: string;
 	updateTree: string;
 	/** Beside the settings heading while language and options are greyed: they apply to new notebooks only. */
 	settingsKept: string;
@@ -112,6 +109,9 @@ export interface UiStrings {
 	/** A notebook never imported into the target folder, while others there are updated. */
 	notImported: string;
 	sectionsChanged(count: number): string;
+	/** A notebook imported in part: some of its sections were left unticked then. */
+	partlyImported: string;
+	partlyImportedTip(skipped: number): string;
 	pageAdded: string;
 	pageModified: string;
 	/** Hover text of a page OneNote retitled. */
@@ -179,13 +179,65 @@ export interface UiStrings {
 	signInPageTitle: string;
 	signInPageDone: string;
 	signInPageFailed: string;
+
+	// OneDrive as a source in the import window (Internal-10 §22.1).
+	/** The row that adds OneDrive, in the import window and in the update window. */
+	chooseOneDrive: string;
+	chooseOneDriveUpdate: string;
+	/** Under it: what it does (signing in first, when not signed in). */
+	oneDriveAddDesc: string;
+	oneDriveAddDescSignedIn: string;
+	/** Under the rows that choose a zip or folder: where those come from. */
+	downloadedDesc: string;
+	oneDrive: string;
+	oneDriveReading: string;
+	otherFolder: string;
+	/** While the browser shows Microsoft's sign-in page. */
+	signInWaiting: string;
+	cancelSignIn: string;
+	/** Why signing in or reading OneDrive did not work, by SignInProblem. */
+	signInProblems: Record<'cancelled' | 'needs-admin' | 'signed-out' | 'app-unavailable' | 'unreachable' | 'timed-out' | 'failed', string>;
+	downloadingFiles(files: number, total: number, size: string, totalSize: string): string;
+	statusDownloading(current: number, total: number): string;
+	oneDriveFinding: string;
+	/** The list kept from last time is shown while OneDrive is asked again. */
+	oneDriveRefreshing: string;
+	oneDriveReadingCount(done: number, total: number): string;
+	/** Where the tree goes while OneDrive's notebooks are read. */
+	oneDriveTreeWaiting: string;
+	retry: string;
+	reopenSignIn: string;
+	folderPickerTitle: string;
+	pickerHint: string;
+	pickerChosen(count: number): string;
+	addNotebooks: string;
+	alreadyListed: string;
+	folderEmpty: string;
+	leftOutNotDownloaded(count: number): string;
+	copyBusy: string;
+	noSpace(size: string): string;
+
+	// The settings page: the Microsoft account and the downloaded notebooks.
+	settingsAccount: string;
+	accountPersonal: string;
+	accountOrganization: string;
+	accountNone: string;
+	accountRevoke: string;
+	signIn: string;
+	signOut: string;
+	settingsCopy: string;
+	copyDesc(size: string, path: string): string;
+	copyNone: string;
+	deleteCopy: string;
+	deleteCopyConfirm(count: number, size: string): string;
+	cancel: string;
 }
 
 const n = (value: number) => value.toLocaleString('en-US');
 const plural = (count: number, one: string, many: string) => `${n(count)} ${count === 1 ? one : many}`;
 
 const en: UiStrings = {
-	commandImport: 'Import from OneNote',
+	commandImport: 'Import OneNote notes',
 	commandUpdate: 'Check for OneNote updates',
 	commandStop: 'Stop the OneNote import or update after the current section',
 
@@ -195,7 +247,7 @@ const en: UiStrings = {
 	statusTooltip: 'Click to open the import window',
 
 	settingsImport: 'Import notebooks',
-	settingsImportDesc: 'Turn OneNote notebooks downloaded from OneDrive into notes in this vault.',
+	settingsImportDesc: 'Turn the OneNote notebooks in your OneDrive into notes in this vault.',
 	startImport: 'Start import',
 	settingsDefaults: 'Defaults for new imports',
 	folder: 'Folder',
@@ -209,8 +261,7 @@ const en: UiStrings = {
 	altText: 'Picture alt text',
 	altTextDesc: 'Keep the alt text a picture already has in the notes: written below the picture, collapsed.',
 
-	wizardTitle: 'Import from OneNote',
-	sourceEmpty: 'First download the folder that holds your notebooks on the OneDrive website, then import it here.',
+	wizardTitle: 'Import OneNote notes',
 	chooseBoth: 'Choose zip files or folders',
 	chooseZips: 'Choose zip files',
 	chooseFolders: 'Choose folders',
@@ -226,7 +277,7 @@ const en: UiStrings = {
 	incompleteZip: 'Incomplete download: only what arrived can be imported. Download it again to import everything.',
 	remove: 'Remove',
 	tree: 'Notebooks and sections to import',
-	treeEmpty: 'Once you choose a zip file or folder, its notebooks and sections show here.',
+	treeEmpty: 'Once you choose where to import from, the notebooks and sections show here.',
 	noSections: 'No sections',
 	selectAll: 'Select all',
 	deselectAll: 'Deselect all',
@@ -249,7 +300,6 @@ const en: UiStrings = {
 	willImport: (notebooks, sections, size, unreadable) => `${plural(sections, 'section', 'sections')} from ${plural(notebooks, 'notebook', 'notebooks')}${unreadable ? ` (${n(unreadable)} cannot be read)` : ''}, ${size}.`,
 
 	updateTitle: 'Check for OneNote updates',
-	updateSourceEmpty: 'First download the folder that holds your notebooks again on the OneDrive website, then check it for updates here.',
 	updateTree: 'Notebooks and sections to update',
 	settingsKept: 'Notebooks imported before keep their own settings',
 	checkingRow: 'Checking...',
@@ -270,10 +320,12 @@ const en: UiStrings = {
 	unreadable: 'Cannot be read',
 	different: 'Another notebook of this name',
 	differentTip: 'It has no page in common with the notebook of this name in the vault, which stays as it is. To import this one, choose another target folder.',
-	duplicate: 'Using the other download',
-	duplicateTip: 'Another download chosen has a newer copy of this notebook: the update uses that one.',
+	duplicate: 'Using the newer copy',
+	duplicateTip: 'This notebook is in another place you chose too, with newer pages: the update uses that copy.',
 	notImported: 'Not imported',
 	sectionsChanged: count => `${plural(count, 'section', 'sections')} changed`,
+	partlyImported: 'Partly imported',
+	partlyImportedTip: skipped => `${plural(skipped, 'section was', 'sections were')} not chosen last time. Open the notebook to tick and add them.`,
 	pageAdded: 'New',
 	pageModified: 'Changed',
 	pageRetitled: was => `Was titled "${was}"`,
@@ -335,10 +387,61 @@ const en: UiStrings = {
 	signInPageTitle: 'OneNote Ferry',
 	signInPageDone: 'Signed in. You can close this page and go back to Obsidian.',
 	signInPageFailed: 'Not signed in. Go back to Obsidian to try again.',
+
+	chooseOneDrive: 'Import from OneDrive',
+	chooseOneDriveUpdate: 'Check OneDrive for updates',
+	oneDriveAddDesc: 'Sign in to your Microsoft account and read the notebooks in your OneDrive.',
+	oneDriveAddDescSignedIn: 'Reads the notebooks in your OneDrive.',
+	downloadedDesc: 'Download the folder that holds your notebooks on the OneDrive website, then import it here.',
+	oneDrive: 'OneDrive',
+	oneDriveReading: 'Reading the notebooks in OneDrive...',
+	otherFolder: 'Look in another folder',
+	signInWaiting: 'Sign in to your Microsoft account in the browser that opened. If it says approval is required, your organization does not allow this plugin: a personal account works, or download a zip from the OneDrive website.',
+	cancelSignIn: 'Cancel',
+	signInProblems: {
+		cancelled: 'Sign-in was cancelled.',
+		'needs-admin': 'Your organization\'s administrator has to allow this plugin first.',
+		'signed-out': 'You are signed out. Sign in again.',
+		'app-unavailable': 'Microsoft does not accept this plugin\'s sign-in at the moment. Try again later.',
+		unreachable: 'Microsoft cannot be reached. Check the network and try again.',
+		'timed-out': 'The sign-in in the browser did not finish in time.',
+		failed: 'Sign-in did not work.',
+	},
+	downloadingFiles: (files, total, size, totalSize) => `Downloading from OneDrive: ${n(files)} of ${plural(total, 'file', 'files')}, ${size} of ${totalSize}`,
+	statusDownloading: (current, total) => `Downloading ${n(current)}/${n(total)}`,
+	oneDriveFinding: 'Looking for notebooks in OneDrive...',
+	oneDriveRefreshing: 'Getting the latest list from OneDrive...',
+	oneDriveReadingCount: (done, total) => `Reading OneDrive: ${n(done)} of ${plural(total, 'notebook', 'notebooks')}`,
+	oneDriveTreeWaiting: 'The notebooks in OneDrive are listed here once they are read.',
+	retry: 'Try again',
+	reopenSignIn: 'Open the sign-in page again',
+	folderPickerTitle: 'Find notebooks in other folders',
+	pickerHint: 'Open folders and tick the notebooks to add.',
+	pickerChosen: count => `${plural(count, 'notebook', 'notebooks')} ticked`,
+	addNotebooks: 'Add',
+	alreadyListed: 'Already listed',
+	folderEmpty: 'No folders or notebooks here.',
+	leftOutNotDownloaded: count => `${plural(count, 'section', 'sections')} could not be downloaded from OneDrive: not imported.`,
+	copyBusy: 'Another window is downloading from OneDrive. Try again in a moment.',
+	noSpace: size => `Not enough disk space to download: ${size} needed.`,
+
+	settingsAccount: 'Microsoft account',
+	accountPersonal: 'Signed in with a personal account.',
+	accountOrganization: 'Signed in with a work or school account.',
+	accountNone: 'Not signed in. Choose Import from OneDrive in the import window to sign in.',
+	accountRevoke: 'Signing out forgets the sign-in on this device. To withdraw the plugin\'s access, use account.live.com/consent/Manage for a personal account, or myapps.microsoft.com for a work or school account.',
+	signIn: 'Sign in',
+	signOut: 'Sign out',
+	settingsCopy: 'Downloaded notebooks',
+	copyDesc: (size, path) => `Notebooks downloaded from OneDrive are kept outside the vault, so later only changes are downloaded: ${size} in ${path}.`,
+	copyNone: 'Nothing downloaded yet.',
+	deleteCopy: 'Delete',
+	deleteCopyConfirm: (count, size) => `Delete the ${plural(count, 'downloaded notebook', 'downloaded notebooks')} (${size})? Notes already in the vault stay. They are downloaded again when needed.`,
+	cancel: 'Cancel',
 };
 
 const zh: UiStrings = {
-	commandImport: '从 OneNote 导入',
+	commandImport: '导入 OneNote 笔记',
 	commandUpdate: '检查 OneNote 更新',
 	commandStop: '在当前分区完成后停止 OneNote 导入或更新',
 
@@ -348,7 +451,7 @@ const zh: UiStrings = {
 	statusTooltip: '点击打开导入窗口',
 
 	settingsImport: '导入笔记本',
-	settingsImportDesc: '把从 OneDrive 下载的 OneNote 笔记本转成这个仓库里的笔记。',
+	settingsImportDesc: '把 OneDrive 上的 OneNote 笔记本转成这个仓库里的笔记。',
 	startImport: '开始导入',
 	settingsDefaults: '新导入的默认设置',
 	folder: '文件夹',
@@ -362,8 +465,7 @@ const zh: UiStrings = {
 	altText: '图片替换文字',
 	altTextDesc: '保留原笔记已有的图片替换文字，写在图片下方，默认收起。',
 
-	wizardTitle: '从 OneNote 导入',
-	sourceEmpty: '先在 OneDrive 网页上下载装着笔记本的文件夹，再在这里导入。',
+	wizardTitle: '导入 OneNote 笔记',
 	chooseBoth: '选择 zip 文件或文件夹',
 	chooseZips: '选择 zip 文件',
 	chooseFolders: '选择文件夹',
@@ -379,7 +481,7 @@ const zh: UiStrings = {
 	incompleteZip: '这个 zip 没有下载完整，只能导入已下载的部分；要导入全部，请重新下载。',
 	remove: '移除',
 	tree: '要导入的笔记本和分区',
-	treeEmpty: '选好 zip 文件或文件夹后，笔记本和分区会在这里显示。',
+	treeEmpty: '选好从哪里导入后，笔记本和分区会在这里显示。',
 	noSections: '没有分区',
 	selectAll: '全选',
 	deselectAll: '取消全选',
@@ -402,7 +504,6 @@ const zh: UiStrings = {
 	willImport: (notebooks, sections, size, unreadable) => `将导入 ${n(notebooks)} 本笔记本、${n(sections)} 个分区${unreadable ? `（${n(unreadable)} 个无法读取）` : ''}，共 ${size}。`,
 
 	updateTitle: '检查 OneNote 更新',
-	updateSourceEmpty: '先在 OneDrive 网页上重新下载装着笔记本的文件夹，再在这里检查更新。',
 	updateTree: '要更新的笔记本和分区',
 	settingsKept: '已导入的笔记本沿用原来的设置',
 	checkingRow: '正在检查...',
@@ -423,10 +524,12 @@ const zh: UiStrings = {
 	unreadable: '无法读取',
 	different: '同名的另一本笔记本',
 	differentTip: '与仓库中的同名笔记本没有相同页面，不会改动。要导入这一本，请换一个目标文件夹。',
-	duplicate: '以另一份下载为准',
-	duplicateTip: '另一份下载里的这本笔记本较新，更新用那一份。',
+	duplicate: '以较新的一份为准',
+	duplicateTip: '选中的来源里另有一份这本笔记本，页面较新，更新用那一份。',
 	notImported: '未导入',
 	sectionsChanged: count => `${n(count)} 个分区有更新`,
+	partlyImported: '部分导入',
+	partlyImportedTip: skipped => `还有 ${n(skipped)} 个分区上次没有选，展开后勾上就能补进来。`,
 	pageAdded: '新增',
 	pageModified: '修改',
 	pageRetitled: was => `原标题“${was}”`,
@@ -490,10 +593,61 @@ const zh: UiStrings = {
 	signInPageTitle: 'OneNote Ferry',
 	signInPageDone: '已登录。可以关掉这个页面，回到 Obsidian。',
 	signInPageFailed: '没有登录成功。请回到 Obsidian 再试一次。',
+
+	chooseOneDrive: '从 OneDrive 导入',
+	chooseOneDriveUpdate: '从 OneDrive 检查更新',
+	oneDriveAddDesc: '登录微软账号，直接读取 OneDrive 上的笔记本。',
+	oneDriveAddDescSignedIn: '直接读取 OneDrive 上的笔记本。',
+	downloadedDesc: '从 OneDrive 网页上下载装着笔记本的文件夹，再从这里导入。',
+	oneDrive: 'OneDrive',
+	oneDriveReading: '正在读取 OneDrive 上的笔记本...',
+	otherFolder: '在其他文件夹里找',
+	signInWaiting: '请在打开的浏览器里登录微软账号。如果页面说需要批准，是你的单位不允许这个插件；个人账号可以用，也可以从 OneDrive 网页下载 zip。',
+	cancelSignIn: '取消',
+	signInProblems: {
+		cancelled: '登录已取消。',
+		'needs-admin': '要先由你单位的管理员允许这个插件。',
+		'signed-out': '已退出登录，请重新登录。',
+		'app-unavailable': '微软暂时不接受这个插件的登录，请稍后再试。',
+		unreachable: '连不上微软，请检查网络后再试。',
+		'timed-out': '浏览器里的登录没有按时完成。',
+		failed: '登录没有成功。',
+	},
+	downloadingFiles: (files, total, size, totalSize) => `正在从 OneDrive 下载：${n(files)}/${n(total)} 个文件，${size} / ${totalSize}`,
+	statusDownloading: (current, total) => `正在下载 ${n(current)}/${n(total)}`,
+	oneDriveFinding: '正在 OneDrive 里找笔记本...',
+	oneDriveRefreshing: '正在读取 OneDrive 上的最新清单...',
+	oneDriveReadingCount: (done, total) => `正在读取 OneDrive：${n(done)}/${n(total)} 本笔记本`,
+	oneDriveTreeWaiting: 'OneDrive 上的笔记本读完后会在这里列出。',
+	retry: '重试',
+	reopenSignIn: '重新打开登录页',
+	folderPickerTitle: '在其他文件夹里找笔记本',
+	pickerHint: '点开文件夹，勾选要加入的笔记本。',
+	pickerChosen: count => `已勾选 ${n(count)} 本笔记本`,
+	addNotebooks: '加入',
+	alreadyListed: '已在列表中',
+	folderEmpty: '这里没有文件夹或笔记本。',
+	leftOutNotDownloaded: count => `${n(count)} 个分区没能从 OneDrive 下载，没有导入。`,
+	copyBusy: '另一个窗口正在从 OneDrive 下载，请稍后再试。',
+	noSpace: size => `磁盘空间不够，下载需要 ${size}。`,
+
+	settingsAccount: '微软账号',
+	accountPersonal: '已用个人账号登录。',
+	accountOrganization: '已用工作或学校账号登录。',
+	accountNone: '未登录。在导入窗口里选“从 OneDrive 导入”时登录。',
+	accountRevoke: '退出只会忘掉这台设备上的登录。要收回这个插件的访问权限，个人账号去 account.live.com/consent/Manage，工作或学校账号去 myapps.microsoft.com。',
+	signIn: '登录',
+	signOut: '退出登录',
+	settingsCopy: '下载的笔记本',
+	copyDesc: (size, path) => `从 OneDrive 下载的笔记本放在仓库外，以后只下载变了的部分：共 ${size}，在 ${path}。`,
+	copyNone: '还没有下载过。',
+	deleteCopy: '删除',
+	deleteCopyConfirm: (count, size) => `删除已下载的 ${n(count)} 本笔记本（${size}）？已经导入仓库的笔记不受影响，以后需要时会重新下载。`,
+	cancel: '取消',
 };
 
 const ja: UiStrings = {
-	commandImport: 'OneNote からインポート',
+	commandImport: 'OneNote のノートをインポート',
 	commandUpdate: 'OneNote の更新を確認',
 	commandStop: '現在のセクションが終わったら OneNote のインポートまたは更新を停止',
 
@@ -503,7 +657,7 @@ const ja: UiStrings = {
 	statusTooltip: 'クリックするとインポート画面を開きます',
 
 	settingsImport: 'ノートブックをインポート',
-	settingsImportDesc: 'OneDrive からダウンロードした OneNote のノートブックを、この保管庫のノートにします。',
+	settingsImportDesc: 'OneDrive にある OneNote のノートブックを、この保管庫のノートにします。',
 	startImport: 'インポートを開始',
 	settingsDefaults: '新しいインポートの既定値',
 	folder: 'フォルダー',
@@ -517,8 +671,7 @@ const ja: UiStrings = {
 	altText: '画像の代替テキスト',
 	altTextDesc: '元のノートにある画像の代替テキストを残し、画像の下に折りたたんで書きます。',
 
-	wizardTitle: 'OneNote からインポート',
-	sourceEmpty: 'まず Web 版の OneDrive でノートブックの入ったフォルダーをダウンロードし、ここでインポートしてください。',
+	wizardTitle: 'OneNote のノートをインポート',
 	chooseBoth: 'zip ファイルまたはフォルダーを選択',
 	chooseZips: 'zip ファイルを選択',
 	chooseFolders: 'フォルダーを選択',
@@ -534,7 +687,7 @@ const ja: UiStrings = {
 	incompleteZip: 'ダウンロードが不完全です。届いた部分だけインポートできます。すべてインポートするには、もう一度ダウンロードしてください。',
 	remove: 'リストから削除',
 	tree: 'インポートするノートブックとセクション',
-	treeEmpty: 'zip ファイルかフォルダーを選ぶと、ノートブックとセクションがここに表示されます。',
+	treeEmpty: 'どこからインポートするかを選ぶと、ここにノートブックとセクションが並びます。',
 	noSections: 'セクションなし',
 	selectAll: 'すべて選択',
 	deselectAll: 'すべて選択解除',
@@ -557,7 +710,6 @@ const ja: UiStrings = {
 	willImport: (notebooks, sections, size, unreadable) => `ノートブック ${n(notebooks)} 冊のセクション ${n(sections)} 個${unreadable ? `（うち ${n(unreadable)} 個は読み込めません）` : ''}をインポートします。合計 ${size}。`,
 
 	updateTitle: 'OneNote の更新を確認',
-	updateSourceEmpty: 'まず Web 版の OneDrive でノートブックの入ったフォルダーをもう一度ダウンロードし、ここで更新を確認してください。',
 	updateTree: '更新するノートブックとセクション',
 	settingsKept: 'インポート済みのノートブックは元の設定のままです',
 	checkingRow: '確認中...',
@@ -578,10 +730,12 @@ const ja: UiStrings = {
 	unreadable: '読み込めません',
 	different: '同じ名前の別のノートブック',
 	differentTip: '保管庫にある同じ名前のノートブックと共通のページがないため、変更しません。このノートブックをインポートするには、別のインポート先を選んでください。',
-	duplicate: 'もう一方のダウンロードを使用',
-	duplicateTip: '選んだもう一方のダウンロードにこのノートブックの新しいコピーがあるため、更新にはそちらを使います。',
+	duplicate: '新しいほうを使用',
+	duplicateTip: '選んだ中にこのノートブックがもう一つあり、そちらのページのほうが新しいため、更新にはそちらを使います。',
 	notImported: '未インポート',
 	sectionsChanged: count => `${n(count)} 個のセクションに更新あり`,
+	partlyImported: '一部インポート済み',
+	partlyImportedTip: skipped => `前回選択しなかったセクションが ${n(skipped)} 個あります。展開してチェックすると追加できます。`,
 	pageAdded: '追加',
 	pageModified: '変更',
 	pageRetitled: was => `元のタイトル「${was}」`,
@@ -644,10 +798,61 @@ const ja: UiStrings = {
 	signInPageTitle: 'OneNote Ferry',
 	signInPageDone: 'サインインしました。このページを閉じて Obsidian に戻ってください。',
 	signInPageFailed: 'サインインできませんでした。Obsidian に戻ってもう一度お試しください。',
+
+	chooseOneDrive: 'OneDrive からインポート',
+	chooseOneDriveUpdate: 'OneDrive で更新を確認',
+	oneDriveAddDesc: 'Microsoft アカウントにサインインして、OneDrive のノートブックを直接読み込みます。',
+	oneDriveAddDescSignedIn: 'OneDrive のノートブックを直接読み込みます。',
+	downloadedDesc: 'Web 版の OneDrive でノートブックの入ったフォルダーをダウンロードし、ここからインポートします。',
+	oneDrive: 'OneDrive',
+	oneDriveReading: 'OneDrive のノートブックを読み込んでいます...',
+	otherFolder: 'ほかのフォルダーを探す',
+	signInWaiting: '開いたブラウザーで Microsoft アカウントにサインインしてください。承認が必要と表示された場合は、組織がこのプラグインを許可していません。個人アカウントなら使えます。OneDrive の Web サイトから zip をダウンロードする方法もあります。',
+	cancelSignIn: 'キャンセル',
+	signInProblems: {
+		cancelled: 'サインインはキャンセルされました。',
+		'needs-admin': 'このプラグインを使うには、先に組織の管理者の許可が必要です。',
+		'signed-out': 'サインアウトされています。もう一度サインインしてください。',
+		'app-unavailable': 'Microsoft が現在このプラグインのサインインを受け付けていません。しばらくしてからお試しください。',
+		unreachable: 'Microsoft に接続できません。ネットワークを確認してからお試しください。',
+		'timed-out': 'ブラウザーでのサインインが時間内に終わりませんでした。',
+		failed: 'サインインできませんでした。',
+	},
+	downloadingFiles: (files, total, size, totalSize) => `OneDrive からダウンロード中：${n(files)}/${n(total)} ファイル、${size} / ${totalSize}`,
+	statusDownloading: (current, total) => `ダウンロード中 ${n(current)}/${n(total)}`,
+	oneDriveFinding: 'OneDrive でノートブックを探しています...',
+	oneDriveRefreshing: 'OneDrive から最新の一覧を取得しています...',
+	oneDriveReadingCount: (done, total) => `OneDrive を読み込み中：ノートブック ${n(done)}/${n(total)} 冊`,
+	oneDriveTreeWaiting: 'OneDrive のノートブックは、読み込みが終わるとここに並びます。',
+	retry: '再試行',
+	reopenSignIn: 'サインインページをもう一度開く',
+	folderPickerTitle: 'ほかのフォルダーのノートブックを探す',
+	pickerHint: 'フォルダーを開いて、加えるノートブックにチェックを入れてください。',
+	pickerChosen: count => `ノートブック ${n(count)} 冊を選択`,
+	addNotebooks: '追加',
+	alreadyListed: '一覧にあります',
+	folderEmpty: 'フォルダーもノートブックもありません。',
+	leftOutNotDownloaded: count => `セクション ${n(count)} 個を OneDrive からダウンロードできず、インポートしませんでした。`,
+	copyBusy: '別のウィンドウが OneDrive からダウンロード中です。しばらくしてからお試しください。',
+	noSpace: size => `ディスクの空きが足りません。ダウンロードに ${size} 必要です。`,
+
+	settingsAccount: 'Microsoft アカウント',
+	accountPersonal: '個人アカウントでサインインしています。',
+	accountOrganization: '職場または学校のアカウントでサインインしています。',
+	accountNone: 'サインインしていません。インポート画面で「OneDrive からインポート」を選ぶとサインインできます。',
+	accountRevoke: 'サインアウトすると、このデバイスのサインイン情報だけが消えます。プラグインのアクセス権を取り消すには、個人アカウントは account.live.com/consent/Manage、職場または学校のアカウントは myapps.microsoft.com で行います。',
+	signIn: 'サインイン',
+	signOut: 'サインアウト',
+	settingsCopy: 'ダウンロードしたノートブック',
+	copyDesc: (size, path) => `OneDrive からダウンロードしたノートブックは保管庫の外に置き、次回からは変更分だけをダウンロードします。合計 ${size}、場所は ${path}。`,
+	copyNone: 'まだダウンロードしていません。',
+	deleteCopy: '削除',
+	deleteCopyConfirm: (count, size) => `ダウンロードしたノートブック ${n(count)} 冊（${size}）を削除しますか？保管庫にインポート済みのノートはそのまま残ります。必要になればまたダウンロードします。`,
+	cancel: 'キャンセル',
 };
 
 const ko: UiStrings = {
-	commandImport: 'OneNote에서 가져오기',
+	commandImport: 'OneNote 노트 가져오기',
 	commandUpdate: 'OneNote 업데이트 확인',
 	commandStop: '현재 섹션을 마친 뒤 OneNote 가져오기 또는 업데이트 중지',
 
@@ -657,7 +862,7 @@ const ko: UiStrings = {
 	statusTooltip: '클릭하면 가져오기 창이 열립니다',
 
 	settingsImport: '전자 필기장 가져오기',
-	settingsImportDesc: 'OneDrive에서 다운로드한 OneNote 전자 필기장을 이 보관함의 노트로 바꿉니다.',
+	settingsImportDesc: 'OneDrive에 있는 OneNote 전자 필기장을 이 보관함의 노트로 바꿉니다.',
 	startImport: '가져오기 시작',
 	settingsDefaults: '새 가져오기의 기본값',
 	folder: '폴더',
@@ -671,8 +876,7 @@ const ko: UiStrings = {
 	altText: '그림 대체 텍스트',
 	altTextDesc: '원래 노트에 있는 그림 대체 텍스트를 유지해 그림 아래에 접힌 상태로 씁니다.',
 
-	wizardTitle: 'OneNote에서 가져오기',
-	sourceEmpty: '먼저 웹에서 OneDrive를 열고 전자 필기장이 든 폴더를 다운로드한 뒤, 여기서 가져오세요.',
+	wizardTitle: 'OneNote 노트 가져오기',
 	chooseBoth: 'zip 파일 또는 폴더 선택',
 	chooseZips: 'zip 파일 선택',
 	chooseFolders: '폴더 선택',
@@ -688,7 +892,7 @@ const ko: UiStrings = {
 	incompleteZip: '다운로드가 완전하지 않습니다. 받은 부분만 가져올 수 있으며, 전부 가져오려면 다시 다운로드하세요.',
 	remove: '제거',
 	tree: '가져올 전자 필기장과 섹션',
-	treeEmpty: 'zip 파일이나 폴더를 선택하면 전자 필기장과 섹션이 여기에 표시됩니다.',
+	treeEmpty: '어디에서 가져올지 고르면 여기에 전자 필기장과 섹션이 나옵니다.',
 	noSections: '섹션 없음',
 	selectAll: '모두 선택',
 	deselectAll: '모두 선택 해제',
@@ -711,7 +915,6 @@ const ko: UiStrings = {
 	willImport: (notebooks, sections, size, unreadable) => `전자 필기장 ${n(notebooks)}개의 섹션 ${n(sections)}개${unreadable ? `(그중 ${n(unreadable)}개는 읽을 수 없음)` : ''}를 가져옵니다. 모두 ${size}.`,
 
 	updateTitle: 'OneNote 업데이트 확인',
-	updateSourceEmpty: '먼저 웹에서 OneDrive를 열고 전자 필기장이 든 폴더를 다시 다운로드한 뒤, 여기서 업데이트를 확인하세요.',
 	updateTree: '업데이트할 전자 필기장과 섹션',
 	settingsKept: '이미 가져온 전자 필기장은 원래 설정을 그대로 씁니다',
 	checkingRow: '확인 중...',
@@ -732,10 +935,12 @@ const ko: UiStrings = {
 	unreadable: '읽을 수 없음',
 	different: '이름만 같은 다른 전자 필기장',
 	differentTip: '보관함에 있는 같은 이름의 전자 필기장과 공통된 페이지가 없어 바꾸지 않습니다. 이 전자 필기장을 가져오려면 다른 대상 폴더를 선택하세요.',
-	duplicate: '다른 다운로드를 사용',
-	duplicateTip: '선택한 다른 다운로드에 이 전자 필기장의 더 새로운 사본이 있어 업데이트에는 그쪽을 씁니다.',
+	duplicate: '더 새로운 사본 사용',
+	duplicateTip: '고른 곳에 이 전자 필기장이 하나 더 있고 그쪽 페이지가 더 새로워, 업데이트에는 그쪽을 씁니다.',
 	notImported: '가져오지 않음',
 	sectionsChanged: count => `섹션 ${n(count)}개 업데이트 있음`,
+	partlyImported: '일부만 가져옴',
+	partlyImportedTip: skipped => `지난번에 선택하지 않은 섹션이 ${n(skipped)}개 있습니다. 펼쳐서 선택하면 추가할 수 있습니다.`,
 	pageAdded: '추가',
 	pageModified: '수정',
 	pageRetitled: was => `원래 제목 "${was}"`,
@@ -798,6 +1003,57 @@ const ko: UiStrings = {
 	signInPageTitle: 'OneNote Ferry',
 	signInPageDone: '로그인했습니다. 이 페이지를 닫고 Obsidian으로 돌아가세요.',
 	signInPageFailed: '로그인하지 못했습니다. Obsidian으로 돌아가 다시 시도하세요.',
+
+	chooseOneDrive: 'OneDrive에서 가져오기',
+	chooseOneDriveUpdate: 'OneDrive에서 업데이트 확인',
+	oneDriveAddDesc: 'Microsoft 계정에 로그인해 OneDrive의 전자 필기장을 바로 읽습니다.',
+	oneDriveAddDescSignedIn: 'OneDrive의 전자 필기장을 바로 읽습니다.',
+	downloadedDesc: '웹에서 OneDrive를 열고 전자 필기장이 든 폴더를 다운로드한 뒤, 여기서 가져옵니다.',
+	oneDrive: 'OneDrive',
+	oneDriveReading: 'OneDrive의 전자 필기장을 읽는 중...',
+	otherFolder: '다른 폴더에서 찾기',
+	signInWaiting: '열린 브라우저에서 Microsoft 계정에 로그인하세요. 승인이 필요하다고 나오면 소속 기관이 이 플러그인을 허용하지 않는 것입니다. 개인 계정은 쓸 수 있고, OneDrive 웹사이트에서 zip을 다운로드해도 됩니다.',
+	cancelSignIn: '취소',
+	signInProblems: {
+		cancelled: '로그인을 취소했습니다.',
+		'needs-admin': '이 플러그인을 쓰려면 먼저 소속 기관의 관리자가 허용해야 합니다.',
+		'signed-out': '로그아웃되었습니다. 다시 로그인하세요.',
+		'app-unavailable': 'Microsoft가 지금은 이 플러그인의 로그인을 받지 않습니다. 잠시 후 다시 시도하세요.',
+		unreachable: 'Microsoft에 연결할 수 없습니다. 네트워크를 확인한 뒤 다시 시도하세요.',
+		'timed-out': '브라우저에서 로그인이 제시간에 끝나지 않았습니다.',
+		failed: '로그인하지 못했습니다.',
+	},
+	downloadingFiles: (files, total, size, totalSize) => `OneDrive에서 다운로드 중: 파일 ${n(files)}/${n(total)}개, ${size} / ${totalSize}`,
+	statusDownloading: (current, total) => `다운로드 중 ${n(current)}/${n(total)}`,
+	oneDriveFinding: 'OneDrive에서 전자 필기장을 찾는 중...',
+	oneDriveRefreshing: 'OneDrive에서 최신 목록을 받는 중...',
+	oneDriveReadingCount: (done, total) => `OneDrive 읽는 중: 전자 필기장 ${n(done)}/${n(total)}개`,
+	oneDriveTreeWaiting: 'OneDrive의 전자 필기장은 다 읽으면 여기에 나옵니다.',
+	retry: '다시 시도',
+	reopenSignIn: '로그인 페이지 다시 열기',
+	folderPickerTitle: '다른 폴더에서 전자 필기장 찾기',
+	pickerHint: '폴더를 열고 추가할 전자 필기장에 체크하세요.',
+	pickerChosen: count => `전자 필기장 ${n(count)}개 선택`,
+	addNotebooks: '추가',
+	alreadyListed: '이미 목록에 있음',
+	folderEmpty: '폴더나 전자 필기장이 없습니다.',
+	leftOutNotDownloaded: count => `섹션 ${n(count)}개를 OneDrive에서 다운로드하지 못해 가져오지 않았습니다.`,
+	copyBusy: '다른 창에서 OneDrive를 다운로드하는 중입니다. 잠시 후 다시 시도하세요.',
+	noSpace: size => `디스크 공간이 부족합니다. 다운로드에 ${size}가 필요합니다.`,
+
+	settingsAccount: 'Microsoft 계정',
+	accountPersonal: '개인 계정으로 로그인했습니다.',
+	accountOrganization: '회사 또는 학교 계정으로 로그인했습니다.',
+	accountNone: '로그인하지 않았습니다. 가져오기 창에서 "OneDrive에서 가져오기"를 고르면 로그인합니다.',
+	accountRevoke: '로그아웃하면 이 기기의 로그인 정보만 지워집니다. 플러그인의 접근 권한을 거두려면 개인 계정은 account.live.com/consent/Manage, 회사 또는 학교 계정은 myapps.microsoft.com에서 하세요.',
+	signIn: '로그인',
+	signOut: '로그아웃',
+	settingsCopy: '다운로드한 전자 필기장',
+	copyDesc: (size, path) => `OneDrive에서 다운로드한 전자 필기장은 보관함 밖에 두고, 다음부터는 바뀐 부분만 다운로드합니다. 모두 ${size}, 위치는 ${path}.`,
+	copyNone: '아직 다운로드한 것이 없습니다.',
+	deleteCopy: '삭제',
+	deleteCopyConfirm: (count, size) => `다운로드한 전자 필기장 ${n(count)}개(${size})를 삭제할까요? 보관함에 이미 가져온 노트는 그대로 남습니다. 필요하면 다시 다운로드합니다.`,
+	cancel: '취소',
 };
 
 export const UI_LANGUAGES = { en, zh, ja, ko };

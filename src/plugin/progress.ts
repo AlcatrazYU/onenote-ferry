@@ -16,6 +16,8 @@ export interface ProgressState {
 	startedAt: number;
 	/** An update is running (with new notebooks imported first, if any). */
 	updating?: boolean;
+	/** Sections chosen from OneDrive are being downloaded (files, not sections, are counted). */
+	downloading?: boolean;
 }
 
 export const elapsed = (ms: number) => {
@@ -64,7 +66,7 @@ export class ProgressDisplay {
 		const state = this.state;
 		if (!state) return;
 		const fraction = state.total ? state.done / state.total : 0;
-		this.textEl.setText((state.updating ? this.ui.statusUpdating : this.ui.statusImporting)(state.done + 1, state.total));
+		this.textEl.setText((state.downloading ? this.ui.statusDownloading : state.updating ? this.ui.statusUpdating : this.ui.statusImporting)(Math.min(state.done + 1, state.total), state.total));
 		this.fillEl.setCssProps({ '--onenote-ferry-progress': String(fraction) });
 		const time = this.ui.elapsed(elapsed(Date.now() - state.startedAt));
 		setTooltip(this.statusEl, `${state.notebook} / ${state.section}\n${time}\n${this.ui.statusTooltip}`, { placement: 'top' });

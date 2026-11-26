@@ -12,10 +12,11 @@
 
 import { existsSync, readdirSync, readFileSync, statSync, statfsSync } from 'node:fs';
 import { mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { ENCRYPTION_MARKER_WINDOW, isPasswordProtected } from '../core/encryption.ts';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { notebookFiles, planCopy } from '../core/onedrive.ts';
-import type { CopyPlan, GraphGet, LocalFile, RemoteNotebook } from '../core/onedrive.ts';
+import type { CopyPlan, GraphGet, LocalFile, RemoteFile, RemoteNotebook } from '../core/onedrive.ts';
 import { downloadFile, DownloadError, removePart } from './fetch-download.ts';
 import type { DownloadProblem, FileLink } from './fetch-download.ts';
 
@@ -39,6 +40,25 @@ function safeRelative(path: string): string | undefined {
 	const parts = path.split('/');
 	if (!path || parts.some(part => !part || part === '.' || part === '..' || /[\\\0]/.test(part))) return undefined;
 	return path;
+}
+
+/** Where a notebook's files are in the account's copy folder (`<item ID>/<name>`), with `/` between folders. */
+export function notebookPath(notebook: RemoteNotebook): string {
+	return `${safeId(notebook.id)}/${notebookFolderName(notebook.name)}`;
+}
+
+/** A section file in the copy is password protected (read from its first bytes, as for a download). */
+export async function isLockedFile(path: string): Promise<boolean> {
+	const handle = await open(path, 'r');
+	try {
+		const { size } = await handle.stat();
+		const bytes = new Uint8Array(Math.min(size, ENCRYPTION_MARKER_WINDOW));
+		await handle.read(bytes, 0, bytes.length, 0);
+		return isPasswordProtected(bytes);
+	}
+	finally {
+		await handle.close();
+	}
 }
 
 /** The notebook's folder name: its name, unless that cannot be a folder name. */
@@ -164,6 +184,10 @@ export interface UpdateCopyOptions {
 	onProgress?(progress: CopyProgress): void;
 	/** Files fetched at the same time (3: small files are mostly waiting for answers). */
 	concurrency?: number;
+	/** The notebook's files, when they were just listed (otherwise listed here). */
+	files?: RemoteFile[];
+	/** Fetch only these files (by OneDrive item ID): the sections chosen for an import. Others stay as they are. */
+	only?: ReadonlySet<string>;
 	/** For tests: how long a download may go without a byte, and how to wait. */
 	idleMs?: number;
 	sleep?(ms: number): Promise<void>;
@@ -202,7 +226,7 @@ export async function updateCopy(options: UpdateCopyOptions): Promise<CopyResult
 		const folder = join(dir, name);
 		await mkdir(folder, { recursive: true });
 
-		const remote = (await notebookFiles(options.graph, notebook.id)).filter(file => safeRelative(file.path));
+		const remote = (options.files ?? await notebookFiles(options.graph, notebook.id)).filter(file => safeRelative(file.path));
 		const present = (path: string) => {
 			try {
 				const info = statSync(join(folder, path));
@@ -213,6 +237,7 @@ export async function updateCopy(options: UpdateCopyOptions): Promise<CopyResult
 			}
 		};
 		const plan = planCopy(remote, state.files, present);
+		if (options.only) plan.download = plan.download.filter(file => options.only!.has(file.id));
 		const totalBytes = plan.download.reduce((sum, file) => sum + file.size, 0);
 		const free = (options.free ?? freeSpace)(dir);
 		if (free !== undefined && totalBytes + SPARE_BYTES > free) throw new NoSpace(totalBytes + SPARE_BYTES, free);
@@ -314,6 +339,36 @@ export async function updateCopy(options: UpdateCopyOptions): Promise<CopyResult
 	finally {
 		await unlock();
 	}
+}
+
+/** The folder holding every account's copy, under a cache folder (what the settings page shows). */
+export function copiesFolder(cacheFolder: string): string {
+	return join(cacheFolder, 'onenote-ferry', 'onedrive');
+}
+
+/** Every notebook copy of every account under `copiesFolder`, with its size. */
+export function allCopies(folder: string): { dir: string, name: string, bytes: number }[] {
+	if (!existsSync(folder)) return [];
+	return readdirSync(folder, { withFileTypes: true }).filter(entry => entry.isDirectory()).flatMap(entry => copiedNotebooks(join(folder, entry.name)));
+}
+
+/**
+ * Removes notebook copies (the user confirmed it on the settings page): the plugin's own files, the
+ * vault is not touched. A copy being updated by a window now (its lock is fresh) is left. Answers
+ * how many were removed and left.
+ */
+export async function removeCopies(dirs: string[]): Promise<{ removed: number, busy: number }> {
+	let removed = 0, busy = 0;
+	for (const dir of dirs) {
+		const lockAge = Date.now() - ((await stat(join(dir, 'lock')).catch(() => undefined))?.mtimeMs ?? 0);
+		if (lockAge < STALE_LOCK_MS) {
+			busy++;
+			continue;
+		}
+		await rm(dir, { recursive: true, force: true });
+		removed++;
+	}
+	return { removed, busy };
 }
 
 /** The notebook copies under an account's folder (for the settings page: what is kept, and how large). */

@@ -105,7 +105,16 @@ export async function findRemoteNotebooks(graph: GraphGet): Promise<RemoteNotebo
 	}
 	const hits = (await listAll(graph, `/me/drive/root/search(q='onetoc2')?$select=id,name,parentReference,file,deleted&$top=1000`))
 		.filter(item => /\.onetoc2$/i.test(item.name) && !item.deleted);
-	// Each hit's folder is a notebook, one of its section groups, or a recycle bin: go up to the notebook.
+	// Each hit's folder is a notebook, one of its section groups, or a recycle bin. Most are inside a
+	// notebook found already, which the hit's own path tells without asking (each question is a
+	// request); the others are walked up to their notebook, a few at a time.
+	const placeOf = (item: DriveItem) => folderPath(item.parentReference).normalize('NFC').toLowerCase();
+	const knownPlaces = () => [...found.values()].map(notebook => `${notebook.folder ? `${notebook.folder}/` : ''}${notebook.name}`.normalize('NFC').toLowerCase());
+	const inKnown = (hit: DriveItem) => {
+		if (!hit.parentReference?.path) return false;
+		const place = placeOf(hit);
+		return knownPlaces().some(known => place === known || place.startsWith(`${known}/`));
+	};
 	const seen = new Map<string, DriveItem | null>();
 	const item = async (id: string): Promise<DriveItem | null> => {
 		if (!seen.has(id)) {
@@ -119,20 +128,27 @@ export async function findRemoteNotebooks(graph: GraphGet): Promise<RemoteNotebo
 		}
 		return seen.get(id)!;
 	};
-	for (const hit of hits) {
-		let id = hit.parentReference?.id;
-		// Section groups nest; a notebook is never this deep in practice.
-		for (let depth = 0; id && depth < 12; depth++) {
-			if (found.has(id)) break;
-			const folder = await item(id);
-			if (!folder || folder.deleted) break;
-			if (isNotebookPackage(folder)) {
-				found.set(folder.id, notebookOf(folder));
-				break;
+	const unknown = hits.filter(hit => !inKnown(hit));
+	let next = 0;
+	await Promise.all(Array.from({ length: Math.min(6, unknown.length) }, async () => {
+		while (next < unknown.length) {
+			const hit = unknown[next++]!;
+			// Found meanwhile through another hit of the same notebook.
+			if (inKnown(hit)) continue;
+			let id = hit.parentReference?.id;
+			// Section groups nest; a notebook is never this deep in practice.
+			for (let depth = 0; id && depth < 12; depth++) {
+				if (found.has(id)) break;
+				const folder = await item(id);
+				if (!folder || folder.deleted) break;
+				if (isNotebookPackage(folder)) {
+					found.set(folder.id, notebookOf(folder));
+					break;
+				}
+				id = folder.parentReference?.id;
 			}
-			id = folder.parentReference?.id;
 		}
-	}
+	}));
 	return [...found.values()];
 }
 
@@ -144,12 +160,14 @@ export async function notebooksInFolder(graph: GraphGet, folderId: string): Prom
 		.filter(isNotebookPackage).map(notebookOf);
 }
 
-/** The folders in a folder (the top when no ID is given), for choosing one. Notebooks are not folders here. */
-export async function childFolders(graph: GraphGet, folderId?: string): Promise<{ id: string, name: string }[]> {
+/** What a folder holds (the top when no ID is given), for looking through the drive: its folders, and its notebooks. */
+export async function folderChildren(graph: GraphGet, folderId?: string): Promise<{ folders: { id: string, name: string }[], notebooks: RemoteNotebook[] }> {
 	const path = folderId ? `/me/drive/items/${encodeURIComponent(folderId)}/children` : '/me/drive/root/children';
-	return (await listAll(graph, `${path}?$select=${ITEM_FIELDS}&$top=1000`))
-		.filter(item => item.folder && !isNotebookPackage(item))
-		.map(item => ({ id: item.id, name: item.name }));
+	const items = (await listAll(graph, `${path}?$select=${ITEM_FIELDS}&$top=1000`)).filter(item => !item.deleted);
+	return {
+		folders: items.filter(item => item.folder && !isNotebookPackage(item)).map(item => ({ id: item.id, name: item.name })),
+		notebooks: items.filter(isNotebookPackage).map(notebookOf),
+	};
 }
 
 /** A file of a notebook in OneDrive, with its path inside the notebook (`New Group/API ink.one`). */

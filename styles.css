@@ -225,3 +225,80 @@
 .onenote-ferry-result-notes li + li {
 	margin-top: var(--size-4-1);
 }
+
+/* OneDrive as a source: a thin progress line under the row's text while it is read or downloads. */
+.onenote-ferry-row-progress {
+	margin-top: var(--size-4-2);
+	max-width: 320px;
+}
+.onenote-ferry-row-progress .setting-progress-bar {
+	height: 4px;
+}
+/* How much there is is not known yet: the filled part slides back and forth. */
+.onenote-ferry-indeterminate .setting-progress-bar-inner {
+	animation: onenote-ferry-slide 1.2s ease-in-out infinite alternate;
+}
+@keyframes onenote-ferry-slide {
+	from { transform: translateX(-20%); }
+	to { transform: translateX(260%); }
+}
+
+/* "Find notebooks in other folders": the drive as a tree, the size of the window it is in. */
+.onenote-ferry-picker {
+	width: min(560px, 90vw);
+}
+.onenote-ferry-picker-tree {
+	max-height: min(420px, 55vh);
+	overflow-y: auto;
+	margin-bottom: var(--size-4-3);
+}
+.onenote-ferry-picker .onenote-ferry-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-4-3);
+}
+.onenote-ferry-picker .modal-button-container {
+	margin-top: 0;
+}
+
+/* Beside a OneDrive notebook's name when another has the same name: the folder it is in. */
+.onenote-ferry-tree .onenote-ferry-where {
+	margin-inline-start: var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* The rows that add a source: what each does, beside its name, shown while it is pointed at or focused. */
+.onenote-ferry-add-hint {
+	margin-inline-start: var(--size-4-3);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	opacity: 0;
+	transition: opacity 120ms ease-in-out;
+}
+.setting-item.mod-add-item:hover .onenote-ferry-add-hint,
+.setting-item.mod-add-item:focus-visible .onenote-ferry-add-hint {
+	opacity: 1;
+}
+
+/* Why a row says what it says, on hover: a small card in the window's colours, text left-aligned,
+   without the arrow, instead of Obsidian's dark bubble. */
+.tooltip.onenote-ferry-tip {
+	background-color: var(--background-primary);
+	color: var(--text-normal);
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: var(--shadow-s);
+	border-radius: var(--radius-m);
+	padding: var(--size-4-2) var(--size-4-3);
+	max-width: 320px;
+	font-size: var(--font-ui-small);
+	line-height: var(--line-height-normal);
+	text-align: start;
+	text-wrap: pretty;
+}
+.tooltip.onenote-ferry-tip .tooltip-arrow {
+	display: none;
+}

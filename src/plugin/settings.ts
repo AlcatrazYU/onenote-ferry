@@ -1,9 +1,13 @@
 // The settings page: a button to start an import, and the defaults each new import starts from.
 
-import { AbstractInputSuggest, normalizePath, PluginSettingTab, Setting, TFolder } from 'obsidian';
+import { AbstractInputSuggest, ButtonComponent, Modal, normalizePath, Notice, PluginSettingTab, Setting, TFolder } from 'obsidian';
 import type { App, Plugin } from 'obsidian';
 import type { SectionOptions } from '../core/importer.ts';
+import { allCopies, copiesFolder, removeCopies, systemCacheFolder } from '../node/mirror.ts';
+import type { MicrosoftAccount } from './account.ts';
+import { formatBytes } from './i18n.ts';
 import type { UiStrings } from './i18n.ts';
+import { oneDriveMessage } from './onedrive.ts';
 
 export interface Settings extends Required<SectionOptions> {
 	/** The vault folder notebooks go into ('' for the top of the vault). */
@@ -56,6 +60,8 @@ export class FolderSuggest extends AbstractInputSuggest<TFolder> {
 export interface SettingsHost extends Plugin {
 	settings: Settings;
 	ui: UiStrings;
+	/** The Microsoft account OneDrive is read with. */
+	microsoft: MicrosoftAccount;
 	saveSettings(): Promise<void>;
 	openWizard(): void;
 }
@@ -110,5 +116,54 @@ export class FerrySettingTab extends PluginSettingTab {
 		toggle(ui.boxMarkers, ui.boxMarkersDesc, 'boxMarkers');
 		toggle(ui.fontColor, ui.fontColorDesc, 'keepFontColor');
 		toggle(ui.altText, ui.altTextDesc, 'imageAltText');
+
+		// The Microsoft account (§11.5 item 61): who is signed in, signing in and out, and where the
+		// access is withdrawn (Microsoft's own pages: signing out here only forgets it on this device).
+		const account = this.host.microsoft;
+		new Setting(containerEl).setName(ui.settingsAccount).setHeading();
+		const status = new Setting(containerEl)
+			.setName(!account.signedIn ? ui.accountNone : account.kind === 'organization' ? ui.accountOrganization : ui.accountPersonal)
+			.setDesc(ui.accountRevoke);
+		if (account.signedIn) status.addButton(button => button.setButtonText(ui.signOut).onClick(() => {
+			account.signOut();
+			this.display();
+		}));
+		else status.addButton(button => button.setButtonText(ui.signIn).onClick(async () => {
+			button.setDisabled(true);
+			try {
+				await account.signIn();
+			}
+			catch (error) {
+				new Notice(oneDriveMessage(error, ui));
+			}
+			this.display();
+		}));
+
+		// The notebooks downloaded from OneDrive (outside the vault): where, how large, and deleting them.
+		const folder2 = copiesFolder(systemCacheFolder());
+		const copies = allCopies(folder2);
+		const bytes = copies.reduce((n, copy) => n + copy.bytes, 0);
+		const kept = new Setting(containerEl).setName(ui.settingsCopy).setDesc(copies.length ? ui.copyDesc(formatBytes(bytes), folder2) : ui.copyNone);
+		if (copies.length) kept.addButton(button => button.setButtonText(ui.deleteCopy).setWarning().onClick(() => {
+			new ConfirmModal(this.app, ui.settingsCopy, ui.deleteCopyConfirm(copies.length, formatBytes(bytes)), ui.deleteCopy, ui.cancel, async () => {
+				await removeCopies(copies.map(copy => copy.dir));
+				this.display();
+			}).open();
+		}));
+	}
+}
+
+/** Asks before something is done that cannot be undone. */
+class ConfirmModal extends Modal {
+	constructor(app: App, title: string, text: string, confirm: string, cancel: string, onConfirm: () => Promise<void>) {
+		super(app);
+		this.setTitle(title);
+		this.contentEl.createEl('p', { text });
+		const footer = this.contentEl.createDiv('modal-button-container');
+		new ButtonComponent(footer).setButtonText(cancel).onClick(() => this.close());
+		new ButtonComponent(footer).setButtonText(confirm).setWarning().onClick(async () => {
+			this.close();
+			await onConfirm();
+		});
 	}
 }

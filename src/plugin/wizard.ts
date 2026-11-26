@@ -11,11 +11,16 @@
 import { ButtonComponent, Modal, Notice, ProgressBarComponent, Setting, SettingGroup, setIcon, setTooltip } from 'obsidian';
 import type { App } from 'obsidian';
 import type { DownloadNotebook, DownloadSection } from '../core/download.ts';
+import type { RemoteNotebook } from '../core/onedrive.ts';
 import { LANGUAGES, STRINGS } from '../core/strings.ts';
 import type { Language } from '../core/strings.ts';
 import type { PlanItem } from '../core/sync.ts';
+import { SignInError } from '../core/microsoft-auth.ts';
+import type { MicrosoftAccount } from './account.ts';
 import { formatBytes, LANGUAGE_NAMES } from './i18n.ts';
 import type { UiStrings } from './i18n.ts';
+import { oneDriveMessage } from './onedrive.ts';
+import type { OneDriveBrowse } from './onedrive.ts';
 import { elapsed } from './progress.ts';
 import { TICKABLE } from './session.ts';
 import type { ChosenDownload, ImportSession, NotebookChoice, SectionState } from './session.ts';
@@ -25,6 +30,10 @@ declare const require: (id: string) => any;
 
 export interface WizardHost {
 	ui: UiStrings;
+	/** The Microsoft account OneDrive is read with. */
+	microsoft: MicrosoftAccount;
+	/** OneDrive through that account. */
+	oneDrive(): OneDriveBrowse;
 	/** Starts the session's import (status bar and all). */
 	startImport(session: ImportSession): void;
 	/** The window was closed. */
@@ -107,6 +116,8 @@ const STRONG: ReadonlySet<RowState> = new Set(['changed', 'new', 'unfinished']);
 const GROUP_WORDS: ReadonlySet<RowState> = new Set(['same', 'gone', 'checking', 'locked', 'incomplete', 'occupied', 'unreadable']);
 /** States that leave a notebook imported before at "no changes": nothing differs that needs a look. */
 const QUIET: ReadonlySet<RowState> = new Set(['same', 'gone', 'skipped', 'locked', 'restorable']);
+/** Of those, the states of sections that are in the vault (imported before). */
+const IMPORTED: ReadonlySet<RowState> = new Set(['same', 'gone', 'restorable']);
 
 const fold = (path: string) => path.normalize('NFC').toLowerCase();
 
@@ -126,6 +137,8 @@ export class ImportWizard extends Modal {
 	private readonly expanded = new Set<string>();
 	/** The rows of the downloads, where the keyboard's focus goes back after a download is added. */
 	private sourceList?: HTMLElement;
+	/** Microsoft's sign-in page is open in the browser, for adding OneDrive. */
+	private signingIn = false;
 
 	constructor(app: App, host: WizardHost, session: ImportSession) {
 		super(app);
@@ -197,7 +210,7 @@ export class ImportWizard extends Modal {
 		const tree = treeGroup.listEl.createDiv('import-section file-tree publish-section onenote-ferry-tree').createDiv('publish-change-list');
 
 		// The settings. Language and options are for notebooks new to the target folder: one imported
-		// before keeps its own, which the heading says when they are greyed.
+		// before keeps its own (sections added to it too), which the heading says whenever one is ticked.
 		const settingsHeading = createFragment(fragment => {
 			fragment.appendText(ui.settings);
 			fragment.createSpan({ cls: 'onenote-ferry-heading-note', text: ui.settingsKept });
@@ -248,12 +261,14 @@ export class ImportWizard extends Modal {
 		let treeShown: string | undefined;
 		let rows: (() => void)[] = [];
 		this.refresh = () => {
-			const sourceState = session.downloads.map(download => `${download.input}:${download.state}:${download.notebooks.length}`).join('|');
+			const downloading = session.downloading ? `${session.downloading.files}/${Math.floor(session.downloading.bytes / 1048576)}` : '';
+			const sourceState = `${this.signingIn}:${downloading}:` + session.downloads.map(download => `${download.input}:${download.state}:${download.notebooks.length}:${download.error ?? ''}:${download.onedrive?.reading?.done ?? ''}/${download.onedrive?.reading?.total ?? ''}:${!!download.onedrive?.refreshing}`).join('|');
 			if (sourceState !== sourceShown) {
 				sourceShown = sourceState;
 				this.drawSource(source.listEl);
 			}
-			const treeState = session.choices.map(choice => `${choice.download.input}:${choice.notebook.path}:${this.shape(choice)}`).join('|');
+			// The empty tree says what will come there: OneDrive's notebooks being read, or a download to choose.
+			const treeState = `${session.downloads.some(download => download.onedrive && download.state === 'reading')}:` + session.choices.map(choice => `${choice.download.input}:${choice.notebook.path}:${this.shape(choice)}`).join('|');
 			if (treeState !== treeShown) {
 				treeShown = treeState;
 				rows = this.drawTree(tree);
@@ -266,8 +281,9 @@ export class ImportWizard extends Modal {
 			folderWarning.setText(folderProblem(session.folder) ? ui.badFolder : '');
 			folderWarning.toggle(folderProblem(session.folder));
 			// Language and options change nothing when only notebooks imported before are written.
-			const onlyUpdates = updating && !session.included().some(choice => !choice.earlier);
-			kept?.toggle(onlyUpdates);
+			const included = session.included();
+			const onlyUpdates = updating && !included.some(choice => !choice.earlier);
+			kept?.toggle(included.some(choice => choice.earlier));
 			for (const setting of forNew) setting.setDisabled(onlyUpdates);
 			const counts = session.counts();
 			const changes = session.updateCounts();
@@ -279,9 +295,16 @@ export class ImportWizard extends Modal {
 			// Nothing differs in the notebooks imported before.
 			const noChange = updating && !session.choices.some(choice => choice.earlier && choice.notebook.sections.some(section => STRONG.has(session.sectionState(choice, section))));
 			summary.empty();
-			if (session.reading) summary.setText(ui.reading);
+			const reading = session.downloads.find(download => download.onedrive && download.state === 'reading')?.onedrive?.reading;
+			if (reading) summary.setText(reading.total ? ui.oneDriveReadingCount(reading.done, reading.total) : ui.oneDriveFinding);
+			// OneDrive's list first, then the notebooks imported before: one check for the user, so one line.
+			else if (session.downloads.some(download => download.onedrive?.refreshing)) {
+				summary.setText(updating ? ui.checkingUpdates(session.checkProgress.done, session.checkProgress.total) : ui.oneDriveRefreshing);
+			}
+			else if (session.reading) summary.setText(ui.reading);
 			else if (session.folderError) summary.setText(ui.folderUnreadable(session.folderError));
 			else if (session.checking || session.findingLocked) summary.setText(ui.checking);
+			else if (session.downloading) summary.setText(ui.downloadingFiles(session.downloading.files, session.downloading.totalFiles, formatBytes(session.downloading.bytes), formatBytes(session.downloading.totalBytes)));
 			else if (session.checkingUpdates) summary.setText(ui.checkingUpdates(session.checkProgress.done, session.checkProgress.total));
 			else if (will.length) for (const line of will) summary.createDiv({ text: line });
 			else summary.setText(noChange ? ui.noUpdates
@@ -295,7 +318,6 @@ export class ImportWizard extends Modal {
 			warning.setText(settled && changes.bothEdited ? ui.bothEditedWarning(changes.bothEdited, folder) : '');
 			warning.toggle(settled && changes.bothEdited > 0);
 			// What will be done: an update when a notebook imported before is chosen (or, with nothing chosen, among the downloads).
-			const included = session.included();
 			start.setButtonText(included.some(choice => choice.earlier) || (!included.length && updating) ? ui.startUpdate : ui.startImport);
 			start.setDisabled(!session.ready);
 		};
@@ -326,8 +348,11 @@ export class ImportWizard extends Modal {
 		const session = this.session;
 		this.sourceList = listEl;
 		listEl.empty();
-		if (!session.downloads.length) new Setting(listEl).setClass('mod-empty-state').setName(session.entry === 'update' ? ui.updateSourceEmpty : ui.sourceEmpty);
 		for (const download of session.downloads) {
+			if (download.onedrive) {
+				this.drawOneDrive(listEl, download);
+				continue;
+			}
 			const row = new Setting(listEl).setName(this.downloadLabel(download));
 			rowIcon(row, /\.zip$/i.test(download.input) ? 'lucide-file-archive' : 'lucide-folder');
 			row.settingEl.setAttr('title', download.input);
@@ -338,17 +363,103 @@ export class ImportWizard extends Modal {
 			if (download.incomplete) row.descEl.createDiv({ text: ui.incompleteZip, cls: 'onenote-ferry-warning' });
 			row.addExtraButton(button => button.setIcon('lucide-x').setTooltip(ui.remove).setDisabled(download.state === 'reading').onClick(() => session.remove(download)));
 		}
-		const add = (name: string, kind: 'both' | 'zip' | 'folder') => {
-			const row = new Setting(listEl).setClass('mod-add-item').setName(name);
-			rowIcon(row, 'lucide-plus');
-			rowAction(row, byKeyboard => void this.choose(kind, byKeyboard));
-		};
-		// One open dialog picks zips and folders together only on macOS.
-		if (BOTH_IN_ONE_DIALOG) add(ui.chooseBoth, 'both');
-		else {
-			add(ui.chooseZips, 'zip');
-			add(ui.chooseFolders, 'folder');
+		if (this.signingIn) {
+			const row = new Setting(listEl).setName(ui.oneDrive).setDesc(ui.signInWaiting);
+			rowIcon(row, 'lucide-cloud');
+			// The page may open in a tab the user does not see (or a sign-in of another app may take the place).
+			row.addExtraButton(button => button.setIcon('lucide-external-link').setTooltip(ui.reopenSignIn).onClick(() => this.host.microsoft.reopenSignIn()));
+			row.addExtraButton(button => button.setIcon('lucide-x').setTooltip(ui.cancelSignIn).onClick(() => this.host.microsoft.cancelSignIn()));
 		}
+		// Where notebooks come from: OneDrive itself first, then what was downloaded from its website.
+		const add = (name: string, desc: string, kind: 'both' | 'zip' | 'folder' | 'onedrive') => {
+			const row = new Setting(listEl).setClass('mod-add-item').setName(name);
+			// What it does: beside the name, in quiet text, while the row is pointed at or focused, so
+			// the rows stay one line each and nothing floats over the window. Read out by screen readers.
+			row.nameEl.createSpan({ cls: 'onenote-ferry-add-hint', text: desc });
+			row.settingEl.setAttr('aria-description', desc);
+			rowIcon(row, 'lucide-plus');
+			rowAction(row, byKeyboard => void (kind === 'onedrive' ? this.fromOneDrive() : this.choose(kind, byKeyboard)));
+		};
+		if (!this.signingIn && !session.downloads.some(download => download.onedrive)) {
+			add(session.entry === 'update' ? ui.chooseOneDriveUpdate : ui.chooseOneDrive, this.host.microsoft.signedIn ? ui.oneDriveAddDescSignedIn : ui.oneDriveAddDesc, 'onedrive');
+		}
+		// One open dialog picks zips and folders together only on macOS.
+		if (BOTH_IN_ONE_DIALOG) add(ui.chooseBoth, ui.downloadedDesc, 'both');
+		else {
+			add(ui.chooseZips, ui.downloadedDesc, 'zip');
+			add(ui.chooseFolders, ui.downloadedDesc, 'folder');
+		}
+	}
+
+	/**
+	 * The OneDrive row, as it stands: being read (how far, with a way to stop), not readable (why,
+	 * and again), downloading (how far), or read (how many notebooks, what is read, where else to look).
+	 */
+	private drawOneDrive(listEl: HTMLElement, download: ChosenDownload): void {
+		const ui = this.ui;
+		const session = this.session;
+		const source = download.onedrive!;
+		const row = new Setting(listEl).setName(ui.oneDrive);
+		rowIcon(row, 'lucide-cloud');
+		const progress = (fraction: number | undefined) => {
+			// Not known yet how much there is: a line that slides, as Obsidian's own loading does.
+			const holder = row.descEl.createDiv(`onenote-ferry-row-progress${fraction === undefined ? ' onenote-ferry-indeterminate' : ''}`);
+			new ProgressBarComponent(holder).setValue(fraction === undefined ? 30 : Math.floor(fraction * 100));
+		};
+		const d = session.downloading;
+		if (download.state === 'reading') {
+			const reading = source.reading;
+			row.setDesc(reading?.total ? ui.oneDriveReadingCount(reading.done, reading.total) : ui.oneDriveFinding);
+			progress(reading?.total ? reading.done / reading.total : undefined);
+		}
+		else if (download.state === 'failed') {
+			row.setDesc(download.error ?? '');
+			row.descEl.addClass('onenote-ferry-warning');
+			row.addExtraButton(button => button.setIcon('lucide-rotate-cw').setTooltip(ui.retry).onClick(() => void session.addOneDrive(source.access)));
+		}
+		else if (d) {
+			row.setDesc(ui.downloadingFiles(d.files, d.totalFiles, formatBytes(d.bytes), formatBytes(d.totalBytes)));
+			progress(d.totalBytes ? d.bytes / d.totalBytes : undefined);
+		}
+		else {
+			row.setDesc(download.notebooks.length ? ui.notebooksFound(download.notebooks.length) : ui.noNotebooks);
+			// Last time's list, shown at once: OneDrive is being asked for its list now (the bottom line says so).
+			if (source.refreshing) progress(undefined);
+			if (download.error) row.descEl.createDiv({ text: download.error, cls: 'onenote-ferry-warning' });
+			row.addExtraButton(button => button.setIcon('lucide-folder-search').setTooltip(ui.otherFolder).onClick(() => this.lookInFolder(source)));
+		}
+		// Removing it stops whatever it is doing.
+		row.addExtraButton(button => button.setIcon('lucide-x').setTooltip(ui.remove).onClick(() => session.remove(download)));
+	}
+
+	/** Adds OneDrive, signing in first when not signed in (in the system browser). */
+	private async fromOneDrive(): Promise<void> {
+		if (this.signingIn) return;
+		const account = this.host.microsoft;
+		if (!account.signedIn) {
+			this.signingIn = true;
+			if (this.sourceList) this.drawSource(this.sourceList);
+			try {
+				await account.signIn();
+			}
+			catch (error) {
+				// Cancelled here (the row's x): nothing to say.
+				if (!(error instanceof SignInError && error.problem === 'cancelled' && !error.detail)) new Notice(oneDriveMessage(error, this.ui));
+				return;
+			}
+			finally {
+				this.signingIn = false;
+				if (this.containerEl.isConnected && this.sourceList) this.drawSource(this.sourceList);
+			}
+		}
+		if (!this.containerEl.isConnected) return;
+		await this.session.addOneDrive(this.host.oneDrive());
+	}
+
+	/** "Look in another folder": the drive as a tree of folders, notebooks ticked in it join the list. */
+	private lookInFolder(source: NonNullable<ChosenDownload['onedrive']>): void {
+		const listed = new Set([...source.notebooks.values()].map(entry => entry.notebook.id));
+		new NotebookPicker(this.app, this.ui, this.host.oneDrive(), listed, notebooks => void this.session.addOneDrive(source.access, notebooks)).open();
 	}
 
 	private async choose(kind: 'both' | 'zip' | 'folder', byKeyboard = false): Promise<void> {
@@ -392,7 +503,8 @@ export class ImportWizard extends Modal {
 		listEl.empty();
 		const rows: (() => void)[] = [];
 		// Nothing chosen yet: the place says what will come here, so the page keeps its shape.
-		if (!session.choices.length) listEl.createDiv({ cls: 'onenote-ferry-tree-placeholder', text: this.ui.treeEmpty });
+		const oneDriveReading = session.downloads.some(download => download.onedrive && download.state === 'reading');
+		if (!session.choices.length) listEl.createDiv({ cls: 'onenote-ferry-tree-placeholder', text: oneDriveReading ? this.ui.oneDriveTreeWaiting : this.ui.treeEmpty });
 		// One notebook in all: open from the start.
 		if (session.choices.length === 1) this.expanded.add(this.rowId(session.choices[0]!, ''));
 		const many = session.downloads.filter(download => download.notebooks.length).length > 1;
@@ -418,7 +530,8 @@ export class ImportWizard extends Modal {
 		el.setText(flair.text);
 		el.toggleClass('onenote-ferry-flair-strong', flair.tone === 'strong');
 		el.toggleClass('onenote-ferry-flair-warn', flair.tone === 'warn');
-		if (flair.tip) setTooltip(el, flair.tip, { placement: 'top' });
+		// Why, on hover: a quiet card in the window's own colours rather than Obsidian's dark bubble.
+		if (flair.tip) setTooltip(el, flair.tip, { placement: 'top', gap: 6, classes: ['onenote-ferry-tip'] });
 		else el.removeAttribute('aria-label');
 	}
 
@@ -439,6 +552,15 @@ export class ImportWizard extends Modal {
 		const box = inner.createEl('input', { type: 'checkbox', cls: 'file-tree-item-checkbox' });
 		setIcon(inner.createDiv('file-tree-item-icon'), kind === 'notebook' ? 'lucide-notebook' : kind === 'group' ? 'lucide-folder' : 'lucide-file-text');
 		const title = inner.createDiv({ cls: 'file-tree-item-title', text: node.title });
+		// A OneDrive notebook: where it is (on hover); beside the name when another has the same name.
+		const where = kind === 'notebook' ? session.oneDriveFolder(choice) : undefined;
+		if (where !== undefined) {
+			const place = where ? `${this.ui.oneDrive} / ${where.split('/').join(' / ')}` : this.ui.oneDrive;
+			title.setAttr('title', `${place} / ${choice.originalName}`);
+			if (session.choices.filter(other => other.download === choice.download && other.originalName === choice.originalName).length > 1) {
+				inner.createDiv({ cls: 'onenote-ferry-where onenote-ferry-muted', text: place });
+			}
+		}
 		const flair = self.createDiv('tree-item-flair-outer').createSpan('tree-item-flair');
 		const children = treeItem.createDiv('tree-item-children');
 
@@ -600,7 +722,11 @@ export class ImportWizard extends Modal {
 			const both = node.sections.some((section, i) => states[i] === 'changed' && session.itemOf(choice, section)?.modified.some(page => page.userEdited));
 			return { text: ui.sectionsChanged(changed), tone: both ? 'warn' : 'strong' };
 		}
-		return states.every(state => QUIET.has(state)) ? { text: ui.unchanged } : { text: '' };
+		if (!states.every(state => QUIET.has(state))) return { text: '' };
+		// Imported in part, the rest left unticked then: "no changes" would read as all of it being there.
+		const skipped = states.filter(state => state === 'skipped').length;
+		if (skipped && states.some(state => IMPORTED.has(state))) return { text: ui.partlyImported, tip: ui.partlyImportedTip(skipped) };
+		return { text: ui.unchanged };
 	}
 
 	/** The word for a section (or a group of sections) in one state. */
@@ -654,7 +780,15 @@ export class ImportWizard extends Modal {
 		this.refresh = () => {
 			const p = session.progress;
 			const time = ui.elapsed(elapsed(Date.now() - session.startedAt));
-			if (!p) {
+			const d = session.downloading;
+			if (d) {
+				// Sections chosen from OneDrive coming down before the import.
+				count.setText(`${ui.statusDownloading(Math.min(d.files + 1, d.totalFiles), d.totalFiles)} · ${time}`);
+				bar.setValue(d.totalBytes ? Math.floor((d.bytes / d.totalBytes) * 100) : 0);
+				name.setText(d.current ?? '');
+				name.setAttribute('title', d.current ?? '');
+			}
+			else if (!p) {
 				count.setText(`${ui.statusReading} · ${time}`);
 				bar.setValue(0);
 				name.setText('');
@@ -732,6 +866,8 @@ export class ImportWizard extends Modal {
 				if (mine(notebook).some(section => section.cancelled) && mine(notebook).some(section => !section.cancelled)) notes.push(ui.partial(notebook.notebook));
 			}
 		}
+		// Sections chosen from OneDrive that could not be downloaded (password-protected ones are counted with those not converted).
+		if (session.notDownloaded) notes.push(ui.leftOutNotDownloaded(session.notDownloaded));
 		if (notes.length) {
 			const list = box.createEl('ul', { cls: 'onenote-ferry-result-notes' });
 			for (const note of notes) list.createEl('li', { text: note });
@@ -753,5 +889,124 @@ export class ImportWizard extends Modal {
 			void this.app.workspace.getLeaf(true).openFile(file);
 			this.close();
 		});
+	}
+}
+
+/**
+ * "Look in another folder": the drive as a tree, the way Finder and the import window show folders.
+ * Folders open where they are (what is in them is read when first opened); notebooks are ticked;
+ * "Add" adds the ticked ones. Notebooks already in the list show so, and cannot be ticked again.
+ */
+class NotebookPicker extends Modal {
+	private readonly ui: UiStrings;
+	private readonly browse: OneDriveBrowse;
+	private readonly listed: ReadonlySet<string>;
+	private readonly add: (notebooks: RemoteNotebook[]) => void;
+	private readonly ticked = new Map<string, RemoteNotebook>();
+	private summaryEl!: HTMLElement;
+	private addButton!: ButtonComponent;
+
+	constructor(app: App, ui: UiStrings, browse: OneDriveBrowse, listed: ReadonlySet<string>, add: (notebooks: RemoteNotebook[]) => void) {
+		super(app);
+		this.ui = ui;
+		this.browse = browse;
+		this.listed = listed;
+		this.add = add;
+		this.setTitle(ui.folderPickerTitle);
+		this.modalEl.addClass('onenote-ferry-picker');
+	}
+
+	onOpen(): void {
+		const ui = this.ui;
+		this.contentEl.empty();
+		const tree = this.contentEl.createDiv('import-section file-tree publish-section onenote-ferry-tree onenote-ferry-picker-tree').createDiv('publish-change-list');
+		void this.fill(tree);
+		const footer = this.contentEl.createDiv('onenote-ferry-footer');
+		this.summaryEl = footer.createDiv({ cls: 'onenote-ferry-summary', text: ui.pickerHint });
+		const buttons = footer.createDiv('modal-button-container');
+		new ButtonComponent(buttons).setButtonText(ui.cancel).onClick(() => this.close());
+		this.addButton = new ButtonComponent(buttons).setButtonText(ui.addNotebooks).setCta().setDisabled(true).onClick(() => {
+			this.close();
+			this.add([...this.ticked.values()]);
+		});
+	}
+
+	private changed(): void {
+		this.summaryEl.setText(this.ticked.size ? this.ui.pickerChosen(this.ticked.size) : this.ui.pickerHint);
+		this.addButton.setDisabled(!this.ticked.size);
+	}
+
+	/** Fills `parent` with what the folder holds (the top of the drive without an ID): folders first, then notebooks. */
+	private async fill(parent: HTMLElement, folderId?: string): Promise<void> {
+		const waiting = this.line(parent, 'lucide-loader', this.ui.reading, true);
+		let children: Awaited<ReturnType<OneDriveBrowse['children']>>;
+		try {
+			children = await this.browse.children(folderId);
+		}
+		catch (error) {
+			waiting.remove();
+			this.line(parent, 'lucide-circle-alert', String((error as Error)?.message ?? error), true).addClass('onenote-ferry-warning');
+			return;
+		}
+		waiting.remove();
+		const byName = <T extends { name: string }>(items: T[]) => [...items].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+		for (const folder of byName(children.folders)) this.folderRow(parent, folder);
+		for (const notebook of byName(children.notebooks)) this.notebookRow(parent, notebook);
+		if (!children.folders.length && !children.notebooks.length) this.line(parent, 'lucide-folder-open', this.ui.folderEmpty, true);
+	}
+
+	/** A line that is not a choice (reading, empty, an error). */
+	private line(parent: HTMLElement, icon: string, text: string, muted: boolean): HTMLElement {
+		const item = parent.createDiv('tree-item');
+		const inner = item.createDiv('tree-item-self mod-file').createDiv('tree-item-inner file-tree-item');
+		setIcon(inner.createDiv('file-tree-item-icon'), icon);
+		inner.createDiv({ cls: `file-tree-item-title${muted ? ' onenote-ferry-muted' : ''}`, text });
+		return item;
+	}
+
+	private folderRow(parent: HTMLElement, folder: { id: string, name: string }): void {
+		const item = parent.createDiv('tree-item is-collapsed');
+		const self = item.createDiv('tree-item-self is-clickable mod-folder mod-collapsible');
+		const arrow = self.createDiv('tree-item-icon collapse-icon is-collapsed');
+		setIcon(arrow, 'right-triangle');
+		const inner = self.createDiv('tree-item-inner file-tree-item');
+		setIcon(inner.createDiv('file-tree-item-icon'), 'lucide-folder');
+		inner.createDiv({ cls: 'file-tree-item-title', text: folder.name });
+		const children = item.createDiv('tree-item-children');
+		children.hide();
+		let filled = false;
+		self.addEventListener('click', () => {
+			const open = item.hasClass('is-collapsed');
+			item.toggleClass('is-collapsed', !open);
+			arrow.toggleClass('is-collapsed', !open);
+			children.toggle(open);
+			if (open && !filled) {
+				filled = true;
+				void this.fill(children, folder.id);
+			}
+		});
+	}
+
+	private notebookRow(parent: HTMLElement, notebook: RemoteNotebook): void {
+		const listed = this.listed.has(notebook.id);
+		const self = parent.createDiv('tree-item').createDiv(`tree-item-self mod-file${listed ? ' is-disabled' : ' is-clickable'}`);
+		const inner = self.createDiv('tree-item-inner file-tree-item');
+		const box = inner.createEl('input', { type: 'checkbox', cls: 'file-tree-item-checkbox' });
+		box.checked = listed;
+		box.disabled = listed;
+		setIcon(inner.createDiv('file-tree-item-icon'), 'lucide-notebook');
+		inner.createDiv({ cls: 'file-tree-item-title', text: notebook.name });
+		if (listed) self.createDiv('tree-item-flair-outer').createSpan({ cls: 'tree-item-flair', text: this.ui.alreadyListed });
+		if (listed) return;
+		const toggle = (on: boolean) => {
+			box.checked = on;
+			if (on) this.ticked.set(notebook.id, notebook);
+			else this.ticked.delete(notebook.id);
+			this.changed();
+		};
+		self.addEventListener('click', event => {
+			if (event.target !== box) toggle(!box.checked);
+		});
+		box.addEventListener('change', () => toggle(box.checked));
 	}
 }

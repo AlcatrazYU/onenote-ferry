@@ -501,3 +501,117 @@ test('of two downloads of one notebook, the newer is told by the pages both have
 	assert.deepEqual(s.included().map(choice => choice.download.input), ['fresh']);
 	assert.deepEqual(states(s, 0), ['duplicate']);
 });
+
+// OneDrive as a source (Internal-10 §22.1, §22.2): listed without downloading, downloaded when needed.
+
+const { filesToFetch } = await import('../src/plugin/session.ts');
+
+/** A OneDrive account with made-up notebooks: what is copied is recorded, nothing is downloaded. */
+function fakeOneDrive(notebooks: { id: string, name: string, files: string[] }[], failing: string[] = []) {
+	const copies: { notebook: string, only?: string[] }[] = [];
+	const filesOf = (id: string) => notebooks.find(n => n.id === id)!.files.map((path, i) => ({ id: `${id}-${i}`, path, size: 10, eTag: '"1"' }));
+	const access = {
+		root: async () => '/copy',
+		notebooks: async () => notebooks.map(n => ({ id: n.id, name: n.name, folder: '文档' })),
+		files: async (id: string) => filesOf(id),
+		copy: async (notebook: { name: string }, files: { path: string, id: string }[], only?: ReadonlySet<string>) => {
+			copies.push({ notebook: notebook.name, only: only ? [...only].sort() : undefined });
+			const failed = files.filter(file => failing.includes(file.path) && (!only || only.has(file.id))).map(file => ({ path: file.path, problem: 'unreachable' as const, detail: 'offline' }));
+			return { folder: '', downloaded: 0, bytes: 0, moved: 0, removed: 0, same: 0, failed, plan: { download: [], move: [], remove: [], same: [] } };
+		},
+	};
+	return { access, copies };
+}
+
+async function oneDriveSession(files: Record<string, string>, drive: ReturnType<typeof fakeOneDrive>, pages: Record<string, ScannedPage[]> = {}) {
+	const client = new FakeClient({});
+	client.pages = pages;
+	const s = new ImportSession(fakeApp(files), client as never, DEFAULTS, 'zh-Hans');
+	await s.addOneDrive(drive.access as never);
+	await settled(s);
+	return { s, client };
+}
+
+test('OneDrive: notebooks and sections are listed from OneDrive, none ticked, nothing downloaded', async () => {
+	const drive = fakeOneDrive([
+		{ id: 'n2', name: 'Tides', files: ['Spring.one', 'Open Notebook.onetoc2', 'Group/Summer.one', 'Group/Open Notebook.onetoc2'] },
+		{ id: 'n1', name: 'Atlas', files: ['A.one'] },
+		{ id: 'n3', name: 'Tides', files: ['X.one'] },
+		{ id: 'n4', name: 'Empty', files: [] },
+	]);
+	const { s } = await oneDriveSession({}, drive);
+	assert.equal(s.downloads[0]!.name, 'OneDrive');
+	assert.equal(s.downloads[0]!.input, '/copy');
+	assert.deepEqual(names(s), ['Atlas', 'Tides', 'Tides']);
+	const tides = s.choices[1]!;
+	assert.deepEqual(tides.notebook.sections.map(section => [section.groups.join('/'), section.label, section.path]), [['', 'Spring', 'n2/Tides/Spring.one'], ['Group', 'Summer', 'n2/Tides/Group/Summer.one']]);
+	assert.deepEqual(s.included(), []);
+	assert.deepEqual(drive.copies, []);
+	// Ticked, two notebooks of one name are told apart, as with downloads.
+	s.selectAll(true);
+	await settled(s);
+	assert.deepEqual(names(s), ['Atlas', 'Tides', 'Tides (2)']);
+	assert.equal(s.counts().sections, 4);
+	assert.deepEqual(drive.copies, [], 'ticking downloads nothing');
+});
+
+test('OneDrive: a notebook imported before is brought up to date whole before it is read; a section that could not be downloaded is not read from the copy', async () => {
+	const { files, pages } = importedTides();
+	const sections = ['Spring', 'Summer', 'Autumn', 'Older', 'Fresh', 'Skipped', 'Lost'];
+	const drive = fakeOneDrive([{ id: 'n1', name: 'Tides', files: [...sections.map(name => `${name}.one`), 'Open Notebook.onetoc2'] }], ['Summer.one']);
+	const oneDrivePages = Object.fromEntries(Object.entries(pages).map(([path, list]) => [`n1/${path}`, list]));
+	const { s, client } = await oneDriveSession(files, drive, oneDrivePages);
+	assert.deepEqual(drive.copies, [{ notebook: 'Tides', only: undefined }], 'the whole notebook, once');
+	// Sections come sorted by name, as from a downloaded folder.
+	const [choice] = s.choices as [typeof s.choices[0]];
+	const byLabel = Object.fromEntries(choice.notebook.sections.map(section => [section.label, [s.sectionState(choice, section), s.isChosen(choice, section)]]));
+	assert.deepEqual(byLabel, {
+		Spring: ['changed', true], Summer: ['unreadable', false], Autumn: ['restorable', false], Older: ['older', false],
+		Fresh: ['new', true], Skipped: ['skipped', false], Lost: ['missing', false],
+	});
+	assert.equal(client.scanned, 6, 'the section not downloaded is not read');
+});
+
+test('OneDrive: an import downloads the chosen sections and every table of contents, nothing else', () => {
+	const files = ['Spring.one', 'Open Notebook.onetoc2', 'Group/Summer.one', 'Group/Open Notebook.onetoc2', 'Autumn.one'].map((path, i) => ({ id: `f${i}`, path, size: 1, eTag: '"1"' }));
+	assert.deepEqual([...filesToFetch('n1/Tides', files, ['n1/Tides/Group/Summer.one'])].sort(), ['f1', 'f2', 'f3']);
+});
+
+test('OneDrive: the list kept from last time shows at once; OneDrive\'s answer then adds, removes and updates notebooks, keeping ticks', async () => {
+	const remote = (id: string, name: string) => ({ id, name, folder: '文档' });
+	const file = (id: string, path: string) => ({ id, path, size: 10, eTag: '"1"' });
+	let release!: () => void;
+	const asked = new Promise<void>(resolve => release = resolve);
+	const kept: unknown[] = [];
+	const access = {
+		root: async () => '/copy',
+		kept: async () => ({ root: '/copy', notebooks: [
+			{ notebook: remote('a', 'Atlas'), files: [file('a1', 'One.one')] },
+			{ notebook: remote('b', 'Bygone'), files: [file('b1', 'Old.one')] },
+		] }),
+		keep: async (_root: string, notebooks: unknown[]) => void kept.push(notebooks),
+		notebooks: async () => {
+			await asked;
+			return [remote('a', 'Atlas'), remote('c', 'Cove')];
+		},
+		files: async (id: string) => id === 'a' ? [file('a1', 'One.one'), file('a2', 'Two.one')] : [file('c1', 'Bay.one')],
+		copy: async () => assert.fail('nothing is downloaded'),
+	};
+	const client = new FakeClient({});
+	const s = new ImportSession(fakeApp({}), client as never, DEFAULTS, 'zh-Hans');
+	const adding = s.addOneDrive(access as never);
+	await new Promise(r => setTimeout(r, 20));
+	// Last time's list, at once: tickable, but nothing can start before OneDrive has answered.
+	assert.deepEqual(names(s), ['Atlas', 'Bygone']);
+	assert.equal(s.downloads[0]!.onedrive!.refreshing, true);
+	s.setSections(s.choices[0]!, s.choices[0]!.notebook.sections, true);
+	assert.equal(s.ready, false);
+	release();
+	await adding;
+	await settled(s);
+	assert.deepEqual(names(s), ['Atlas', 'Cove']);
+	const atlas = s.choices[0]!;
+	assert.deepEqual(atlas.notebook.sections.map(section => [section.label, s.isChosen(atlas, section)]), [['One', true], ['Two', false]]);
+	assert.equal(s.ready, true);
+	assert.equal(kept.length, 1, 'the new list is kept for next time');
+});

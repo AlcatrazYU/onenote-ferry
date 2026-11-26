@@ -159,6 +159,8 @@ test('pages OneNote changed and added: the result is what importing the new vers
 	assert.match(record, /- 修改：\[One\]\(<\.\.\/Tides\/Spring\/One\.md>\)（\[更新前\]\(<\.\.\/_旧版本\/2026-12-01 1430\/Tides\/Spring\/One\.md>\)）/);
 	assert.match(record, /- OneNote 中已移除，保留在原处：\[Two\]\(<\.\.\/Tides\/Spring\/Two\.md>\)/);
 	assert.match(record, /1 页仅调整了顺序或层级/);
+	// The opening says what the record covers and links the report, the overview of every notebook.
+	assert.match(record, /本页记录这次更新对已导入的笔记本做了什么，包括补进的分区。更新前的版本在“\\_旧版本\/2026-12-01 1430”中，.*所有笔记本的总览见\[\\_转换报告\]\(<\.\.\/_转换报告\.md>\)。/);
 	assert.match(textOf(vault, '_转换报告.md')!, /这次更新了已导入的笔记，详见\[更新记录 2026-12-01 14:30\]\(<_更新记录\/2026-12-01 1430\.md>\)。/);
 	const journal = textOf(vault, '_更新记录/2026-12-01 1430.jsonl')!;
 	assert.match(journal, /\{"t":"end"\}\n$/);

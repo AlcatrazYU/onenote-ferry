@@ -95,6 +95,8 @@ export interface UpdateOptions {
 	links: boolean;
 	/** The downloads (file or folder names, not full paths). */
 	sources: string[];
+	/** The run imported new notebooks first: the time its report gave that import (the report's last import then covers both). */
+	joins?: string;
 }
 
 export interface UpdateResult {
@@ -140,6 +142,8 @@ interface StartEntry {
 	backup: string;
 	record: string;
 	journal: string;
+	/** See UpdateOptions.joins. */
+	joins?: string;
 }
 
 /** A section in a notebook's contents page and report: as it is, or as an update leaves it. */
@@ -1094,6 +1098,7 @@ export async function updateNotebooks(requests: UpdateRequest[], host: UpdateHos
 	const start: StartEntry = {
 		t: 'start', at: options.at.toISOString(), reader: languageOf(reader), sources: options.sources, links: options.links, defaults: options.defaults,
 		backup: joinPath(oldRoot, stamp), record: joinPath(logRoot, `${stamp}.md`), journal: joinPath(logRoot, `${stamp}.jsonl`),
+		...(options.joins !== undefined ? { joins: options.joins } : {}),
 	};
 	const journal = new Journal(vault, start.journal);
 	await journal.add(start);
@@ -1447,7 +1452,8 @@ function attentionOf(state: RunState): UpdateAttention {
 }
 
 /** The record of an update: what changed, and what needs the reader's attention. */
-function recordMarkdown(state: RunState, backupMade: boolean): string {
+/** The record's page. `reportName`: the folder's report (without `.md`), which the opening links to. */
+function recordMarkdown(state: RunState, backupMade: boolean, reportName: string): string {
 	const reader = STRINGS[state.start.reader];
 	const u = reader.update, r = reader.report;
 	const here = parentOf(state.start.record);
@@ -1457,7 +1463,7 @@ function recordMarkdown(state: RunState, backupMade: boolean): string {
 	const done = state.sections.filter(run => run.outcome === 'done').map(run => run.entry);
 	const counts = countsOf(state);
 	const title = u.title(reportTime(state.start.at));
-	const lines = ['---', `title: ${JSON.stringify(title)}`, '---', '', `# ${title}`, '', u.intro(backupMade ? text(state.start.backup) : undefined), ''];
+	const lines = ['---', `title: ${JSON.stringify(title)}`, '---', '', `# ${title}`, '', u.intro(backupMade ? text(state.start.backup) : undefined, link(reportName, to(`${reportName}.md`))), ''];
 	lines.push(`- ${r.time(reportTime(state.start.at))}`, `- ${r.source(state.start.sources.map(text))}`, `- ${u.counts(counts)}`);
 	if (state.stopped || notReached(state).length) lines.push(`- ${u.stopped}`);
 	if (state.resumed) lines.push(`- ${u.resumed}`);
@@ -1551,11 +1557,12 @@ async function finish(host: Pick<UpdateHost, 'vault' | 'listFolders'>, ctx: Cont
 	const { name } = await writeReport(vault, reader, { ...importResult(state), ...(state.links && state.start.links ? { links: state.links } : {}) }, {
 		at: new Date(state.start.at), sources: state.start.sources, options: state.start.defaults,
 		optionsOf: dir => options.get(fold(dir)), update: state.start.record,
+		...(typeof state.start.joins === 'string' ? { joins: state.start.joins } : {}),
 	}, await host.listFolders(), await reportBefore(ctx));
 	// A page or attachment was replaced (not only contents pages or the report, kept every time): the record points to the previous versions.
 	const ownFiles = new Set([...ALL_TOC_NAMES.map(name => `${name}.md`), ...LANGUAGES.flatMap(language => [`${STRINGS[language].reportName}.json`, `${STRINGS[language].reportName}.md`])].map(fold));
 	const backupMade = (await vault.listFiles(state.start.backup)).some(path => !ownFiles.has(fold(baseName(path))));
-	await vault.writeText(state.start.record, recordMarkdown(state, backupMade));
+	await vault.writeText(state.start.record, recordMarkdown(state, backupMade, name));
 	await journal.add({ t: 'end' });
 	const outcome = (n: number, key: string): SectionOutcome | 'not reached' => {
 		const run = state.sections.find(candidate => candidate.entry.n === n && candidate.entry.key === key);

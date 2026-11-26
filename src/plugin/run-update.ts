@@ -30,6 +30,8 @@ export interface UpdateRunRequest {
 	defaults: SectionOptions;
 	/** The downloads (file or folder names). */
 	sources: string[];
+	/** The run imported new notebooks first: the time its report gave that import. */
+	joins?: string;
 	isCancelled?(): boolean;
 	onProgress?(progress: ImportProgress): void;
 }
@@ -123,6 +125,7 @@ export async function runUpdate(app: App, client: WorkerClient, request: UpdateR
 			defaults: request.defaults,
 			links: true,
 			sources: request.sources,
+			...(request.joins !== undefined ? { joins: request.joins } : {}),
 		});
 	}
 	finally {

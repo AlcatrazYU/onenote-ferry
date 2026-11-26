@@ -8,7 +8,7 @@
 // chosen, the new ones are imported first and the others updated after.
 
 import type { App } from 'obsidian';
-import { distinctNames, renameNotebook } from '../core/download.ts';
+import { distinctNames, findNotebooks, renameNotebook } from '../core/download.ts';
 import type { DownloadNotebook, DownloadSection } from '../core/download.ts';
 import { earlierNotebook, sectionKey } from '../core/importer.ts';
 import type { EarlierNotebook, ImportProgress, SectionOptions } from '../core/importer.ts';
@@ -20,8 +20,12 @@ import { planNotebook, readArchive } from '../core/sync.ts';
 import type { Archive, NotebookPlan, PagePlan, PlanItem, ScannedPage, ScannedSection } from '../core/sync.ts';
 import { recordedPlanOptions } from '../core/update.ts';
 import type { UpdateResult } from '../core/update.ts';
+import { nameCollator } from '../core/names.ts';
+import type { RemoteFile, RemoteNotebook } from '../core/onedrive.ts';
 import { notebookFolder } from '../core/write.ts';
 import type { IncompleteZip } from '../node/download.ts';
+import { isLockedFile, notebookPath } from '../node/mirror.ts';
+import type { CopyProgress, CopyResult } from '../node/mirror.ts';
 import { AlreadyThereError, downloadName, runImport } from './run-import.ts';
 import type { ImportOutcome } from './run-import.ts';
 import { finishCutOff, runUpdate } from './run-update.ts';
@@ -30,7 +34,66 @@ import { VaultSink } from './vault-sink.ts';
 import { ConverterStopped } from './worker-client.ts';
 import type { WorkerClient } from './worker-client.ts';
 
+/** What the session needs of the signed-in OneDrive account (the plugin gives it; §11.5 items 61 to 63, Internal-10 §22). */
+export interface OneDriveAccess {
+	/** The account's local copy folder: what the import reads, laid out as a download. */
+	root(): Promise<string>;
+	/** The user's notebooks (Documents, and found elsewhere by search). */
+	notebooks(): Promise<RemoteNotebook[]>;
+	/** A notebook's sections and tables of contents. */
+	files(notebookId: string): Promise<RemoteFile[]>;
+	/** The list of notebooks kept from the last time, to show at once while OneDrive is asked again (none the first time). */
+	kept?(): Promise<{ root: string, notebooks: KeptNotebook[] } | undefined>;
+	/** Keeps the list for next time. */
+	keep?(root: string, notebooks: KeptNotebook[]): Promise<void>;
+	/** Brings the local copy of a notebook up to date (only the files in `only`, when given). */
+	copy(notebook: RemoteNotebook, files: RemoteFile[], only: ReadonlySet<string> | undefined, signal: AbortSignal, onProgress: (progress: CopyProgress) => void): Promise<CopyResult>;
+}
+
+/** A notebook as kept in the list for next time: `extra` when the user added it from another folder. */
+export interface KeptNotebook {
+	notebook: RemoteNotebook;
+	files: RemoteFile[];
+	extra?: boolean;
+}
+
+/** A OneDrive source: its notebooks are listed from OneDrive, and downloaded into the local copy only when needed. */
+export interface OneDriveSource {
+	access: OneDriveAccess;
+	/** Each notebook's OneDrive item, files and place in the tree, by its folder's path in the copy (`<ID>/<name>`). */
+	notebooks: Map<string, KeptNotebook & { listed?: DownloadNotebook }>;
+	/** Notebooks whose copy was brought up to date in this window (by OneDrive item ID). */
+	refreshed: Set<string>;
+	/** Sections that could not be downloaded, by path in the copy, with why. */
+	failed: Map<string, string>;
+	/** Stops its listing and downloads (removed, window closed, import stopped). */
+	controller: AbortController;
+	/** While its notebooks are listed: how many are, of how many (unknown while they are being found). */
+	reading?: { done: number, total?: number };
+	/** The list kept from last time is shown, and OneDrive is being asked what changed since. */
+	refreshing?: boolean;
+}
+
+/**
+ * The files of a OneDrive notebook to download for an import of some of its sections: those
+ * sections, and every table of contents (the notebook's and its groups'), by OneDrive item ID.
+ * `notebookPath` is the notebook's folder in the copy; sections are given by their paths there.
+ */
+export function filesToFetch(notebookPath: string, files: RemoteFile[], sectionPaths: string[]): Set<string> {
+	const wanted = new Set(sectionPaths);
+	return new Set(files.filter(file => /\.onetoc2$/i.test(file.path) || wanted.has(`${notebookPath}/${file.path}`)).map(file => file.id));
+}
+
+/** Runs `work` on each item, `limit` at a time. */
+async function eachLimited<T>(items: T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
+	let next = 0;
+	await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+		while (next < items.length) await work(items[next++]!);
+	}));
+}
+
 export interface ChosenDownload {
+	/** A zip or a folder; for OneDrive, the account's local copy folder. */
 	input: string;
 	name: string;
 	state: 'reading' | 'ready' | 'failed';
@@ -41,6 +104,8 @@ export interface ChosenDownload {
 	stopped?: boolean;
 	/** Paths of its password-protected sections, once looked for. */
 	locked?: Set<string>;
+	/** The user's OneDrive, read through the Microsoft account. */
+	onedrive?: OneDriveSource;
 }
 
 export interface NotebookChoice {
@@ -157,6 +222,10 @@ export class ImportSession {
 	checkingUpdates = false;
 	/** Why the target folder could not be looked at, if it could not. */
 	folderError?: string;
+	/** Files being downloaded from OneDrive (into the local copy), while they are. */
+	downloading?: CopyProgress;
+	/** Sections chosen from OneDrive that could not be downloaded when the import started (left out). */
+	notDownloaded = 0;
 	/** The import is about to start: the target folder is looked at once more. */
 	private starting = false;
 	/** Names given again after a look at the target folder, since the user last changed anything (see lookUp). */
@@ -240,10 +309,247 @@ export class ImportSession {
 
 	remove(download: ChosenDownload): void {
 		if (!this.open) return;
+		download.onedrive?.controller.abort();
 		const index = this.downloads.indexOf(download);
 		if (index >= 0) this.downloads.splice(index, 1);
 		this.rebuild();
 		this.changed();
+	}
+
+	/**
+	 * Adds the user's OneDrive as a source: its notebooks and their sections, listed without
+	 * downloading anything (a notebook is downloaded when it is imported, or checked for updates).
+	 * The list kept from last time shows at once, and OneDrive is asked what changed behind it.
+	 * With `notebooks` (found by the user in other folders), adds those. Answers how many it added.
+	 */
+	async addOneDrive(access: OneDriveAccess, notebooks?: RemoteNotebook[]): Promise<number> {
+		if (!this.open) return 0;
+		let download = this.downloads.find(one => one.onedrive);
+		if (download && (download.state === 'reading' || download.onedrive!.refreshing)) return 0;
+		const first = !download;
+		if (!download) {
+			download = { input: '', name: 'OneDrive', state: 'reading', notebooks: [], locked: new Set(),
+				onedrive: { access, notebooks: new Map(), refreshed: new Set(), failed: new Map(), controller: new AbortController() } };
+			this.downloads.push(download);
+		}
+		const source = download.onedrive!;
+		download.error = undefined;
+		if (notebooks) return this.addNotebooks(download, notebooks);
+		if (first) {
+			const kept = await access.kept?.().catch(() => undefined);
+			if (kept?.notebooks.length && this.open && this.downloads.includes(download)) {
+				download.input = kept.root;
+				for (const entry of kept.notebooks) source.notebooks.set(notebookPath(entry.notebook), { ...entry });
+				download.notebooks = this.listOneDrive(source);
+				download.state = 'ready';
+				this.rebuild();
+			}
+		}
+		const showing = download.state === 'ready' && source.notebooks.size > 0;
+		if (showing) source.refreshing = true;
+		else {
+			download.state = 'reading';
+			source.reading = { done: 0 };
+		}
+		this.changed();
+		const aborted = () => source.controller.signal.aborted || !this.open || !this.downloads.includes(download);
+		let count = 0;
+		try {
+			download.input = await access.root();
+			const found = await access.notebooks();
+			// Notebooks added from other folders before are asked about again too.
+			const extra = [...source.notebooks.values()].filter(entry => entry.extra && !found.some(one => one.id === entry.notebook.id)).map(entry => entry.notebook);
+			const all = [...found, ...extra];
+			if (source.reading) source.reading.total = all.length;
+			this.changed();
+			const next = new Map<string, KeptNotebook & { listed?: DownloadNotebook }>();
+			// Several at a time: one listing is a handful of small requests, mostly waiting for answers.
+			await eachLimited(all, 10, async notebook => {
+				if (aborted()) return;
+				const files = await access.files(notebook.id);
+				if (aborted()) return;
+				const path = notebookPath(notebook);
+				next.set(path, { notebook, files, listed: source.notebooks.get(path)?.listed, ...(extra.includes(notebook) ? { extra: true } : {}) });
+				if (source.reading) {
+					source.reading.done++;
+					this.changed();
+				}
+			});
+			if (aborted()) return 0;
+			source.notebooks = next;
+			count = found.length;
+			await access.keep?.(download.input, [...next.values()].map(({ notebook, files, extra: added }) => ({ notebook, files, ...(added ? { extra: true } : {}) }))).catch(() => undefined);
+		}
+		catch (error) {
+			source.reading = undefined;
+			source.refreshing = false;
+			if (aborted()) return 0;
+			download.error = message(error);
+			if (!source.notebooks.size) {
+				download.state = 'failed';
+				this.rebuild();
+				this.changed();
+				return 0;
+			}
+			// What was listed (or kept from last time) stays; why it could not be brought up to date is said.
+		}
+		source.reading = undefined;
+		source.refreshing = false;
+		if (aborted()) return 0;
+		download.notebooks = this.listOneDrive(source);
+		download.state = 'ready';
+		this.rebuild();
+		this.changed();
+		// Notebooks imported before are compared once their list is OneDrive's own.
+		void this.check();
+		return count;
+	}
+
+	/** Adds notebooks the user found in other folders to the OneDrive source. */
+	private async addNotebooks(download: ChosenDownload, notebooks: RemoteNotebook[]): Promise<number> {
+		const source = download.onedrive!;
+		const known = new Set([...source.notebooks.values()].map(entry => entry.notebook.id));
+		const fresh = notebooks.filter(notebook => !known.has(notebook.id));
+		if (!fresh.length) return 0;
+		download.state = 'reading';
+		source.reading = { done: 0, total: fresh.length };
+		this.changed();
+		try {
+			await eachLimited(fresh, 6, async notebook => {
+				if (source.controller.signal.aborted) return;
+				const files = await source.access.files(notebook.id);
+				source.notebooks.set(notebookPath(notebook), { notebook, files, extra: true });
+				source.reading!.done++;
+				this.changed();
+			});
+			await source.access.keep?.(download.input, [...source.notebooks.values()].map(({ notebook, files, extra }) => ({ notebook, files, ...(extra ? { extra: true } : {}) }))).catch(() => undefined);
+		}
+		catch (error) {
+			download.error = message(error);
+		}
+		source.reading = undefined;
+		if (!this.open || !this.downloads.includes(download)) return 0;
+		download.notebooks = this.listOneDrive(source);
+		download.state = 'ready';
+		this.rebuild();
+		this.changed();
+		return fresh.length;
+	}
+
+	/**
+	 * The notebooks of a OneDrive source, as a download of the local copy would show them: the tree
+	 * is built from OneDrive's file lists the way it is from a folder's, by name. A notebook listed
+	 * before keeps its place (and its ticks); its sections follow OneDrive's list.
+	 */
+	private listOneDrive(source: OneDriveSource): DownloadNotebook[] {
+		const fresh: DownloadNotebook[] = [];
+		const kept: DownloadNotebook[] = [];
+		for (const [path, entry] of source.notebooks) {
+			const found = findNotebooks(entry.files.map(file => ({ path: `${path}/${file.path}`, size: file.size })), 'OneDrive');
+			// A notebook without any section or table of contents shows nothing.
+			const built = found.length === 1 && found[0]!.path === path ? found[0]! : undefined;
+			if (!built) entry.listed = undefined;
+			else if (entry.listed) {
+				entry.listed.sections = built.sections.map(section => ({ ...section, notebook: entry.listed!.name }));
+				kept.push(entry.listed);
+			}
+			else {
+				entry.listed = built;
+				fresh.push(built);
+			}
+		}
+		distinctNames(fresh, kept.map(notebook => notebook.name));
+		return [...kept, ...fresh].sort((a, b) => nameCollator.compare(a.name, b.name));
+	}
+
+	/** The OneDrive folder a notebook of a OneDrive source is in (`学习/文档`; '' at the top), if it is one. */
+	oneDriveFolder(choice: NotebookChoice): string | undefined {
+		return choice.download.onedrive?.notebooks.get(choice.notebook.path)?.notebook.folder;
+	}
+
+	/** Looks at the first bytes of downloaded sections for a password (a OneDrive source's are only on disk once downloaded). */
+	private async lookForPasswords(download: ChosenDownload, sections: DownloadSection[]): Promise<void> {
+		const failed = download.onedrive?.failed;
+		for (const section of sections) {
+			if (failed?.has(section.path)) continue;
+			if (await isLockedFile(`${download.input}/${section.path}`).catch(() => false)) (download.locked ??= new Set()).add(section.path);
+		}
+	}
+
+	/**
+	 * Brings a OneDrive notebook imported before up to date in the local copy, whole (only files
+	 * changed in OneDrive are downloaded): its sections are then read like a download's (Internal-10
+	 * §22.2). Sections that could not be downloaded are not read from an older copy.
+	 */
+	private async refreshCopy(choice: NotebookChoice): Promise<void> {
+		const source = choice.download.onedrive;
+		const entry = source?.notebooks.get(choice.notebook.path);
+		if (!source || !entry || source.refreshed.has(entry.notebook.id)) return;
+		source.refreshed.add(entry.notebook.id);
+		try {
+			const result = await source.access.copy(entry.notebook, entry.files, undefined, source.controller.signal, progress => {
+				this.downloading = progress;
+				this.changed();
+			});
+			for (const failed of result.failed) source.failed.set(`${choice.notebook.path}/${failed.path}`, failed.detail);
+		}
+		catch (error) {
+			for (const section of choice.notebook.sections) source.failed.set(section.path, message(error));
+		}
+		finally {
+			this.downloading = undefined;
+		}
+		await this.lookForPasswords(choice.download, choice.notebook.sections);
+	}
+
+	/**
+	 * Downloads the sections chosen from OneDrive for the import (with their notebooks' tables of
+	 * contents) into the local copy. Sections that could not be downloaded are left out (and counted);
+	 * one with a password is converted no more than from a download: the import reports it.
+	 */
+	private async fetchChosen(fresh: NotebookChoice[], going: Set<DownloadSection>): Promise<void> {
+		const work: { source: OneDriveSource, notebook: RemoteNotebook, files: RemoteFile[], only: Set<string>, sections: DownloadSection[] }[] = [];
+		for (const choice of fresh) {
+			const source = choice.download.onedrive;
+			if (!source) continue;
+			const sections = choice.notebook.sections.filter(section => going.has(section));
+			const entry = source.notebooks.get(choice.notebook.path);
+			if (!entry || !sections.length) continue;
+			const only = filesToFetch(choice.notebook.path, entry.files, sections.map(section => section.path));
+			work.push({ source, notebook: entry.notebook, files: entry.files, only, sections });
+		}
+		const totalFiles = work.reduce((n, one) => n + one.only.size, 0);
+		const totalBytes = work.reduce((n, one) => n + one.files.filter(file => one.only.has(file.id)).reduce((m, file) => m + file.size, 0), 0);
+		let files = 0, bytes = 0;
+		for (const one of work) {
+			if (this.stopRequested) return;
+			const stop = () => one.source.controller.abort();
+			const off = this.onChange(() => {
+				if (this.stopRequested) stop();
+			});
+			try {
+				const result = await one.source.access.copy(one.notebook, one.files, one.only, one.source.controller.signal, progress => {
+					this.downloading = { files: files + progress.files, totalFiles, bytes: bytes + progress.bytes, totalBytes, current: progress.current };
+					this.changed();
+				});
+				for (const failed of result.failed) one.source.failed.set(`${notebookPath(one.notebook)}/${failed.path}`, failed.detail);
+			}
+			catch (error) {
+				if (this.stopRequested) return;
+				for (const section of one.sections) one.source.failed.set(section.path, message(error));
+			}
+			finally {
+				off();
+			}
+			files += one.only.size;
+			bytes += one.files.filter(file => one.only.has(file.id)).reduce((m, file) => m + file.size, 0);
+			for (const section of one.sections) {
+				if (!one.source.failed.has(section.path)) continue;
+				this.notDownloaded++;
+				going.delete(section);
+			}
+		}
+		this.downloading = undefined;
 	}
 
 	/** The notebooks of every download, in order; earlier choices kept, new ones with their defaults. */
@@ -352,7 +658,7 @@ export class ImportSession {
 	}
 
 	get reading(): boolean {
-		return this.downloads.some(download => download.state === 'reading');
+		return this.downloads.some(download => download.state === 'reading' || download.onedrive?.refreshing);
 	}
 
 	/** Resolves once the downloads are read, the target folder and password-protected sections looked at, and updates compared. */
@@ -442,6 +748,8 @@ export class ImportSession {
 				do {
 					this.checkAgain = false;
 					for (const choice of this.updatable) {
+						if (choice.download.onedrive?.refreshing) continue;
+						if (choice.download.onedrive && this.open) await this.refreshCopy(choice);
 						for (const section of choice.notebook.sections) {
 							if (!this.open) return;
 							if (!this.downloads.includes(choice.download) || this.scanOf(choice.download, section)) continue;
@@ -468,7 +776,9 @@ export class ImportSession {
 	/** Reads one section's pages in the worker. */
 	private async read(download: ChosenDownload, section: DownloadSection): Promise<void> {
 		let scan: Scan;
+		const notDownloaded = download.onedrive?.failed.get(section.path);
 		if (section.incomplete) scan = { error: 'incomplete' };
+		else if (notDownloaded !== undefined) scan = { error: notDownloaded };
 		else {
 			try {
 				scan = { pages: await (await this.worker()).scan(download.input, section) };
@@ -619,8 +929,9 @@ export class ImportSession {
 	 * notebook imported before is among the downloads (then nothing new is imported unasked); and a
 	 * notebook imported before's sections that changed, are new, or were cut off before.
 	 */
-	private defaultTick(state: SectionState): boolean {
-		return state === 'free' ? !this.updating : TICKED_FOR_UPDATE.has(state);
+	private defaultTick(choice: NotebookChoice, state: SectionState): boolean {
+		// OneDrive holds all the user's notebooks: none is ticked unasked (as in Obsidian's own importer).
+		return state === 'free' ? !this.updating && !choice.download.onedrive : TICKED_FOR_UPDATE.has(state);
 	}
 
 	/** The sections of a notebook that can be chosen. */
@@ -633,7 +944,7 @@ export class ImportSession {
 		const state = this.sectionState(choice, section);
 		if (state === 'restorable') return (choice.restore.get(section.path)?.size ?? 0) > 0;
 		if (!TICKABLE.has(state)) return false;
-		return choice.ticks.get(section.path) ?? this.defaultTick(state);
+		return choice.ticks.get(section.path) ?? this.defaultTick(choice, state);
 	}
 
 	/** How a section's box shows: a section with only deleted pages is partly ticked when some of them come back. */
@@ -828,9 +1139,16 @@ export class ImportSession {
 		this.changed();
 		try {
 			let imported = 0;
+			// This run's import, as its report gave it (an update after it adds to that last import).
+			let joins: string | undefined;
+			// Sections chosen from OneDrive come down first (notebooks updated were downloaded when checked).
+			if (fresh.some(choice => choice.download.onedrive)) {
+				await this.fetchChosen(fresh, going);
+				this.changed();
+			}
 			if (fresh.length) {
 				this.outcome = await runImport(this.app, this.client, {
-					downloads: this.downloads.map(download => ({ input: download.input, notebooks: fresh.filter(choice => choice.download === download).map(choice => choice.notebook) }))
+					downloads: this.downloads.map(download => ({ input: download.input, notebooks: fresh.filter(choice => choice.download === download && choice.notebook.sections.some(section => going.has(section))).map(choice => choice.notebook) }))
 						.filter(download => download.notebooks.length),
 					root: this.folder,
 					languageFor: notebook => of.get(notebook)?.earlier?.language ?? this.language,
@@ -845,6 +1163,7 @@ export class ImportSession {
 						this.changed();
 					},
 				});
+				joins = this.outcome.report?.lastImport.at;
 			}
 			if (requests.length && !this.stopRequested && !this.outcome?.result.cancelled) {
 				await this.hooks.updateStarting?.(this.folder);
@@ -854,6 +1173,8 @@ export class ImportSession {
 					reportLanguage: this.readerLanguage,
 					defaults: this.options,
 					sources: [...new Set(requests.map(({ input }) => downloadName(input)))],
+					// The report's last import then covers this whole run, not only its update.
+					...(joins !== undefined ? { joins } : {}),
 					isCancelled: () => this.stopRequested,
 					onProgress: progress => {
 						this.progress = { ...progress, done: progress.done + imported, total: progress.total + imported };
@@ -882,6 +1203,7 @@ export class ImportSession {
 	dispose(): void {
 		if (this.phase === 'running') return;
 		this.disposed = true;
+		for (const download of this.downloads) download.onedrive?.controller.abort();
 		this.client.stop();
 		this.listeners.clear();
 	}

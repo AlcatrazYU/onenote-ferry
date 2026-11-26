@@ -44,6 +44,8 @@ export interface ImportReport {
 		unfinished?: true;
 		/** The run was an update: its record (a path from the output root). */
 		update?: string;
+		/** When the update began, for a run that imported new notebooks first (`at` is when the import began). */
+		updateAt?: string;
 	};
 	notebooks: ReportNotebook[];
 }
@@ -62,6 +64,11 @@ export interface ReportMeta {
 	optionsOf?(dir: string): SectionOptions | undefined;
 	/** The run was an update: its record (a path from the output root). */
 	update?: string;
+	/**
+	 * The run imported new notebooks first and this is its update: the time that import's report
+	 * gave its last import. The last import then covers both (the plugin, new and earlier notebooks ticked together).
+	 */
+	joins?: string;
 }
 
 /** Folders as a disk that ignores case, and Obsidian (which composes every path), tell them apart. */
@@ -86,6 +93,29 @@ function isEntry(value: unknown): value is ReportNotebook {
 	const notebook = value as ReportNotebook | null;
 	return !!notebook && typeof notebook === 'object' && isString(notebook.notebook) && isString(notebook.dir) && isString(notebook.importedAt)
 		&& !isNaN(Date.parse(notebook.importedAt)) && isLanguage(notebook.language) && Array.isArray(notebook.sections) && notebook.sections.every(isSection);
+}
+
+const isStats = (value: unknown): value is LinkStats => {
+	const stats = value as LinkStats | null;
+	return !!stats && typeof stats === 'object' && [stats.links, stats.resolved, stats.unresolved, stats.filesChanged].every(n => typeof n === 'number')
+		&& !!stats.unresolvedTargets && typeof stats.unresolvedTargets === 'object';
+};
+
+/** An earlier report's last import, when it can be read. */
+function lastImportOf(previous: unknown): ImportReport['lastImport'] | undefined {
+	const report = previous as ImportReport | null;
+	const last = report && typeof report === 'object' && report.format === REPORT_FORMAT ? report.lastImport : undefined;
+	if (!last || typeof last !== 'object' || !isString(last.at) || !Array.isArray(last.sources) || !last.sources.every(isString)
+		|| !Array.isArray(last.notebooks) || !last.notebooks.every(isString) || !Array.isArray(last.notStarted)) return undefined;
+	return last;
+}
+
+/** Link counts of two parts of one run (they fix links in different pages). */
+function addLinks(a: LinkStats | undefined, b: LinkStats | undefined): LinkStats | undefined {
+	if (!a || !b) return a ?? b;
+	const targets = { ...a.unresolvedTargets };
+	for (const [target, n] of Object.entries(b.unresolvedTargets)) targets[target] = (targets[target] ?? 0) + n;
+	return { links: a.links + b.links, resolved: a.resolved + b.resolved, unresolved: a.unresolved + b.unresolved, filesChanged: a.filesChanged + b.filesChanged, unresolvedTargets: targets };
 }
 
 /** The entries of an earlier report that can be read; one damaged entry does not cost the others. */
@@ -120,14 +150,26 @@ export function updateReport(previous: unknown, result: ImportResult, meta: Repo
 		else if (present.has(key(earlier.dir))) notebooks.push(earlier);
 	}
 	notebooks.push(...fresh.values());
+	// An update that follows the same run's import: the last import is the whole run.
+	const begun = meta.joins !== undefined ? lastImportOf(previous) : undefined;
+	const first = begun && begun.at === meta.joins && !begun.update ? begun : undefined;
+	const written = result.notebooks.map(notebook => notebook.dir);
 	return {
 		format: REPORT_FORMAT,
-		lastImport: {
-			at, sources: meta.sources, seconds: meta.seconds, cancelled: result.cancelled,
-			notebooks: result.notebooks.map(notebook => notebook.dir), notStarted: result.notStarted, links: result.links,
-			...(meta.unfinished ? { unfinished: true as const } : {}),
-			...(meta.update ? { update: meta.update } : {}),
-		},
+		lastImport: first
+			? {
+				at: first.at, sources: [...new Set([...first.sources, ...meta.sources])], cancelled: !!first.cancelled || result.cancelled,
+				notebooks: [...first.notebooks, ...written.filter(dir => !first.notebooks.some(other => key(other) === key(dir)))],
+				notStarted: [...first.notStarted, ...result.notStarted], links: addLinks(isStats(first.links) ? first.links : undefined, result.links),
+				...(meta.unfinished ? { unfinished: true as const } : {}),
+				...(meta.update ? { update: meta.update, updateAt: at } : {}),
+			}
+			: {
+				at, sources: meta.sources, seconds: meta.seconds, cancelled: result.cancelled,
+				notebooks: written, notStarted: result.notStarted, links: result.links,
+				...(meta.unfinished ? { unfinished: true as const } : {}),
+				...(meta.update ? { update: meta.update } : {}),
+			},
 		notebooks,
 	};
 }
@@ -183,14 +225,14 @@ export function reportMarkdown(report: ImportReport, strings: Strings): string {
 	const now = totals(imported, section => !section.earlier);
 	const stopped = now.cancelled + last.notStarted.reduce((n, notebook) => n + notebook.sections, 0);
 
-	const lines = ['---', `title: ${JSON.stringify(r.title)}`, '---', '', `# ${r.title}`, '', r.intro, '', `## ${r.lastImport}`, ''];
+	const lines = ['---', `title: ${JSON.stringify(r.title)}`, '---', '', `# ${r.title}`, '', r.intro(text(strings.updateLogFolder)), '', `## ${r.lastImport}`, ''];
 	lines.push(`- ${r.time(reportTime(last.at))}`, `- ${r.source(last.sources.map(text))}`);
 	lines.push(`- ${r.totals(now.notebooks, now.sections, now.pages, now.attachments)}`);
 	if (now.notConverted) lines.push(`- ${r.notConverted(now.notConverted)}`);
 	if (last.links && last.links.links) lines.push(`- ${r.links(last.links.resolved, last.links.unresolved)}`);
 	if (last.cancelled) lines.push(`- ${r.cancelled(stopped)}`);
 	if (last.unfinished) lines.push(`- ${r.unfinished}`);
-	if (last.update) lines.push(`- ${r.update(link(strings.update.title(reportTime(last.at)), last.update))}`);
+	if (last.update) lines.push(`- ${r.update(link(strings.update.title(reportTime(last.updateAt ?? last.at)), last.update))}`);
 
 	if (report.notebooks.length) {
 		lines.push('', `## ${r.notebooks}`, '', `| ${r.columns.join(' | ')} |`, '| --- | --- | ---: | ---: | ---: | ---: |');
