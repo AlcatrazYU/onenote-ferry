@@ -20,6 +20,8 @@ export interface ReportNotebook {
 	/** Its folder under the output root. */
 	dir: string;
 	language: Language;
+	/** The OneDrive notebook it is (`<drive>/<item ID>`), when it came from there (§11.5 item 66). */
+	oneDrive?: string;
 	/** When it was imported (ISO 8601). */
 	importedAt: string;
 	/** The download it came from (a file or folder name, not a full path). */
@@ -92,7 +94,8 @@ function isSection(value: unknown): value is SectionResult {
 function isEntry(value: unknown): value is ReportNotebook {
 	const notebook = value as ReportNotebook | null;
 	return !!notebook && typeof notebook === 'object' && isString(notebook.notebook) && isString(notebook.dir) && isString(notebook.importedAt)
-		&& !isNaN(Date.parse(notebook.importedAt)) && isLanguage(notebook.language) && Array.isArray(notebook.sections) && notebook.sections.every(isSection);
+		&& !isNaN(Date.parse(notebook.importedAt)) && isLanguage(notebook.language) && Array.isArray(notebook.sections) && notebook.sections.every(isSection)
+		&& (notebook.oneDrive === undefined || isString(notebook.oneDrive));
 }
 
 const isStats = (value: unknown): value is LinkStats => {
@@ -134,18 +137,20 @@ export function updateReport(previous: unknown, result: ImportResult, meta: Repo
 	const at = meta.at.toISOString();
 	const fresh = new Map(result.notebooks.map(notebook => [key(notebook.dir), {
 		notebook: notebook.notebook, ...(notebook.originalName !== undefined ? { originalName: notebook.originalName } : {}), dir: notebook.dir, language: notebook.language,
+		...(notebook.oneDrive !== undefined ? { oneDrive: notebook.oneDrive } : {}),
 		importedAt: at, source: meta.sourceOf?.(notebook.dir) ?? meta.sources.join(', '), options: meta.optionsOf?.(notebook.dir) ?? meta.options, sections: notebook.sections,
 	} satisfies ReportNotebook]));
 	const present = new Set(folders.map(key));
 	const notebooks: ReportNotebook[] = [];
 	for (const earlier of earlierEntries(previous)) {
-		const now = fresh.get(key(earlier.dir));
+		// The same notebook: in the same folder, or (renamed with OneNote, §11.5 item 66) the same OneDrive notebook.
+		const now = fresh.get(key(earlier.dir)) ?? (earlier.oneDrive !== undefined && !present.has(key(earlier.dir)) ? [...fresh.values()].find(one => one.oneDrive === earlier.oneDrive) : undefined);
 		if (now) {
 			// Nothing of it written now (only earlier sections, sections left unticked or left out by a
 			// stop): it keeps when, from what and how it was imported.
 			const added = now.sections.some(section => !section.earlier && !section.skipped && !section.cancelled);
 			notebooks.push(added ? now : { ...now, importedAt: earlier.importedAt, source: earlier.source, options: earlier.options });
-			fresh.delete(key(earlier.dir));
+			fresh.delete(key(now.dir));
 		}
 		else if (present.has(key(earlier.dir))) notebooks.push(earlier);
 	}
@@ -300,6 +305,26 @@ export async function readReport(sink: Sink, strings: Strings): Promise<{ name: 
  * report). `strings` are the reader's, as for writeReport: with reports in two languages in the
  * folder, both read the same one.
  */
+/**
+ * A report entry for a notebook now in `dir` (§11.5 item 66): its folder's, or else that of the same
+ * OneDrive notebook recorded in another folder (renamed with OneNote, or by the user), with its
+ * paths moved to `dir`.
+ */
+export function reportedEntry(entries: readonly ReportNotebook[], dir: string, oneDrive?: string): ReportNotebook | undefined {
+	const here = entries.find(entry => key(entry.dir) === key(dir));
+	if (here) return here;
+	const moved = oneDrive !== undefined ? entries.find(entry => entry.oneDrive === oneDrive) : undefined;
+	return moved && movedEntry(moved, dir);
+}
+
+/** A report entry with its notebook's folder (and so its sections' folders) moved to `dir`. */
+export function movedEntry(entry: ReportNotebook, dir: string): ReportNotebook {
+	if (key(entry.dir) === key(dir)) return entry;
+	const from = `${key(entry.dir)}/`;
+	const move = (path: string) => (key(path).startsWith(from) ? `${dir}/${path.slice(entry.dir.length + 1)}` : path);
+	return { ...entry, dir, sections: entry.sections.map(section => (section.dir !== undefined ? { ...section, dir: move(section.dir) } : section)) };
+}
+
 export async function reportedNotebooks(sink: Sink, strings: Strings): Promise<ReportNotebook[]> {
 	return earlierEntries((await readReport(sink, strings))?.previous);
 }

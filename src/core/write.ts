@@ -90,13 +90,37 @@ export function importStatusOf(text: string | undefined): ImportStatus | undefin
 	return text.slice(4, end).match(/^onenote-import: (importing|complete|failed|syncing)$/m)?.[1] as ImportStatus | undefined;
 }
 
+/**
+ * The property a notebook's table of contents carries when the notebook came from OneDrive (§11.5
+ * item 66): which notebook it is there, as `<drive>/<item ID>`. OneDrive keeps the ID when the
+ * notebook is renamed or moved, and the table of contents goes wherever its folder goes, so the
+ * notebook is found by it whatever its folder is called now.
+ */
+export const ONEDRIVE_PROPERTY = 'onedrive-notebook';
+
+/** The OneDrive notebook a table of contents is of (see ONEDRIVE_PROPERTY), or undefined. */
+export function oneDriveTagOf(text: string | undefined): string | undefined {
+	if (!text?.startsWith('---\n')) return undefined;
+	const end = text.indexOf('\n---', 3);
+	if (end < 0) return undefined;
+	const value = text.slice(4, end).match(/^onedrive-notebook: (.+)$/m)?.[1];
+	if (value === undefined) return undefined;
+	try {
+		const tag = JSON.parse(value) as unknown;
+		return typeof tag === 'string' && tag ? tag : undefined;
+	}
+	catch {
+		return undefined;
+	}
+}
+
 /** The name heading a table of contents (its first `# ` line), or undefined. */
 export function tocHeading(text: string | undefined): string | undefined {
 	return text?.match(/^# (.+)$/m)?.[1];
 }
 
-export const tocHead = (name: string, strings: Strings, status: ImportStatus) =>
-	['---', `title: ${yaml(strings.tocTitle(name))}`, `${IMPORT_PROPERTY}: ${status}`, '---', '', `# ${name}`, ''];
+export const tocHead = (name: string, strings: Strings, status: ImportStatus, oneDrive?: string) =>
+	['---', `title: ${yaml(strings.tocTitle(name))}`, `${IMPORT_PROPERTY}: ${status}`, ...(oneDrive ? [`${ONEDRIVE_PROPERTY}: ${yaml(oneDrive)}`] : []), '---', '', `# ${name}`, ''];
 
 /** The extension a suggested attachment name ends with, as the original converter read it. */
 function extensionOf(name: string): string {
@@ -307,10 +331,13 @@ export function failedSectionToc(label: string, reason: string, strings: Strings
 	return [...tocHead(name, strings, 'failed'), `> ${note}`, ''].join('\n');
 }
 
-/** A notebook's table of contents: `importing` while its sections are written, `complete` once they are. */
-export function notebookToc(notebookName: string, entries: NotebookTocEntry[], strings: Strings, status: 'importing' | 'complete' = 'complete'): string {
+/**
+ * A notebook's table of contents: `importing` while its sections are written, `complete` once they
+ * are; with the OneDrive notebook it is of, when it came from there (see ONEDRIVE_PROPERTY).
+ */
+export function notebookToc(notebookName: string, entries: NotebookTocEntry[], strings: Strings, status: 'importing' | 'complete' = 'complete', oneDrive?: string): string {
 	const name = composedText(notebookName);
-	const lines = [...tocHead(name, strings, status), strings.sectionOrderNote, ''];
+	const lines = [...tocHead(name, strings, status, oneDrive), strings.sectionOrderNote, ''];
 	// Sections come group by group; each group's name is a line above its sections. Names are text:
 	// whatever Markdown or Obsidian would read as structure in them is escaped.
 	let open: string[] = [];

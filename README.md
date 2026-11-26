@@ -54,6 +54,7 @@ Each notebook imported before is then compared with your vault, section by secti
 - To convert sections again with other settings, change the settings in the window, then click a section marked `No changes`, or its notebook, or `Select all` when nothing has updates: it shows `Convert again`. Its pages are written anew and the old ones go to `_previous versions`; pages you edited in Obsidian stay as they are. A section updated because OneNote changed it keeps its own settings.
 - Nothing is ever deleted. Pages and sections OneNote no longer has stay where they are. Pages you deleted in Obsidian come back only if you tick them.
 - Each update writes a page in `_sync log` that lists what changed. The `_conversion report` is the overview of every notebook in the folder; the two point to each other.
+- Notebooks from OneDrive are recognized by their OneDrive ID, which each notebook's contents page keeps. A notebook renamed in OneNote is updated in place, and its folder takes the new name, unless you renamed the folder yourself or another folder has that name. A folder you renamed in Obsidian is still found. A copy of a notebook counts as a notebook of its own.
 - If Obsidian quits during an update, the update is finished the next time Obsidian starts: each section ends up all old or all new.
 
 ## Microsoft Account and OneDrive
@@ -75,7 +76,7 @@ Your OneNote files are only read, never modified: in OneDrive, the plugin only h
 
 - Developed and tested on macOS with a personal Microsoft account. Windows and Linux are not verified yet. Work or school accounts are not verified either, and an organization may require its administrator to approve the plugin before you can sign in. Accounts in the Microsoft 365 operated by 21Vianet in China are not supported.
 - Only notebooks in your own OneDrive are listed, not notebooks others share with you.
-- Notebooks are recognized by name, so a notebook renamed in OneDrive is taken for a new one. Of two notebooks with the same name, the second is imported as `Name (2)`, and only the first is checked for updates.
+- A downloaded zip carries no notebook IDs, so notebooks from downloads are recognized by name: a notebook renamed in OneDrive, or whose folder you renamed in Obsidian, is taken for a new one; of two notebooks with the same name, the second is imported as `Name (2)`, and only the first is checked for updates.
 - Password-protected sections cannot be read: remove the password in OneNote, then import or check for updates again. From OneDrive, a password only shows once the section is downloaded, so such a section can be ticked, downloaded, and then reported as not converted.
 - The OneDrive website downloads the folder that holds your notebooks, not a single notebook.
 - The free layout of a page (fonts, sizes, exact positions) is not reproduced. Text boxes are put in reading order, with an optional comment giving each one's position.
@@ -158,6 +159,7 @@ OneNote Ferry（OneNote 摆渡）是一个 Obsidian 社区插件（附命令行�
 - 想按别的设置重新转换：在窗口里改好设置，再点标着“无变化”的分区、它的笔记本，或者在没有更新时点“全选”，它们会标成“重新转换”。分区的页面全部重写，旧的放进 `_旧版本`；你在 Obsidian 里改过的页面保持原样。因 OneNote 有更新而更新的分区沿用自己原来的设置。
 - 任何东西都不删除。OneNote 里已经没有的页面和分区留在原处。你在 Obsidian 里删掉的页面，勾选了才会补回。
 - 每次更新在 `_更新记录` 里写一页，列出改了什么。`_转换报告` 是整个文件夹所有笔记本的总览，两页开头互相指引。
+- 从 OneDrive 来的笔记本按 OneDrive 的编号认，编号记在每本笔记本的目录页里。在 OneNote 里改了名的笔记本照常原地更新，文件夹也改成新名字（你自己改过文件夹名，或新名字已被别的文件夹占用时除外）；在 Obsidian 里改了文件夹名也认得出。复制出来的笔记本算另一本。
 - 更新时退出了 Obsidian，下次打开时会自动处理完毕，每个分区要么全旧、要么全新。
 
 ### 微软账号与 OneDrive
@@ -179,7 +181,7 @@ OneNote Ferry（OneNote 摆渡）是一个 Obsidian 社区插件（附命令行�
 
 - 在 macOS 和个人微软账号上开发和测试；Windows、Linux 还没有验证。工作或学校账号也没有验证，有的组织要管理员先批准这个插件才能登录。世纪互联运营的中国版 Microsoft 365 账号不支持。
 - 只列出你自己 OneDrive 里的笔记本，不列出别人共享给你的。
-- 笔记本按名字认，所以在 OneDrive 上改了名的笔记本会被当成一本新笔记本。两本同名的笔记本，第二本导入为“名字 (2)”，检查更新时只看第一本。
+- 下载的 zip 里没有笔记本编号，所以用下载的文件夹时按名字认：在 OneDrive 上改了名、或在 Obsidian 里改了文件夹名的笔记本，会被当成新笔记本；两本同名的笔记本，第二本导入为“名字 (2)”，检查更新时只看第一本。
 - 设了密码的分区读不出：请在 OneNote 里取消密码，再导入或检查更新。从 OneDrive 导入时，分区下载后才能看出有没有密码，所以这样的分区可能被勾上、下载，然后在报告里列为没有转换。
 - OneDrive 网页上只能下载装着笔记本的文件夹，不能单独下载一本笔记本。
 - 不还原页面的自由版面（字体、字号、精确位置）。文本框排成阅读顺序，可选在每块前加一行注释写明它的位置。
@@ -253,6 +255,7 @@ OneNote を使い続ける場合は、コマンドパレットで「OneNote の�
 - 別の設定で変換し直すには、画面で設定を変えてから「変更なし」のセクションかそのノートブックをクリックします。更新がないときは「すべて選択」でも構いません。「変換し直す」と表示されます。ページはすべて書き直され、元の版は `_旧バージョン` に入ります。Obsidian で編集したページはそのまま残ります。OneNote で変更があって更新されるセクションは元の設定のままです。
 - 何も削除しません。OneNote にもうないページやセクションはその場に残ります。Obsidian で削除したページは、チェックを入れたときだけ戻します。
 - 更新のたびに `_更新記録` に変更点を記したページを書きます。`_変換レポート` はフォルダー内のすべてのノートブックの概要で、二つのページは互いを案内します。
+- OneDrive からのノートブックは OneDrive の ID で見分け、ID は各ノートブックの目次ページに記録されます。OneNote で名前を変えたノートブックはその場で更新され、フォルダーも新しい名前に変わります（フォルダー名を自分で変えた場合や、その名前のフォルダーがすでにある場合を除く）。Obsidian でフォルダー名を変えても見つかります。コピーしたノートブックは別のノートブックとして扱います。
 - 更新中に Obsidian が終了した場合は、次に起動したときに処理を終えます。各セクションは、すべて古いままか、すべて新しくなるかのどちらかです。
 
 ### Microsoft アカウントと OneDrive
@@ -274,7 +277,7 @@ OneNote のファイルは読み込むだけで、変更しません。OneDrive 
 
 - macOS と個人の Microsoft アカウントで開発、試験しています。Windows と Linux はまだ確認していません。職場または学校のアカウントも確認しておらず、組織によっては管理者がこのプラグインを承認するまでサインインできません。21Vianet が運営する中国版 Microsoft 365 のアカウントには対応していません。
 - 一覧に出るのは自分の OneDrive にあるノートブックだけで、ほかの人から共有されたノートブックは出ません。
-- ノートブックは名前で見分けるので、OneDrive で名前を変えたノートブックは新しいノートブックとして扱われます。同じ名前のノートブックが二つあると、二つ目は「名前 (2)」としてインポートされ、更新の確認は一つ目だけが対象になります。
+- ダウンロードした zip にはノートブックの ID がないため、ダウンロードからのノートブックは名前で見分けます。OneDrive で名前を変えたノートブックや、Obsidian でフォルダー名を変えたノートブックは、新しいノートブックとして扱われます。同じ名前のノートブックが二つあると、二つ目は「名前 (2)」としてインポートされ、更新の確認は一つ目だけが対象になります。
 - パスワードで保護されたセクションは読み込めません。OneNote でパスワードを解除してから、もう一度インポートするか更新を確認してください。OneDrive からの場合、パスワードの有無はセクションをダウンロードしたあとでしかわからないため、そのようなセクションにチェックを入れるとダウンロードされ、レポートで変換できなかったものとして示されます。
 - OneDrive の Web サイトでダウンロードできるのはノートブックが入っているフォルダーで、ノートブックを 1 冊ずつダウンロードすることはできません。
 - ページの自由なレイアウト（フォント、文字サイズ、正確な位置）は再現しません。テキストボックスは読む順に並べ、オプションで各ブロックの位置を記したコメントを付けます。
@@ -348,6 +351,7 @@ OneNote를 계속 쓴다면, 명령 팔레트에서 "OneNote 업데이트 확인
 - 다른 설정으로 다시 변환하려면, 창에서 설정을 바꾼 뒤 "변경 없음"으로 표시된 섹션이나 그 전자 필기장을 클릭합니다. 업데이트가 없을 때는 "모두 선택"을 눌러도 됩니다. "다시 변환"으로 표시됩니다. 페이지를 모두 새로 쓰고, 이전 버전은 `_이전 버전`에 들어갑니다. Obsidian에서 수정한 페이지는 그대로 남습니다. OneNote에서 바뀌어 업데이트되는 섹션은 원래 설정을 유지합니다.
 - 아무것도 삭제하지 않습니다. OneNote에 더 이상 없는 페이지와 섹션은 그 자리에 남습니다. Obsidian에서 삭제한 페이지는 선택했을 때만 복원합니다.
 - 업데이트할 때마다 `_업데이트 기록`에 바뀐 내용을 적은 페이지를 씁니다. `_변환 보고서`는 폴더 안 모든 전자 필기장의 개요이며, 두 페이지는 서로를 안내합니다.
+- OneDrive에서 가져온 전자 필기장은 OneDrive ID로 구분하며, ID는 각 전자 필기장의 목차 페이지에 기록됩니다. OneNote에서 이름을 바꾼 전자 필기장은 그 자리에서 업데이트되고, 폴더 이름도 새 이름으로 바뀝니다(폴더 이름을 직접 바꿨거나 그 이름의 폴더가 이미 있으면 제외). Obsidian에서 폴더 이름을 바꿔도 찾아냅니다. 복사한 전자 필기장은 별개의 전자 필기장으로 취급합니다.
 - 업데이트 중에 Obsidian이 종료되면, 다음에 Obsidian을 시작할 때 마무리합니다. 각 섹션은 모두 이전 상태이거나 모두 새 상태입니다.
 
 ### Microsoft 계정과 OneDrive
@@ -369,7 +373,7 @@ OneNote 파일은 읽기만 하고 수정하지 않습니다. OneDrive에서 플
 
 - macOS와 개인 Microsoft 계정에서 개발하고 시험했습니다. Windows와 Linux는 아직 확인하지 않았습니다. 회사 또는 학교 계정도 확인하지 않았으며, 조직에 따라 관리자가 이 플러그인을 승인해야 로그인할 수 있습니다. 21Vianet이 운영하는 중국판 Microsoft 365 계정은 지원하지 않습니다.
 - 목록에는 자신의 OneDrive에 있는 전자 필기장만 나오며, 다른 사람이 공유한 전자 필기장은 나오지 않습니다.
-- 전자 필기장은 이름으로 구분하므로, OneDrive에서 이름을 바꾼 전자 필기장은 새 전자 필기장으로 취급됩니다. 이름이 같은 전자 필기장이 둘이면 두 번째는 "이름 (2)"로 가져오며, 업데이트 확인은 첫 번째만 대상입니다.
+- 내려받은 zip에는 전자 필기장 ID가 없으므로, 내려받은 전자 필기장은 이름으로 구분합니다. OneDrive에서 이름을 바꾸거나 Obsidian에서 폴더 이름을 바꾼 전자 필기장은 새 전자 필기장으로 취급됩니다. 이름이 같은 전자 필기장이 둘이면 두 번째는 "이름 (2)"로 가져오며, 업데이트 확인은 첫 번째만 대상입니다.
 - 암호로 보호된 섹션은 읽을 수 없습니다. OneNote에서 암호를 해제한 뒤 다시 가져오거나 업데이트를 확인하세요. OneDrive에서 가져올 때는 섹션을 다운로드한 뒤에야 암호 여부를 알 수 있으므로, 그런 섹션을 선택하면 다운로드된 뒤 보고서에 변환하지 못한 것으로 표시됩니다.
 - OneDrive 웹사이트에서는 전자 필기장이 든 폴더를 다운로드할 수 있을 뿐, 전자 필기장을 하나씩 다운로드할 수는 없습니다.
 - 페이지의 자유로운 레이아웃(글꼴, 글자 크기, 정확한 위치)은 재현하지 않습니다. 텍스트 상자는 읽는 순서대로 정렬하고, 선택에 따라 각 블록 앞에 위치를 적은 주석을 붙입니다.

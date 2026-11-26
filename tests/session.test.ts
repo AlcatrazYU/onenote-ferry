@@ -737,3 +737,57 @@ test('OneDrive: the list kept from last time shows at once; OneDrive\'s answer t
 	assert.equal(s.ready, true);
 	assert.equal(kept.length, 1, 'the new list is kept for next time');
 });
+
+// Notebooks from OneDrive are found by the OneDrive notebook their contents page carries (§11.5 item 66).
+
+const tagged = (name: string, tag: string) => `---\ntitle: "${name}"\nonenote-import: complete\nonedrive-notebook: "${tag}"\n---\n\n# ${name}\n`;
+
+test('OneDrive: a notebook is found by the OneDrive notebook its contents page carries, whatever its folder is called now', async () => {
+	const vault = {
+		'T/My tides/_目录.md': tagged('Tides', 'copy/n1'),
+		'T/My tides/Spring/_目录.md': toc('complete', 'Spring'),
+		'T/My tides/Spring/Tide table.md': 'page',
+	};
+	// Renamed in OneNote too: Currents now.
+	const drive = fakeOneDrive([{ id: 'n1', name: 'Currents', files: ['Spring.one', 'Open Notebook.onetoc2'] }]);
+	const { s } = await oneDriveSession(vault, drive);
+	const [choice] = s.choices as [typeof s.choices[0]];
+	assert.equal(s.oneDriveTag(choice), 'copy/n1');
+	assert.ok(choice.earlier);
+	assert.equal(choice.dir, 'My tides');
+	assert.equal(choice.byTag, true);
+	// Brought up to date whole, as a notebook imported before is.
+	assert.deepEqual(drive.copies, [{ notebook: 'Currents', only: undefined }]);
+});
+
+test('OneDrive: another OneDrive notebook of the same name (a copy) is new here, and takes "Name (2)" once ticked', async () => {
+	const vault = {
+		'T/Tides/_目录.md': tagged('Tides', 'copy/n1'),
+		'T/Tides/Spring/_目录.md': toc('complete', 'Spring'),
+	};
+	const drive = fakeOneDrive([{ id: 'n2', name: 'Tides', files: ['Spring.one', 'Open Notebook.onetoc2'] }]);
+	const { s } = await oneDriveSession(vault, drive);
+	const [copy] = s.choices as [typeof s.choices[0]];
+	assert.equal(copy.earlier, undefined);
+	assert.equal(copy.taken, true);
+	assert.deepEqual(drive.copies, [], 'not brought up to date as one imported before');
+	s.setSections(copy, copy.notebook.sections, true);
+	await settled(s);
+	assert.deepEqual(names(s), ['Tides (2)']);
+	assert.ok(!copy.taken);
+	assert.equal(copy.earlier, undefined);
+	assert.equal(s.ready, true);
+});
+
+test('OneDrive: a folder of its name tagged by another account, or not tagged, is found by name, as before', async () => {
+	for (const contents of [tagged('Tides', 'other/n1'), toc('complete')]) {
+		const vault = { 'T/Tides/_目录.md': contents, 'T/Tides/Spring/_目录.md': toc('complete', 'Spring') };
+		const drive = fakeOneDrive([{ id: 'n1', name: 'Tides', files: ['Spring.one', 'Open Notebook.onetoc2'] }]);
+		const { s } = await oneDriveSession(vault, drive);
+		const [choice] = s.choices as [typeof s.choices[0]];
+		assert.ok(choice.earlier, contents);
+		assert.equal(choice.dir, 'Tides');
+		assert.ok(!choice.byTag);
+		assert.ok(!choice.taken);
+	}
+});

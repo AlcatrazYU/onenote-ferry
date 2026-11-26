@@ -41,6 +41,8 @@ export interface ImportRequest {
 	chosen?(section: DownloadSection): boolean;
 	/** What an earlier import wrote of a notebook: sections are added to it. */
 	earlier?(notebook: DownloadNotebook): EarlierNotebook | undefined;
+	/** The OneDrive notebook a notebook is, when it came from there (§11.5 item 66). */
+	oneDriveOf?(notebook: DownloadNotebook): string | undefined;
 	/** The reader's language: the report's. */
 	reportLanguage: Language;
 	options: SectionOptions;
@@ -182,7 +184,7 @@ export async function runImport(app: App, client: WorkerClient, request: ImportR
 		},
 	};
 	try {
-		const result = await importNotebooks(notebooks, host, { languageFor: request.languageFor, chosen: request.chosen, earlier: request.earlier, ...request.options, links: true });
+		const result = await importNotebooks(notebooks, host, { languageFor: request.languageFor, chosen: request.chosen, earlier: request.earlier, oneDriveOf: request.oneDriveOf, ...request.options, links: true });
 		// Stopped before the first notebook: nothing was written, and no report (or folder) is made for it.
 		if (!result.notebooks.length) return { result };
 		const { report, name } = await writeReport(sink, reportStrings, result, meta(false), await sink.listFolders());

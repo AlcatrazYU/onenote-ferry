@@ -113,11 +113,13 @@ export const folderKey = (name: string) => safeName(name, '\u0000', 120).normali
  * place and answers the same list. `reserved` names no notebook may take (the folders an update
  * keeps its own files in): one called so gets " (2)" too.
  */
-export function distinctNames(notebooks: DownloadNotebook[], reserved: readonly string[] = []): DownloadNotebook[] {
+export function distinctNames(notebooks: DownloadNotebook[], reserved: readonly string[] = [], taken?: (notebook: DownloadNotebook) => readonly string[]): DownloadNotebook[] {
 	const used = new Set<string>(reserved.map(folderKey));
 	for (const notebook of notebooks) {
+		// Names one notebook may not take (folders of other notebooks, §11.5 item 66), besides those every one may not.
+		const theirs = new Set((taken?.(notebook) ?? []).map(folderKey));
 		let name = notebook.name, n = 2;
-		while (used.has(folderKey(name))) name = numberedName(notebook.name, n++);
+		while (used.has(folderKey(name)) || theirs.has(folderKey(name))) name = numberedName(notebook.name, n++);
 		used.add(folderKey(name));
 		if (name !== notebook.name) renameNotebook(notebook, name);
 	}

@@ -13,7 +13,7 @@ import { countSection, detectLanguage, emptyCounts } from './language.ts';
 import type { ScriptCounts } from './language.ts';
 import { LANGUAGES, STRINGS } from './strings.ts';
 import type { Language, Strings } from './strings.ts';
-import { failedSectionToc, importStatusOf, notebookFolder, notebookToc, sectionFolders, sectionKey, tocHeading, writeSection } from './write.ts';
+import { failedSectionToc, importStatusOf, notebookFolder, notebookToc, oneDriveTagOf, sectionFolders, sectionKey, tocHeading, writeSection } from './write.ts';
 import type { NotebookTocEntry, SectionReport } from './write.ts';
 
 export { sectionKey };
@@ -83,6 +83,8 @@ export interface ImportOptions extends SectionOptions {
 	chosen?(section: DownloadSection): boolean;
 	/** What an earlier import wrote of a notebook (see earlierNotebook): those sections stay as they are. */
 	earlier?(notebook: DownloadNotebook): EarlierNotebook | undefined;
+	/** The OneDrive notebook a notebook is, when it came from there: kept on its table of contents (§11.5 item 66). */
+	oneDriveOf?(notebook: DownloadNotebook): string | undefined;
 }
 
 /** A notebook an earlier import wrote into the output root, which this import adds sections to. */
@@ -122,6 +124,8 @@ export interface NotebookResult {
 	dir: string;
 	/** The language of its marks and folder names. */
 	language: Language;
+	/** The OneDrive notebook it is (`<drive>/<item ID>`), when it came from there (§11.5 item 66). */
+	oneDrive?: string;
 	sections: SectionResult[];
 }
 
@@ -199,6 +203,7 @@ export async function importNotebooks(notebooks: DownloadNotebook[], host: Impor
 		const strings = STRINGS[language];
 		const notebookDir = notebookFolder(notebook.name, strings);
 		const tocPath = joinPath(notebookDir, `${strings.tocFileName}.md`);
+		const oneDrive = options.oneDriveOf?.(notebook);
 		const folders = sectionFolders(notebook.sections, strings);
 		const keyOf = (section: DownloadSection) => sectionKey(section.groups, section.label);
 		// Sections an earlier import wrote that this download does not have: they are there, so listed.
@@ -216,7 +221,7 @@ export async function importNotebooks(notebooks: DownloadNotebook[], host: Impor
 		await sink.writeText(tocPath, notebookToc(notebook.name, listing(notebook.sections.map(section => {
 			const before = earlier?.sections.get(keyOf(section));
 			return before ? { ...before, earlier: true } : { groups: section.groups, section: section.label, skipped: true };
-		})), strings, 'importing'));
+		})), strings, 'importing', oneDrive));
 		const renamed = notebook.sourceName !== undefined && notebook.sourceName !== notebook.name;
 		const links = options.links ? new NotebookLinks(sink) : undefined;
 		if (links && earlier) await links.add(await notebookNotes(sink, notebookDir, names));
@@ -224,7 +229,7 @@ export async function importNotebooks(notebooks: DownloadNotebook[], host: Impor
 		const handled = new Map<string, SectionResult>();
 		/** The notebook as far as it is done: for a record of an import cut off half way. */
 		const sofar = (): NotebookResult => ({
-			notebook: notebook.name, ...(renamed ? { originalName: notebook.sourceName } : {}), dir: notebookDir, language,
+			notebook: notebook.name, ...(renamed ? { originalName: notebook.sourceName } : {}), dir: notebookDir, language, ...(oneDrive ? { oneDrive } : {}),
 			sections: inTocOrder(notebook.sections.flatMap(section => {
 				const entry = handled.get(keyOf(section)) ?? earlier?.sections.get(keyOf(section));
 				return entry ? [entry.earlier || handled.has(keyOf(section)) ? entry : { ...entry, earlier: true as const }] : [];
@@ -270,8 +275,8 @@ export async function importNotebooks(notebooks: DownloadNotebook[], host: Impor
 			for (const path of links.changed) changedEarly.add(path);
 		}
 		const listed = inTocOrder(sections, extra);
-		await sink.writeText(tocPath, notebookToc(notebook.name, listing(sections), strings, 'complete'));
-		results.push({ notebook: notebook.name, ...(renamed ? { originalName: notebook.sourceName } : {}), dir: notebookDir, language, sections: listed });
+		await sink.writeText(tocPath, notebookToc(notebook.name, listing(sections), strings, 'complete', oneDrive));
+		results.push({ notebook: notebook.name, ...(renamed ? { originalName: notebook.sourceName } : {}), dir: notebookDir, language, ...(oneDrive ? { oneDrive } : {}), sections: listed });
 		for (const section of listed) {
 			if (!section.dir || !(section.report || section.earlier)) continue;
 			const toc = joinPath(section.dir, `${strings.tocFileName}.md`);
@@ -318,6 +323,24 @@ export async function importNotebooks(notebooks: DownloadNotebook[], host: Impor
  * renamed): `occupied`, never written into. `recorded` (the notebook's entry in the report, if any)
  * only adds what is known of those sections, for counting.
  */
+/**
+ * The folders directly under the output root whose notebook contents page of ours carries a OneDrive
+ * notebook (§11.5 item 66), by that notebook (`<drive>/<item ID>`).
+ */
+export async function oneDriveFolders(sink: Sink, folders: readonly string[]): Promise<Map<string, string>> {
+	const found = new Map<string, string>();
+	for (const folder of folders) {
+		for (const name of ALL_TOC_NAMES) {
+			const text = await sink.readText(joinPath(folder, `${name}.md`));
+			if (!importStatusOf(text)) continue;
+			const tag = oneDriveTagOf(text);
+			if (tag !== undefined && !found.has(tag)) found.set(tag, folder);
+			break;
+		}
+	}
+	return found;
+}
+
 export async function earlierNotebook(sink: Sink, dir: string, notebook: DownloadNotebook, recorded?: { sections: SectionResult[] }): Promise<EarlierNotebook | undefined> {
 	const files = await sink.listFiles(dir);
 	const byFold = new Map(files.map(file => [fold(file), file]));

@@ -153,6 +153,8 @@ export interface UpdateStrings {
 	newSection(name: string): string;
 	/** A section converted again with the settings chosen now, and how many of its pages were written anew. */
 	reconvertedSection(name: string, pages: number): string;
+	/** A notebook renamed in OneNote: its name before, and its folder when that kept its name (§11.5 item 66). */
+	notebookRenamed(was: string, folder?: string): string;
 	added(page: string): string;
 	/** A changed page, a link to its version before, and its title before when OneNote changed that. */
 	modified(page: string, before: string, was?: string): string;
@@ -259,6 +261,7 @@ export const en: Strings = {
 		section: (name, was) => `Section "${name}"${was ? ` (was "${was}")` : ''}`,
 		newSection: name => `New section "${name}"`,
 		reconvertedSection: (name, pages) => `"${name}" converted again with the settings chosen now (${plural(pages, 'page', 'pages')} written anew)`,
+		notebookRenamed: (was, folder) => `Renamed in OneNote (was "${was}"); ${folder === undefined ? 'its folder was renamed too' : `its folder "${folder}" keeps its name`}`,
 		added: page => `Added: ${page}`,
 		modified: (page, before, was) => `Changed: ${page} (${before}${was !== undefined ? `; was "${was}"` : ''})`,
 		before: 'before',
@@ -360,6 +363,7 @@ export const zhHans: Strings = {
 		section: (name, was) => `分区“${name}”${was ? `（原为“${was}”）` : ''}`,
 		newSection: name => `新分区“${name}”`,
 		reconvertedSection: (name, pages) => `按现在的设置重新转换“${name}”（重写 ${num(pages)} 页）`,
+		notebookRenamed: (was, folder) => `OneNote 中原名“${was}”，${folder === undefined ? '文件夹已随之改名' : `文件夹“${folder}”保持原名`}`,
 		added: page => `新增：${page}`,
 		modified: (page, before, was) => `修改：${page}（${before}${was !== undefined ? `，原标题“${was}”` : ''}）`,
 		before: '更新前',
@@ -461,6 +465,7 @@ export const zhHant: Strings = {
 		section: (name, was) => `節「${name}」${was ? `（原為「${was}」）` : ''}`,
 		newSection: name => `新的節「${name}」`,
 		reconvertedSection: (name, pages) => `按現在的設定重新轉換「${name}」（重寫 ${num(pages)} 頁）`,
+		notebookRenamed: (was, folder) => `OneNote 中原名「${was}」，${folder === undefined ? '資料夾已隨之改名' : `資料夾「${folder}」保持原名`}`,
 		added: page => `新增：${page}`,
 		modified: (page, before, was) => `修改：${page}（${before}${was !== undefined ? `，原標題「${was}」` : ''}）`,
 		before: '更新前',
@@ -562,6 +567,7 @@ export const ja: Strings = {
 		section: (name, was) => `セクション「${name}」${was ? `（以前は「${was}」）` : ''}`,
 		newSection: name => `新しいセクション「${name}」`,
 		reconvertedSection: (name, pages) => `「${name}」を現在の設定で変換し直しました（${num(pages)} ページを書き直し）`,
+		notebookRenamed: (was, folder) => `OneNote での元の名前は「${was}」。${folder === undefined ? 'フォルダーも名前を変えました' : `フォルダー「${folder}」は元の名前のままです`}`,
 		added: page => `追加：${page}`,
 		modified: (page, before, was) => `変更：${page}（${before}${was !== undefined ? `、以前のタイトル「${was}」` : ''}）`,
 		before: '更新前',
@@ -663,6 +669,7 @@ export const ko: Strings = {
 		section: (name, was) => `섹션 "${name}"${was ? ` (이전 이름 "${was}")` : ''}`,
 		newSection: name => `새 섹션 "${name}"`,
 		reconvertedSection: (name, pages) => `"${name}"을(를) 현재 설정으로 다시 변환했습니다(${num(pages)}페이지 다시 씀)`,
+		notebookRenamed: (was, folder) => `OneNote에서의 이전 이름은 "${was}"입니다. ${folder === undefined ? '폴더 이름도 바꿨습니다' : `폴더 "${folder}"는 원래 이름을 유지합니다`}`,
 		added: page => `추가: ${page}`,
 		modified: (page, before, was) => `변경: ${page} (${before}${was !== undefined ? `, 이전 제목 "${was}"` : ''})`,
 		before: '업데이트 전',

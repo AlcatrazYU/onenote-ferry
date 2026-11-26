@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { findNotebooks } from '../src/core/download.ts';
+import { findNotebooks, renameNotebook } from '../src/core/download.ts';
 import type { DownloadFile, DownloadSection } from '../src/core/download.ts';
 import { importNotebooks } from '../src/core/importer.ts';
 import type { ImportHost } from '../src/core/importer.ts';
@@ -915,4 +915,107 @@ test('nothing is ever deleted: every file the vault had is still there, or set a
 		if (/_转换报告\.(md|json)$|\/_目录\.md$/.test(path)) continue;
 		assert.ok(now.includes(held(value)), path);
 	}
+});
+
+// Notebooks from OneDrive (§11.5 item 66): their contents page carries the OneDrive notebook, and they
+// are found by it whatever their folder is called; renamed in OneNote, the folder follows when it
+// still has the name the import gave it, and when the new name is free.
+
+const TAG = 'drive-1/ITEM!1';
+
+/** Version 1 imported from OneDrive (the contents page and the report carry TAG). */
+async function importedFromOneDrive(version: Version, name = 'Tides'): Promise<MemorySink> {
+	const vault = memorySink();
+	const host: ImportHost = { sink: vault, parse: parser(version), isPasswordProtected: async () => false, listFolders: folders(vault) };
+	const result = await importNotebooks(download(version, name), host, { languageFor: () => 'zh-Hans', ...OPTIONS, links: true, oneDriveOf: () => TAG });
+	await writeReport(vault, zhHans, result, { at: new Date(2026, 10, 1), sources: ['OneDrive'], options: OPTIONS }, await folders(vault)());
+	return vault;
+}
+
+/** An update of the notebook now called `name` in OneNote, found in `dir` by its OneDrive notebook. */
+async function updateTagged(vault: MemorySink, version: Version, name: string, dir: string, tag: string | undefined = TAG) {
+	const [request] = await Promise.all(download(version, name).map(async notebook => ({
+		notebook,
+		scanned: await Promise.all(notebook.sections.map(async section => ({
+			key: `${notebook.name}/${placeOf(section)}`, groups: section.groups, label: section.label,
+			pages: await scannedPages(sectionJson(section.label, version[placeOf(section)]!.pages) as never),
+		}))),
+		chosen: new Set(notebook.sections.map(section => sectionKey(section.groups, section.label))),
+		dir, ...(tag ? { oneDrive: tag } : {}),
+	})));
+	return updateNotebooks([request!], host(vault, version), { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults: OPTIONS, links: true, sources: ['OneDrive'] });
+}
+
+const V2_SPRING: Version = { Spring: { pages: [page('a', 'One', 'one, second version', 2), page('b', 'Two', 'two'), page('c', 'Three', 'three')] }, Summer: V1.Summer! };
+const reportOf = async (vault: MemorySink) => reportedNotebooks(vault, zhHans);
+
+test('a notebook from OneDrive: its contents page and its report entry carry the OneDrive notebook', async () => {
+	const vault = await importedFromOneDrive(V1);
+	assert.match(textOf(vault, 'Tides/_目录.md')!, /^onedrive-notebook: "drive-1\/ITEM!1"$/m);
+	assert.deepEqual((await reportOf(vault)).map(entry => [entry.dir, entry.oneDrive]), [['Tides', TAG]]);
+	// An update from a download (no OneDrive notebook given) keeps it.
+	await update(vault, V2_SPRING);
+	assert.match(textOf(vault, 'Tides/_目录.md')!, /^onedrive-notebook: "drive-1\/ITEM!1"$/m);
+	assert.deepEqual((await reportOf(vault)).map(entry => [entry.dir, entry.oneDrive]), [['Tides', TAG]]);
+});
+
+test('renamed in OneNote: found by its OneDrive notebook, updated, and its folder takes the new name', async () => {
+	const vault = await importedFromOneDrive(V1);
+	const result = await updateTagged(vault, V2_SPRING, 'Currents', 'Tides');
+	assert.ok(result);
+	assert.deepEqual(result.outcomes.map(outcome => outcome.outcome), ['done']);
+	assert.ok(![...vault.files.keys()].some(path => path.startsWith('Tides/')));
+	assert.match(textOf(vault, 'Currents/Spring/One.md')!, /one, second version/);
+	assert.match(textOf(vault, 'Currents/_目录.md')!, /^# Currents$/m);
+	assert.match(textOf(vault, 'Currents/_目录.md')!, /^onedrive-notebook: "drive-1\/ITEM!1"$/m);
+	// The report knows it in its new folder only, with what it knew of it before.
+	const report = await reportOf(vault);
+	assert.deepEqual(report.map(entry => [entry.notebook, entry.dir, entry.oneDrive]), [['Currents', 'Currents', TAG]]);
+	assert.ok(report[0]!.sections.every(section => section.dir === undefined || section.dir.startsWith('Currents/')));
+	assert.match(textOf(vault, result.record)!, /OneNote 中原名“Tides”，文件夹已随之改名/);
+	// Checked again: nothing to do.
+	assert.equal(await updateTagged(vault, V2_SPRING, 'Currents', 'Currents'), undefined);
+});
+
+test('a folder the user renamed is found by its OneDrive notebook and keeps the user\'s name, whether or not OneNote renamed the notebook', async () => {
+	const vault = await importedFromOneDrive(V1);
+	await vault.move('Tides', 'My tides');
+	const result = await updateTagged(vault, V2_SPRING, 'Tides', 'My tides');
+	assert.ok(result);
+	assert.match(textOf(vault, 'My tides/Spring/One.md')!, /one, second version/);
+	assert.match(textOf(vault, 'My tides/_目录.md')!, /^# Tides$/m);
+	assert.deepEqual((await reportOf(vault)).map(entry => [entry.notebook, entry.dir]), [['Tides', 'My tides']]);
+	assert.doesNotMatch(textOf(vault, result.record)!, /原名/);
+	// Renamed in OneNote too: the folder stays the user's; the record says so.
+	const V3: Version = { ...V2_SPRING, Summer: { pages: [page('s', 'Sun', 'see, again', 3)] } };
+	const again = await updateTagged(vault, V3, 'Currents', 'My tides');
+	assert.ok(again);
+	assert.ok(vault.files.has('My tides/Summer/Sun.md'));
+	assert.ok(![...vault.files.keys()].some(path => path.startsWith('Currents/')));
+	assert.match(textOf(vault, 'My tides/_目录.md')!, /^# Currents$/m);
+	assert.match(textOf(vault, again.record)!, /OneNote 中原名“Tides”，文件夹“My tides”保持原名/);
+});
+
+test('renamed in OneNote to a name another folder has: the folder keeps its name', async () => {
+	const vault = await importedFromOneDrive(V1);
+	await vault.writeText('Currents/mine.md', 'the user\'s own');
+	const result = await updateTagged(vault, V2_SPRING, 'Currents', 'Tides');
+	assert.ok(result);
+	assert.match(textOf(vault, 'Tides/Spring/One.md')!, /one, second version/);
+	assert.deepEqual([...vault.files.keys()].filter(path => path.startsWith('Currents/')), ['Currents/mine.md']);
+	assert.match(textOf(vault, result.record)!, /文件夹“Tides”保持原名/);
+});
+
+test('a notebook imported as "Name (2)" keeps that name when OneNote did not rename it', async () => {
+	const vault = memorySink();
+	const h: ImportHost = { sink: vault, parse: parser(V1), isPasswordProtected: async () => false, listFolders: folders(vault) };
+	const [notebook] = download(V1);
+	renameNotebook(notebook!, 'Tides (2)');
+	const result = await importNotebooks([notebook!], h, { languageFor: () => 'zh-Hans', ...OPTIONS, links: true, oneDriveOf: () => TAG });
+	await writeReport(vault, zhHans, result, { at: new Date(2026, 10, 1), sources: ['OneDrive'], options: OPTIONS }, await folders(vault)());
+	const updated = await updateTagged(vault, V2_SPRING, 'Tides', 'Tides (2)');
+	assert.ok(updated);
+	assert.match(textOf(vault, 'Tides (2)/Spring/One.md')!, /one, second version/);
+	assert.match(textOf(vault, 'Tides (2)/_目录.md')!, /^# Tides \(2\)$/m);
+	assert.deepEqual((await reportOf(vault)).map(entry => [entry.notebook, entry.originalName, entry.dir]), [['Tides (2)', 'Tides', 'Tides (2)']]);
 });

@@ -32,13 +32,13 @@ import type { UpdateSink } from './io.ts';
 import { buildLinkIndex, relativePath, rewriteLinks } from './links.ts';
 import type { LinkStats, SectionRef } from './links.ts';
 import { composedText, joinPath, numberedName, safeName } from './names.ts';
-import { link, readReport, reportedNotebooks, reportTime, text, writeReport } from './report.ts';
+import { link, movedEntry, readReport, reportedEntry, reportedNotebooks, reportTime, text, writeReport } from './report.ts';
 import type { ReportNotebook } from './report.ts';
 import { isLanguage, LANGUAGES, STRINGS } from './strings.ts';
 import type { Language, Strings, UpdateCounts } from './strings.ts';
 import { deletedByUser, editedInOneNote, frontMatter, planNotebook, readArchive } from './sync.ts';
 import type { Archive, ArchivedPage, ArchivedSection, PlanItem, PlanOptions, PlanStatus, ScannedSection } from './sync.ts';
-import { notebookFolder, notebookToc, sectionKey, tocHead } from './write.ts';
+import { notebookFolder, notebookToc, oneDriveTagOf, sectionKey, tocHead, tocHeading } from './write.ts';
 import type { NotebookTocEntry } from './write.ts';
 
 /** A place outside the vault to convert one section into first. */
@@ -87,6 +87,13 @@ export interface UpdateRequest {
 	 * every page is written anew but those edited in Obsidian, which stay as they are.
 	 */
 	reconvert?: ReadonlySet<string>;
+	/**
+	 * The folder whose contents page carries this OneDrive notebook (§11.5 item 66), found whatever
+	 * it is called now; the notebook is otherwise looked for by name.
+	 */
+	dir?: string;
+	/** The OneDrive notebook it is (`<drive>/<item ID>`), kept on its contents page and in the report. */
+	oneDrive?: string;
 }
 
 export interface UpdateOptions {
@@ -182,6 +189,14 @@ interface NotebookEntry {
 	notes: { key: string, status: PlanStatus, label: string, groups: string[], error?: string }[];
 	/** The sections chosen, by sectionKey. */
 	chosen: string[];
+	/** Its name in OneNote, when it is known under another here ("Name (2)"). */
+	originalName?: string;
+	/** The OneDrive notebook it is (see UpdateRequest.oneDrive). */
+	oneDrive?: string;
+	/** Renamed in OneNote (§11.5 item 66): its OneNote name before. */
+	renamedFrom?: string;
+	/** Its folder before this update renamed it after OneNote's new name. */
+	folderWas?: string;
 }
 
 /**
@@ -640,7 +655,7 @@ async function prepareSection(vault: UpdateSink, start: StartEntry, nb: Notebook
 	const textWrite = (path: string, text: string, undo: Undo): Op => ({ op: 'write', path, text, undo, after: [byteLength(text), null] });
 	// The notebook's contents page as it was before this update, once, before its first change.
 	if (nb.toc !== undefined && !nb.tocSaved) ops.unshift({ op: 'copy', from: nb.tocPath, to: joinPath(start.backup, notebook.dir, tocName) });
-	if (nb.toc === undefined) ops.push(textWrite(nb.tocPath, notebookToc(notebook.notebook, notebook.listed, strings, 'importing'), { kind: 'new' }));
+	if (nb.toc === undefined) ops.push(textWrite(nb.tocPath, notebookToc(notebook.notebook, notebook.listed, strings, 'importing', notebook.oneDrive), { kind: 'new' }));
 	ops.push(textWrite(joinPath(V ?? N, tocName), syncingToc, oldToc !== undefined ? { kind: 'text', text: oldToc } : { kind: 'new' }));
 	if (moving && fold(N).startsWith(`${fold(V!)}/`)) {
 		// Into a group of its own name (Spring to Spring/Spring): through a free name beside it.
@@ -714,8 +729,8 @@ async function prepareSection(vault: UpdateSink, start: StartEntry, nb: Notebook
 	// The notebook's contents page, with this section as it will be.
 	const listed: Listed = { key: sectionKey(item.groups, item.label), groups: item.groups, section: item.label, folder: item.new!, result };
 	const after = notebook.listed.map(entry => (entry.key === listed.key && !entry.extra ? listed : entry));
-	const nbToc = notebookToc(notebook.notebook, after, strings, 'complete');
-	const tocBefore = nb.toc ?? notebookToc(notebook.notebook, notebook.listed, strings, 'importing');
+	const nbToc = notebookToc(notebook.notebook, after, strings, 'complete', notebook.oneDrive);
+	const tocBefore = nb.toc ?? notebookToc(notebook.notebook, notebook.listed, strings, 'importing', notebook.oneDrive);
 	ops.push(textWrite(nb.tocPath, nbToc, { kind: 'text', text: tocBefore }));
 
 	check(ops, states);
@@ -1085,34 +1100,78 @@ function inMovingOrder(items: PlanItem[], archive: Archive | undefined, strings:
  */
 export async function updateNotebooks(requests: UpdateRequest[], host: UpdateHost, options: UpdateOptions): Promise<UpdateResult | undefined> {
 	const { vault } = host;
-	const reported = new Map((await reportedNotebooks(vault, options.strings)).map(notebook => [fold(notebook.dir), notebook]));
+	const reported = await reportedNotebooks(vault, options.strings);
 
 	// Each notebook is planned again against the vault as it is now.
 	const planned = [];
 	for (const request of requests) {
 		const notebook = request.notebook;
-		let dir: string | undefined, archive;
-		for (const language of LANGUAGES) {
-			const candidate = notebookFolder(notebook.name, STRINGS[language]);
-			archive = await readArchive(vault, candidate, reported.get(fold(candidate))?.sections);
-			if (archive) {
-				dir = candidate;
-				break;
+		let dir: string | undefined, archive: Archive | undefined;
+		// Where its contents page carries its OneDrive notebook (§11.5 item 66), whatever the folder is called; else by name.
+		if (request.dir !== undefined) {
+			archive = await readArchive(vault, request.dir, reportedEntry(reported, request.dir, request.oneDrive)?.sections);
+			if (archive) dir = request.dir;
+		}
+		const tagged = archive !== undefined;
+		if (!archive) {
+			for (const language of LANGUAGES) {
+				const candidate = notebookFolder(notebook.name, STRINGS[language]);
+				archive = await readArchive(vault, candidate, reportedEntry(reported, candidate)?.sections);
+				if (archive) {
+					dir = candidate;
+					break;
+				}
 			}
 		}
 		const language = archive?.language ?? options.languageFor(notebook);
 		const strings = STRINGS[language];
 		dir ??= notebookFolder(notebook.name, strings);
-		const plan = planNotebook(notebook.name, request.scanned, archive, strings, { partial: request.partial, ...recordedPlanOptions(reported.get(fold(dir)), dir), chosen: request.chosen });
-		// A folder of that name that is not ours: nothing goes into it.
-		const occupied = !archive && (await vault.listFiles(dir)).length > 0;
-		// Sections chosen that changed, are new or unfinished; and those with a page the user deleted that is to come back.
-		const restoring = (item: PlanItem) => item.status === 'same' && item.added.some(page => page.userDeleted && request.restore?.has(page.id));
-		// And those without changes the user chose to convert again with the settings chosen now.
-		const reconverting = (item: PlanItem) => item.status === 'same' && !!request.reconvert?.has(sectionKey(item.groups, item.label));
-		const chosen = plan.identity === 'different' || occupied ? [] : plan.items.filter(item => (UPDATED.has(item.status) || restoring(item) || reconverting(item)) && request.chosen.has(sectionKey(item.groups, item.label)));
-		const todo = inMovingOrder(chosen, archive, strings);
-		planned.push({ request, dir, archive, language, strings, plan, occupied, todo });
+		const toc = archive ? await vault.readText(joinPath(dir, `${strings.tocFileName}.md`)) : undefined;
+		const oneDrive = request.oneDrive ?? oneDriveTagOf(toc);
+		let report = reportedEntry(reported, dir, oneDrive);
+		const planIn = async (at: string, archiveAt: Archive | undefined, entry: ReportNotebook | undefined) => {
+			const plan = planNotebook(notebook.name, request.scanned, archiveAt, strings, { partial: request.partial, ...recordedPlanOptions(entry, at), chosen: request.chosen });
+			// A folder of that name that is not ours: nothing goes into it.
+			const occupied = !archiveAt && (await vault.listFiles(at)).length > 0;
+			// Sections chosen that changed, are new or unfinished; and those with a page the user deleted that is to come back.
+			const restoring = (item: PlanItem) => item.status === 'same' && item.added.some(page => page.userDeleted && request.restore?.has(page.id));
+			// And those without changes the user chose to convert again with the settings chosen now.
+			const reconverting = (item: PlanItem) => item.status === 'same' && !!request.reconvert?.has(sectionKey(item.groups, item.label));
+			const chosen = plan.identity === 'different' || occupied ? [] : plan.items.filter(item => (UPDATED.has(item.status) || restoring(item) || reconverting(item)) && request.chosen.has(sectionKey(item.groups, item.label)));
+			return { plan, occupied, todo: inMovingOrder(chosen, archiveAt, strings) };
+		};
+		let { plan, occupied, todo } = await planIn(dir, archive, report);
+		// The name it was imported under, and its OneNote name then (the contents page's heading when the report has none).
+		const importedAs = report?.notebook ?? tocHeading(toc) ?? notebook.name;
+		const oneNoteNow = notebook.sourceName ?? notebook.name;
+		const oneNoteThen = report?.originalName ?? importedAs;
+		// Renamed in OneNote (known only for a notebook found by its OneDrive notebook): it takes the new
+		// name; otherwise it keeps the one it was imported under ("Name (2)" stays so).
+		const renamed = tagged && composedText(oneNoteNow) !== composedText(oneNoteThen);
+		const name = tagged && !renamed ? importedAs : notebook.name;
+		let folderWas: string | undefined;
+		if (renamed && todo.length) {
+			// Its folder follows when it is still called as the import named it (a folder the user
+			// renamed is theirs), and only to a free name.
+			const target = notebookFolder(name, strings);
+			let moved = false;
+			if (fold(dir) === fold(notebookFolder(importedAs, strings)) && fold(target) !== fold(dir) && !await vault.exists(target)) {
+				// Refused (a file there after all, the disk said no): it stays, as when the name is taken.
+				moved = await vault.move(dir, target).then(() => true, () => false);
+			}
+			if (moved) {
+				folderWas = dir;
+				dir = target;
+				report = report && movedEntry(report, dir);
+				archive = await readArchive(vault, dir, report?.sections);
+				({ plan, occupied, todo } = await planIn(dir, archive, report));
+			}
+		}
+		planned.push({
+			request, dir, archive, language, strings, plan, occupied, todo, report, name, oneDrive,
+			...(composedText(name) !== composedText(oneNoteNow) ? { originalName: oneNoteNow } : {}),
+			...(renamed ? { renamedFrom: oneNoteThen } : {}), ...(folderWas !== undefined ? { folderWas } : {}),
+		});
 	}
 	if (!planned.some(entry => entry.todo.length)) return undefined;
 	// Two requests for one notebook folder (two downloads of one notebook) would each plan against the
@@ -1137,9 +1196,13 @@ export async function updateNotebooks(requests: UpdateRequest[], host: UpdateHos
 	const ctx: Context = { vault, start, journal, state };
 
 	for (const [n, entry] of planned.entries()) {
-		const earlier = reported.get(fold(entry.dir));
+		const earlier = entry.report;
 		const notebook: NotebookEntry = {
-			t: 'notebook', n, notebook: entry.request.notebook.name, dir: entry.dir, language: entry.language,
+			t: 'notebook', n, notebook: entry.name, dir: entry.dir, language: entry.language,
+			...(entry.originalName !== undefined ? { originalName: entry.originalName } : {}),
+			...(entry.oneDrive !== undefined ? { oneDrive: entry.oneDrive } : {}),
+			...(entry.renamedFrom !== undefined ? { renamedFrom: entry.renamedFrom } : {}),
+			...(entry.folderWas !== undefined ? { folderWas: entry.folderWas } : {}),
 			options: earlier?.options ?? options.defaults,
 			state: entry.plan.identity === 'different' ? 'different' : entry.occupied ? 'occupied' : 'update',
 			listed: listing(entry.plan.items, entry.dir, earlier, entry.archive, (entry.archive?.sections ?? []).filter(section => !entry.plan.items.some(item => item.old !== undefined && fold(item.old) === fold(section.folder)))),
@@ -1449,7 +1512,10 @@ function importResult(state: RunState): ImportResult {
 			if (!listed.extra && notebook.chosen.includes(listed.key)) return { ...base, cancelled: true };
 			return { ...base, skipped: true };
 		});
-		notebooks.push({ notebook: notebook.notebook, dir: notebook.dir, language: notebook.language, sections });
+		notebooks.push({
+			notebook: notebook.notebook, ...(notebook.originalName !== undefined ? { originalName: notebook.originalName } : {}), dir: notebook.dir, language: notebook.language,
+			...(notebook.oneDrive !== undefined ? { oneDrive: notebook.oneDrive } : {}), sections,
+		});
 	}
 	return { notebooks, cancelled: false, notStarted: [] };
 }
@@ -1542,6 +1608,8 @@ function recordMarkdown(state: RunState, backupMade: boolean, reportName: string
 			const mine = done.filter(entry => entry.n === notebook.n);
 			if (!mine.length) continue;
 			lines.push('', `### ${text(notebook.notebook)}`, '');
+			// Renamed in OneNote: whether its folder followed (§11.5 item 66).
+			if (notebook.renamedFrom !== undefined) lines.push(`- ${u.notebookRenamed(text(notebook.renamedFrom), notebook.folderWas !== undefined ? undefined : text(notebook.dir))}`);
 			for (const entry of mine) {
 				const summary = entry.summary;
 				const toc = joinPath(notebook.dir, entry.listed.folder!, `${STRINGS[notebook.language].tocFileName}.md`);

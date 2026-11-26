@@ -10,9 +10,9 @@
 import type { App } from 'obsidian';
 import { distinctNames, findNotebooks, renameNotebook } from '../core/download.ts';
 import type { DownloadNotebook, DownloadSection } from '../core/download.ts';
-import { earlierNotebook, sectionKey } from '../core/importer.ts';
+import { earlierNotebook, oneDriveFolders, sectionKey } from '../core/importer.ts';
 import type { EarlierNotebook, ImportProgress, SectionOptions } from '../core/importer.ts';
-import { reportedNotebooks } from '../core/report.ts';
+import { reportedEntry, reportedNotebooks } from '../core/report.ts';
 import type { ReportNotebook } from '../core/report.ts';
 import { LANGUAGES, STRINGS } from '../core/strings.ts';
 import type { Language, Strings } from '../core/strings.ts';
@@ -136,7 +136,14 @@ export interface NotebookChoice {
 	blocked?: boolean;
 	/** That folder is spelled otherwise (another case): it is the same folder on disk, but not this name in the vault. */
 	otherSpelling?: boolean;
+	/** Found by the OneDrive notebook its contents page carries (§11.5 item 66), whatever its folder is called. */
+	byTag?: boolean;
+	/** The folder of its name is another OneDrive notebook of the same account (a copy of the same name): it takes another name. */
+	taken?: boolean;
 }
+
+/** The account (drive) part of a OneDrive notebook's tag (`<drive>/<item ID>`). */
+const driveOf = (tag: string) => tag.slice(0, tag.indexOf('/'));
 
 /**
  * Where a section stands. A notebook not imported before: free (can be chosen), locked (password
@@ -250,6 +257,8 @@ export class ImportSession {
 	private disposed = false;
 	/** Counts lookups of the target folder, so that only the latest one is kept. */
 	private lookups = 0;
+	/** Folders of the target folder whose contents page carries a OneDrive notebook, by it (from the last look; §11.5 item 66). */
+	private taggedFolders = new Map<string, string>();
 	/** Sections read for an update, by download and section path (they do not depend on the target folder). */
 	private readonly scans = new Map<string, Map<string, Scan>>();
 	/** What the target folder holds of a notebook imported before (read once per folder), by folder and notebook folder. */
@@ -609,7 +618,8 @@ export class ImportSession {
 		if (byUser) this.renamings = 0;
 		for (const choice of this.choices) renameNotebook(choice.notebook, choice.originalName);
 		this.named = new Set(this.choices.filter(choice => this.wanted(choice)));
-		distinctNames([...this.named].map(choice => choice.notebook), RESERVED);
+		const choiceOf = new Map(this.choices.map(choice => [choice.notebook, choice]));
+		distinctNames([...this.named].map(choice => choice.notebook), RESERVED, notebook => this.othersFolders(choiceOf.get(notebook)));
 		void this.lookUp();
 	}
 
@@ -626,13 +636,28 @@ export class ImportSession {
 		this.checking = true;
 		this.folderError = undefined;
 		this.changed();
-		const found = new Map<NotebookChoice, Pick<NotebookChoice, 'earlier' | 'blocked' | 'otherSpelling' | 'dir'>>();
+		const found = new Map<NotebookChoice, Pick<NotebookChoice, 'earlier' | 'blocked' | 'otherSpelling' | 'dir' | 'byTag' | 'taken'>>();
 		try {
 			const sink = new VaultSink(this.app, this.folder);
 			// The report the import will update (the reader's language first), for counts only.
-			const recorded = new Map((await reportedNotebooks(sink, STRINGS[this.readerLanguage])).map(entry => [key(entry.dir), entry]));
+			const recorded = await reportedNotebooks(sink, STRINGS[this.readerLanguage]);
+			// Folders whose contents page carries a OneDrive notebook (§11.5 item 66).
+			const tagged = await oneDriveFolders(sink, sink.listFolders());
+			const tagOfFolder = new Map([...tagged].map(([tag, folder]) => [key(folder), tag]));
+			if (lookup !== this.lookups || !this.open) return;
+			this.taggedFolders = tagged;
 			for (const choice of this.choices) {
 				if (lookup !== this.lookups || !this.open) return;
+				// From OneDrive: where its contents page says it is, whatever the folder is called now.
+				const tag = this.oneDriveTag(choice);
+				const mine = tag !== undefined ? tagged.get(tag) : undefined;
+				if (mine !== undefined) {
+					const earlier = await earlierNotebook(sink, mine, choice.notebook, reportedEntry(recorded, mine, tag));
+					if (earlier) {
+						found.set(choice, { earlier, dir: mine, byTag: true });
+						continue;
+					}
+				}
 				const dir = notebookFolder(choice.notebook.name, STRINGS[this.language]);
 				if (!sink.hasChild(dir)) {
 					found.set(choice, {});
@@ -643,7 +668,13 @@ export class ImportSession {
 					found.set(choice, { blocked: true, otherSpelling: true });
 					continue;
 				}
-				const earlier = await earlierNotebook(sink, dir, choice.notebook, recorded.get(key(dir)));
+				// The folder of its name is another OneDrive notebook of the same account: a copy of the same name, new here.
+				const there = tagOfFolder.get(key(dir));
+				if (tag !== undefined && there !== undefined && there !== tag && driveOf(there) === driveOf(tag)) {
+					found.set(choice, { taken: true });
+					continue;
+				}
+				const earlier = await earlierNotebook(sink, dir, choice.notebook, reportedEntry(recorded, dir));
 				found.set(choice, earlier ? { earlier, dir } : { blocked: true });
 			}
 		}
@@ -666,6 +697,8 @@ export class ImportSession {
 			choice.dir = state.dir;
 			choice.blocked = state.blocked;
 			choice.otherSpelling = state.otherSpelling;
+			choice.byTag = state.byTag;
+			choice.taken = state.taken;
 		}
 		this.checking = false;
 		// What can be chosen may have changed which notebooks are wanted, and so the names. A few
@@ -675,10 +708,28 @@ export class ImportSession {
 		await this.check();
 	}
 
-	/** Gives names again when the notebooks wanted are not those the names were given for (see lookUp). */
+	/**
+	 * The OneDrive notebook a choice is (`<drive>/<item ID>`), when it comes from OneDrive (§11.5 item
+	 * 66). The copy's folder is named after the account's drive (see copyRoot).
+	 */
+	oneDriveTag(choice: NotebookChoice): string | undefined {
+		const id = choice.download.onedrive?.notebooks.get(choice.notebook.path)?.notebook.id;
+		const drive = choice.download.input.split(/[\\/]/).filter(Boolean).pop();
+		return id && drive ? `${drive}/${id}` : undefined;
+	}
+
+	/** Folders a OneDrive notebook may not be named after: those of the account's other notebooks. */
+	private othersFolders(choice: NotebookChoice | undefined): string[] {
+		const tag = choice && this.oneDriveTag(choice);
+		if (tag === undefined) return [];
+		return [...this.taggedFolders].filter(([other]) => other !== tag && driveOf(other) === driveOf(tag)).map(([, folder]) => folder);
+	}
+
+	/** Gives names again when the notebooks wanted are not those the names were given for, or one wanted would go into another's folder (see lookUp). */
 	private settleNames(): void {
 		const wanted = new Set(this.choices.filter(choice => this.wanted(choice)));
-		if (this.renamings < 3 && (wanted.size !== this.named.size || [...wanted].some(choice => !this.named.has(choice)))) {
+		const taken = this.choices.some(choice => choice.taken && this.named.has(choice));
+		if (this.renamings < 3 && (taken || wanted.size !== this.named.size || [...wanted].some(choice => !this.named.has(choice)))) {
 			this.renamings++;
 			this.renameAll(false);
 		}
@@ -844,7 +895,8 @@ export class ImportSession {
 				let known = this.archives.get(at);
 				if (!known) {
 					reported ??= await reportedNotebooks(sink, STRINGS[this.readerLanguage]);
-					const entry = reported.find(candidate => key(candidate.dir) === key(choice.dir!));
+					// The report's entry, also when the folder was renamed since (§11.5 item 66).
+					const entry = reportedEntry(reported, choice.dir!, this.oneDriveTag(choice));
 					known = { archive: await readArchive(sink, choice.dir!, entry?.sections), ...(entry ? { entry } : {}) };
 					this.archives.set(at, known);
 				}
@@ -1203,6 +1255,9 @@ export class ImportSession {
 				input: choice.download.input,
 				request: {
 					notebook: choice.notebook,
+					// Found by its OneDrive notebook: in that folder, whatever it is called (§11.5 item 66).
+					...(choice.byTag ? { dir: choice.dir! } : {}),
+					...(this.oneDriveTag(choice) !== undefined ? { oneDrive: this.oneDriveTag(choice)! } : {}),
 					scanned: this.scanned(choice, STRINGS[choice.earlier!.language]),
 					chosen: new Set(chosen.map(section => sectionKey(section.groups, section.label))),
 					// Chosen without changes: converted again with the settings chosen now (§11.5 item 65).
@@ -1234,6 +1289,10 @@ export class ImportSession {
 					languageFor: notebook => of.get(notebook)?.earlier?.language ?? this.language,
 					chosen: section => going.has(section),
 					earlier: () => undefined,
+					oneDriveOf: notebook => {
+						const choice = of.get(notebook);
+						return choice && this.oneDriveTag(choice);
+					},
 					reportLanguage: this.readerLanguage,
 					options: this.options,
 					isCancelled: () => this.stopRequested,
