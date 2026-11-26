@@ -102,6 +102,26 @@ test('the first copy is laid out as the website\'s zip, and the reader opens it 
 	}
 });
 
+test('progress is counted in sections, as the import counts them: a table of contents comes along uncounted', async () => {
+	const s = await setup();
+	try {
+		const seen: { sections: number, totalSections: number, current?: string }[] = [];
+		// One section chosen, with the tables of contents (as an import asks).
+		await updateCopy(s.options({ only: new Set(['s2', 'toc']), concurrency: 1, onProgress: p => seen.push({ sections: p.sections, totalSections: p.totalSections, current: p.current }) }));
+		assert.deepEqual(new Set(seen.map(p => p.totalSections)), new Set([1]));
+		assert.equal(seen.at(-1)!.sections, 1);
+		assert.ok(seen.every(p => p.current === undefined || p.current === 'Group/Two.one'), 'the table of contents is not named as arriving');
+		// Brought up to date whole, the section already there counts as in place from the start.
+		const all: { sections: number, totalSections: number }[] = [];
+		await updateCopy(s.options({ onProgress: p => all.push({ sections: p.sections, totalSections: p.totalSections }) }));
+		assert.deepEqual(all[0], { sections: 1, totalSections: 2 });
+		assert.deepEqual(all.at(-1), { sections: 2, totalSections: 2 });
+	}
+	finally {
+		await s.done();
+	}
+});
+
 test('unchanged in OneDrive: nothing is fetched again', async () => {
 	const s = await setup();
 	try {

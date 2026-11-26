@@ -579,7 +579,7 @@ test('OneDrive: stopped while downloading, the result says what came down is kep
 	// The first notebook's download is under way when the stop comes, and ends as a cancelled one does.
 	(drive.access as any).copy = async (_notebook: unknown, _files: unknown, _only: unknown, signal: AbortSignal, onProgress?: (progress: object) => void) => {
 		copies++;
-		onProgress?.({ files: 0, totalFiles: 1, bytes: 5, totalBytes: 10 });
+		onProgress?.({ files: 0, totalFiles: 1, sections: 0, totalSections: 1, bytes: 5, totalBytes: 10 });
 		s.requestStop();
 		await new Promise((_resolve, reject) => {
 			if (signal.aborted) reject(new Error('cancelled'));

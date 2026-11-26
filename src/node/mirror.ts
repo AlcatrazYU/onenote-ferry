@@ -166,11 +166,19 @@ export interface CopyProgress {
 	/** Files fetched so far, and to fetch. */
 	files: number;
 	totalFiles: number;
+	/**
+	 * Sections (.one files) of those the copy is brought up to date for, in place so far (already as
+	 * in OneDrive, or fetched now), and in all: what people count. Tables of contents are not counted.
+	 */
+	sections: number;
+	totalSections: number;
 	bytes: number;
 	totalBytes: number;
-	/** The file arriving now (its path in the notebook). */
+	/** The section arriving now (its path in the notebook). */
 	current?: string;
 }
+
+const isSectionFile = (path: string) => /\.one$/i.test(path);
 
 export interface UpdateCopyOptions {
 	graph: GraphGet;
@@ -191,6 +199,8 @@ export interface UpdateCopyOptions {
 	/** For tests: how long a download may go without a byte, and how to wait. */
 	idleMs?: number;
 	sleep?(ms: number): Promise<void>;
+	/** The system's word that the network is back (see DownloadFileOptions.whenOnline). */
+	whenOnline?(callback: () => void): () => void;
 	free?(dir: string): number | undefined;
 }
 
@@ -271,7 +281,9 @@ export async function updateCopy(options: UpdateCopyOptions): Promise<CopyResult
 
 		const parts = join(dir, '.downloading');
 		await mkdir(parts, { recursive: true });
-		const progress: CopyProgress = { files: 0, totalFiles: plan.download.length, bytes: 0, totalBytes };
+		const sectionsWanted = remote.filter(file => isSectionFile(file.path) && (!options.only || options.only.has(file.id))).length;
+		const sectionsFetched = plan.download.filter(file => isSectionFile(file.path)).length;
+		const progress: CopyProgress = { files: 0, totalFiles: plan.download.length, sections: sectionsWanted - sectionsFetched, totalSections: sectionsWanted, bytes: 0, totalBytes };
 		// Bytes of the files arriving now, by ID.
 		const arriving = new Map<string, number>();
 		const report = () => options.onProgress?.({ ...progress, bytes: progress.bytes + [...arriving.values()].reduce((a, b) => a + b, 0) });
@@ -283,7 +295,7 @@ export async function updateCopy(options: UpdateCopyOptions): Promise<CopyResult
 			while (next < plan.download.length && !signal?.aborted) {
 				const file = plan.download[next++]!;
 				const part = join(parts, `${safeId(file.id)}.part`);
-				progress.current = file.path;
+				if (isSectionFile(file.path)) progress.current = file.path;
 				arriving.set(file.id, 0);
 				report();
 				try {
@@ -294,6 +306,7 @@ export async function updateCopy(options: UpdateCopyOptions): Promise<CopyResult
 						signal,
 						idleMs: options.idleMs,
 						sleep: options.sleep,
+						...(options.whenOnline ? { whenOnline: options.whenOnline } : {}),
 						onProgress: bytes => {
 							arriving.set(file.id, bytes);
 							report();
@@ -317,6 +330,7 @@ export async function updateCopy(options: UpdateCopyOptions): Promise<CopyResult
 				}
 				arriving.delete(file.id);
 				progress.files++;
+				if (isSectionFile(file.path)) progress.sections++;
 				progress.bytes += file.size;
 				report();
 			}

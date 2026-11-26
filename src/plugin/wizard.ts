@@ -44,6 +44,8 @@ export interface WizardHost {
 const BOTH_IN_ONE_DIALOG = process.platform === 'darwin';
 /** How long the OneDrive row's line keeps a way of showing (progress, sliding, none) before it changes to another. */
 const LINE_HOLD_MS = 400;
+/** What the OneDrive row's line counts: notebooks read, a check for updates (sections read), bytes of a download; none. */
+type LineMeasure = 'reading' | 'check' | 'list' | 'download' | 'none';
 
 /** An icon at the start of a setting row, the way Obsidian's own rows have one. */
 function rowIcon(setting: Setting, icon: string): void {
@@ -142,7 +144,7 @@ export class ImportWizard extends Modal {
 	/** The thin line along the bottom of the OneDrive row: set as things move, without drawing the row again. */
 	private oneDriveLine?: { holder: HTMLElement, bar: ProgressBarComponent, download: ChosenDownload };
 	/** How the line shows now, since when; and a look again once it may change. */
-	private lineShown?: { mode: 'idle' | 'slide' | 'bar', value: number, since: number };
+	private lineShown?: { measure: LineMeasure, mode: 'idle' | 'slide' | 'bar', value: number, since: number };
 	private lineTimer?: number;
 	/** Microsoft's sign-in page is open in the browser, for adding OneDrive. */
 	private signingIn = false;
@@ -448,18 +450,26 @@ export class ImportWizard extends Modal {
 		const reading = source.reading;
 		const d = session.downloading;
 		const checked = session.checkProgress;
-		const fraction = line.download.state === 'reading' ? (reading?.total ? reading.done / reading.total : undefined)
-			: source.refreshing ? undefined
-			// A download during the check is not measured in its count, and nothing is counted before the first
-			// section is read: sliding, rather than an empty or stuck line.
-			: session.checkingUpdates ? (!d && checked.total && checked.done ? checked.done / checked.total : undefined)
-			// Between the list and the check, a look at the target folder: still the check, not measured.
-			: session.updating && (session.checking || session.findingLocked) ? undefined
-			: d ? (d.totalBytes ? d.bytes / d.totalBytes : undefined)
-			: null;
-		const mode = fraction === null ? 'idle' : fraction === undefined ? 'slide' : 'bar';
-		const value = fraction == null ? 30 : Math.floor(fraction * 100);
+		// A check for updates is one measure from start to end: OneDrive's list read again, the copies
+		// brought up to date (downloads included) and the sections read, counted as the bottom line counts.
+		const checking = session.checkingUpdates || (session.updating && (source.refreshing || session.checking || session.findingLocked));
+		const [measure, fraction]: [LineMeasure, number | undefined | null] = line.download.state === 'reading' ? ['reading', reading?.total ? reading.done / reading.total : undefined]
+			: checking ? ['check', checked.total && checked.done ? checked.done / checked.total : undefined]
+			: source.refreshing ? ['list', undefined]
+			: d ? ['download', d.totalBytes ? d.bytes / d.totalBytes : undefined]
+			: ['none', null];
+		let mode: 'idle' | 'slide' | 'bar' = fraction === null ? 'idle' : fraction === undefined ? 'slide' : 'bar';
+		let value = fraction == null ? 30 : Math.floor(fraction * 100);
 		const shown = this.lineShown;
+		// Within one measure the line only goes forward: once it counts, it does not slide again, and it
+		// does not run back (more sections to read, found on the way, make the count smaller).
+		if (shown?.measure === measure && shown.mode === 'bar') {
+			if (mode === 'slide') {
+				mode = 'bar';
+				value = shown.value;
+			}
+			else if (mode === 'bar') value = Math.max(shown.value, value);
+		}
 		const now = Date.now();
 		// A change of way soon after the last one waits (a check flips between counting and sliding
 		// within moments as it goes from one notebook to the next): it shows only if it lasts.
@@ -471,7 +481,7 @@ export class ImportWizard extends Modal {
 			this.paintLine(line, shown.mode, shown.value);
 			return;
 		}
-		this.lineShown = shown?.mode === mode ? { ...shown, value } : { mode, value, since: now };
+		this.lineShown = shown?.mode === mode ? { ...shown, measure, value } : { measure, mode, value, since: now };
 		this.paintLine(line, mode, value);
 	}
 
@@ -821,7 +831,15 @@ export class ImportWizard extends Modal {
 		const session = this.session;
 		const box = this.contentEl.createDiv('onenote-ferry-progress-view');
 		const count = box.createDiv('onenote-ferry-progress-count');
-		const bar = new ProgressBarComponent(box);
+		const barHolder = box.createDiv();
+		const bar = new ProgressBarComponent(barHolder);
+		// How far it has come when that can be told; sliding while it cannot (the download's size not
+		// known yet, the downloads being read, a first section being converted: a single large one
+		// takes a while and says nothing until it is done), rather than an empty bar that looks stuck.
+		const show = (fraction: number | undefined) => {
+			barHolder.toggleClass('onenote-ferry-indeterminate', fraction === undefined);
+			bar.setValue(fraction === undefined ? 30 : Math.floor(fraction * 100));
+		};
 		const name = box.createDiv('onenote-ferry-progress-name');
 		box.createDiv({ cls: 'onenote-ferry-progress-hint', text: session.running === 'update' ? ui.closeHintUpdate : ui.closeHint });
 		const footer = this.footer();
@@ -832,19 +850,21 @@ export class ImportWizard extends Modal {
 			const d = session.downloading;
 			if (d) {
 				// Sections chosen from OneDrive coming down before the import.
-				count.setText(`${ui.statusDownloading(Math.min(d.files + 1, d.totalFiles), d.totalFiles)} · ${time}`);
-				bar.setValue(d.totalBytes ? Math.floor((d.bytes / d.totalBytes) * 100) : 0);
+				// In sections, as the import counts them (files only when no section is among them).
+				const [done, total] = d.totalSections ? [d.sections, d.totalSections] : [d.files, d.totalFiles];
+				count.setText(`${ui.statusDownloading(Math.min(done + 1, total), total)} · ${time}`);
+				show(d.totalBytes ? d.bytes / d.totalBytes : undefined);
 				name.setText(d.current ?? '');
 				name.setAttribute('title', d.current ?? '');
 			}
 			else if (!p) {
 				count.setText(`${ui.statusReading} · ${time}`);
-				bar.setValue(0);
+				show(undefined);
 				name.setText('');
 			}
 			else {
 				count.setText(`${ui.sectionCount(p.done + 1, p.total)} · ${time}`);
-				bar.setValue(Math.floor((p.done / p.total) * 100));
+				show(p.done ? p.done / p.total : undefined);
 				const label = `${p.notebook} / ${[...p.section.groups, p.section.label].join(' / ')}`;
 				name.setText(label);
 				name.setAttribute('title', label);

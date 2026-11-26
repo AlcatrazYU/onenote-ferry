@@ -108,6 +108,12 @@ export function linkFor(graph: GraphGet): (fileId: string) => Promise<FileLink> 
  */
 export const streamingFetch: typeof globalThis.fetch = (input, init) => fetch(input, init);
 
+/** The window's word that the network is back (its online event), for downloads to go on at once. */
+export function whenOnline(callback: () => void): () => void {
+	window.addEventListener('online', callback);
+	return () => window.removeEventListener('online', callback);
+}
+
 /** The session's OneDrive access, and the drive's folders to look through for "Look in another folder". */
 export interface OneDriveBrowse extends OneDriveAccess {
 	children(folderId?: string): Promise<{ folders: { id: string, name: string }[], notebooks: RemoteNotebook[] }>;
@@ -165,7 +171,7 @@ export function oneDriveAccess(app: App, account: MicrosoftAccount, version: str
 		children: id => said(() => folderChildren(graph, id)),
 		copy: async (notebook, files, only, signal, onProgress) => {
 			const at = await root();
-			return said(() => updateCopy({ graph, fetch: streamingFetch, root: at, notebook, files, only, signal, onProgress, link: linkFor(graph) }));
+			return said(() => updateCopy({ graph, fetch: streamingFetch, root: at, notebook, files, only, signal, onProgress, link: linkFor(graph), whenOnline }));
 		},
 	};
 }

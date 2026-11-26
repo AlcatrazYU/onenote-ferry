@@ -146,6 +146,74 @@ test('a connection that stops sending is given up after the idle time and resume
 	}
 });
 
+/** The system's word that the network is back, given when the test says. */
+function network() {
+	const listeners = new Set<() => void>();
+	return {
+		whenOnline: (callback: () => void) => {
+			listeners.add(callback);
+			return () => {
+				listeners.delete(callback);
+			};
+		},
+		back: () => {
+			for (const callback of [...listeners]) callback();
+		},
+		listening: () => listeners.size,
+	};
+}
+
+test('when the network is back, a connection that went silent is given up at once, not after the idle time', async () => {
+	const h = await host();
+	h.hooks.push((req, res, host) => {
+		serve(req, res, host, 50_000, true);
+		return true;
+	});
+	const net = network();
+	const t = setup(h, { idleMs: 60_000, whenOnline: net.whenOnline });
+	try {
+		const started = Date.now();
+		setTimeout(net.back, 1_300);
+		await downloadFile(t.options);
+		assert.ok(Date.now() - started < 10_000, 'well before the idle time');
+		assert.deepEqual(new Uint8Array(readFileSync(t.part)), h.version.body);
+		assert.equal(h.requests[1]!.range, `bytes=${50_000}-`);
+		assert.equal(net.listening(), 0, 'nothing is left listening');
+	}
+	finally {
+		t.done();
+		await h.close();
+	}
+});
+
+test('when the network is back, the pause before the next try ends', async () => {
+	const h = await host();
+	h.hooks.push((req, res, host) => {
+		serve(req, res, host, 70_000);
+		return true;
+	});
+	const net = network();
+	// A pause that would never end by itself.
+	const t = setup(h, { sleep: () => new Promise<void>(() => undefined), whenOnline: net.whenOnline });
+	try {
+		const waiting = setInterval(() => {
+			if (h.requests.length === 1) net.back();
+		}, 50);
+		try {
+			await downloadFile(t.options);
+		}
+		finally {
+			clearInterval(waiting);
+		}
+		assert.deepEqual(new Uint8Array(readFileSync(t.part)), h.version.body);
+		assert.equal(h.requests[1]!.range, `bytes=${70_000}-`);
+	}
+	finally {
+		t.done();
+		await h.close();
+	}
+});
+
 test('a file changed during the download is started again, never put together from two versions', async () => {
 	const h = await host();
 	// The first answer breaks off; meanwhile OneNote saves a new version (the link now serves it).

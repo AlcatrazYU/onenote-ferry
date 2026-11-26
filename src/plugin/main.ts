@@ -176,7 +176,7 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 		const off = session.onChange(() => {
 			const d = session.downloading;
 			const p = session.progress;
-			if (d) progress.update({ done: d.files, total: d.totalFiles, notebook: this.ui.oneDrive, section: d.current ?? '', startedAt: session.startedAt, downloading: true });
+			if (d) progress.update({ done: d.totalSections ? d.sections : d.files, total: d.totalSections || d.totalFiles, notebook: this.ui.oneDrive, section: d.current ?? '', startedAt: session.startedAt, downloading: true });
 			else if (p) progress.update({ done: p.done, total: p.total, notebook: p.notebook, section: p.section.label, startedAt: session.startedAt, updating: session.running === 'update' });
 		});
 		void session.start().finally(() => {

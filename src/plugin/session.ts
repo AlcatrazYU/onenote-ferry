@@ -493,6 +493,8 @@ export class ImportSession {
 		source.refreshed.add(entry.notebook.id);
 		try {
 			const result = await source.access.copy(entry.notebook, entry.files, undefined, source.controller.signal, progress => {
+				// Only when there is something to download (a copy already up to date reports nothing to fetch).
+				if (!progress.totalFiles) return;
 				this.downloading = progress;
 				this.changed();
 			});
@@ -524,8 +526,10 @@ export class ImportSession {
 			work.push({ source, notebook: entry.notebook, files: entry.files, only, sections });
 		}
 		const totalFiles = work.reduce((n, one) => n + one.only.size, 0);
+		// Counted in sections, as the import is (a notebook's table of contents comes along uncounted).
+		const totalSections = work.reduce((n, one) => n + one.sections.length, 0);
 		const totalBytes = work.reduce((n, one) => n + one.files.filter(file => one.only.has(file.id)).reduce((m, file) => m + file.size, 0), 0);
-		let files = 0, bytes = 0;
+		let files = 0, sections = 0, bytes = 0;
 		const cut = () => {
 			this.downloadsCut = true;
 			this.downloading = undefined;
@@ -538,7 +542,7 @@ export class ImportSession {
 			});
 			try {
 				const result = await one.source.access.copy(one.notebook, one.files, one.only, one.source.controller.signal, progress => {
-					this.downloading = { files: files + progress.files, totalFiles, bytes: bytes + progress.bytes, totalBytes, current: progress.current };
+					this.downloading = { files: files + progress.files, totalFiles, sections: sections + progress.sections, totalSections, bytes: bytes + progress.bytes, totalBytes, current: progress.current };
 					this.changed();
 				});
 				for (const failed of result.failed) one.source.failed.set(`${notebookPath(one.notebook)}/${failed.path}`, failed.detail);
@@ -551,6 +555,7 @@ export class ImportSession {
 				off();
 			}
 			files += one.only.size;
+			sections += one.sections.length;
 			bytes += one.files.filter(file => one.only.has(file.id)).reduce((m, file) => m + file.size, 0);
 			for (const section of one.sections) {
 				if (!one.source.failed.has(section.path)) continue;

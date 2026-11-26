@@ -5,7 +5,9 @@
 //   when the link was given. A file changed during a download in pieces comes out half old, half
 //   new, and the parser reads it without complaint. So every answer's ETag must be the one the
 //   download started with, and the file's version is checked again at the end.
-// - Switching Wi-Fi off makes the read fail at once; a connection that hangs is caught by a timer.
+// - Switching Wi-Fi off makes the read fail at once, or leaves it hanging until a timer catches it
+//   (both seen); when the system says the network is back, a silent connection is given up at once
+//   and the pause before the next try is cut short (whenOnline).
 // - OneDrive gives no content hash for OneNote files: size, ETag and version are what can be checked.
 // - Content-Range cannot be read from a browser (not exposed to CORS); status and length can.
 
@@ -36,7 +38,16 @@ export interface DownloadFileOptions {
 	/** Bytes received so far (of this file), as they come. */
 	onProgress?(bytes: number, size: number): void;
 	sleep?(ms: number): Promise<void>;
+	/**
+	 * Calls `callback` whenever the system says the network is back (the window's online event);
+	 * answers a function that stops it. A connection silent for a moment is then given up at once,
+	 * and the pause before the next try ends, rather than waiting out the idle time and the pause.
+	 */
+	whenOnline?(callback: () => void): () => void;
 }
+
+/** When the network is back, a connection silent this long is taken for broken (one still sending is left alone). */
+const SILENT_WHEN_ONLINE_MS = 1000;
 
 export type DownloadProblem =
 	/** Stopped by the caller. */
@@ -95,6 +106,22 @@ export async function downloadFile(options: DownloadFileOptions): Promise<{ size
 	let retries = 0;
 	let failures = 0;
 	const cancelled = () => new DownloadError('cancelled');
+	/** A pause before the next try, ended early when the network is back or the download is stopped. */
+	const pause = (ms: number) => new Promise<void>(resolve => {
+		let over = false;
+		let stopWatching: (() => void) | undefined;
+		const end = () => {
+			if (over) return;
+			over = true;
+			stopWatching?.();
+			signal?.removeEventListener('abort', end);
+			resolve();
+		};
+		signal?.addEventListener('abort', end);
+		stopWatching = options.whenOnline?.(end);
+		if (over) stopWatching?.();
+		void sleep(ms).then(end);
+	});
 
 	let link = await options.link();
 	let offset = await partState(part, link);
@@ -141,7 +168,9 @@ export async function downloadFile(options: DownloadFileOptions): Promise<{ size
 			failures = offset > before ? 1 : failures + 1;
 			if (failures > maxAttempts) throw new DownloadError('unreachable', String((error as Error)?.message ?? error).slice(0, 300));
 			retries++;
-			await sleep(error instanceof Busy ? error.waitMs : Math.min(30_000, 1000 * 2 ** (failures - 1)));
+			// OneDrive's own wait is kept; a pause after a network error ends when the network is back.
+			if (error instanceof Busy) await sleep(error.waitMs);
+			else await pause(Math.min(30_000, 1000 * 2 ** (failures - 1)));
 			if (signal?.aborted) throw cancelled();
 			let now: FileLink | undefined;
 			try {
@@ -180,6 +209,8 @@ async function freshLink(options: DownloadFileOptions, previous: FileLink): Prom
  * answer is of another version.
  */
 async function fetchInto(options: DownloadFileOptions, link: FileLink, offset: number, idleMs: number): Promise<{ offset: number, tagged: boolean }> {
+	// Opened first: nothing below is left running when the part cannot be opened.
+	const handle = await open(options.part, 'r+');
 	const controller = new AbortController();
 	let stalled = false;
 	let last = Date.now();
@@ -191,7 +222,13 @@ async function fetchInto(options: DownloadFileOptions, link: FileLink, offset: n
 			controller.abort();
 		}
 	}, Math.min(1000, idleMs / 2));
-	const handle = await open(options.part, 'r+');
+	// The network is back: a connection silent for a moment will not wake up (it was cut).
+	const stopWatching = options.whenOnline?.(() => {
+		if (Date.now() - last > SILENT_WHEN_ONLINE_MS) {
+			stalled = true;
+			controller.abort();
+		}
+	});
 	try {
 		let response: Response;
 		try {
@@ -266,6 +303,7 @@ async function fetchInto(options: DownloadFileOptions, link: FileLink, offset: n
 	}
 	finally {
 		clearInterval(watch);
+		stopWatching?.();
 		options.signal?.removeEventListener('abort', onAbort);
 		await handle.close();
 	}
