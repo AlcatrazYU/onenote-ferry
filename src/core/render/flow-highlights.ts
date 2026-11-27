@@ -1,4 +1,5 @@
-// Highlighter strokes on pictures inside text boxes (§11.5 item 67; Internal-13 §9 to §11).
+// Handwriting and highlighter strokes on pictures inside text boxes (§11.5 items 67 and 69;
+// Internal-13 §9 to §12).
 //
 // OneNote keeps where a text box is, but not where each thing inside it is: a screenshot pasted
 // under some lines of text sits wherever those lines end. Its place is worked out here from what
@@ -7,10 +8,13 @@
 // profile, parser/ferry/src/profile.rs), and the picture is moved by less than half a line of its
 // own text so that the strokes on it sit on those rows. Rows of printed text are evenly spaced,
 // so a place off by a whole line fits as well as the right one: a picture counts as sure only
-// when its place cannot be off by that much. The strokes on a sure picture are drawn into it; on
-// any other, onto a copy shown folded under it, marked as estimated.
+// when its place cannot be off by that much. Only highlighter strokes along a line of text say where
+// its rows are (a pen may underline, circle or write beside them). All the strokes on a picture go
+// together: drawn into it when its place is sure; otherwise onto one copy shown folded under it,
+// marked as estimated.
 
 import type { Element, Image, InkStroke, Outline } from '../model.ts';
+import { assignToPictures, isHighlighter } from './ink-layout.ts';
 import type { Box } from './ink-layout.ts';
 
 /** Points per half inch (the model's unit for places). */
@@ -251,7 +255,7 @@ const median = (values: number[]) => {
 	return sorted[Math.floor(sorted.length / 2)]!;
 };
 
-export interface PlacedHighlights {
+export interface PlacedMarks {
 	image: Image;
 	/** Where the picture sits, in the strokes' page positions: as laid out, moved onto its rows when sure. */
 	box: Box;
@@ -262,10 +266,10 @@ export interface PlacedHighlights {
 }
 
 /**
- * Which pictures inside the page's text boxes the highlighter strokes lie on, and where those
- * pictures sit. `profileOf` reads a picture's rows of text (undefined when it cannot be read).
+ * Which pictures inside the page's text boxes the strokes (handwriting and highlighter) lie on, and
+ * where those pictures sit. `profileOf` reads a picture's rows of text (undefined when it cannot be read).
  */
-export async function placeHighlights(outlines: Outline[], strokes: InkStroke[], profileOf: (image: Image) => Promise<RowProfile | undefined>): Promise<PlacedHighlights[]> {
+export async function placeOnPictures(outlines: Outline[], strokes: InkStroke[], profileOf: (image: Image) => Promise<RowProfile | undefined>): Promise<PlacedMarks[]> {
 	if (!strokes.length) return [];
 	const profiles = new Map<Image, RowProfile | undefined>();
 	const profile = async (image: Image) => {
@@ -286,6 +290,8 @@ export async function placeHighlights(outlines: Outline[], strokes: InkStroke[],
 	}
 	const pins = new Map(outlines.map(outline => [outline, pinnedFactor(outline, aspects)]));
 	const shapes = strokes.map(shape);
+	// What lines a picture up with its rows: highlighter strokes along a line of text.
+	const aligning = strokes.map((stroke, i) => isHighlighter(stroke) && shapes[i]!.along);
 
 	// The line height that puts the strokes along lines best on rows of text, over the page.
 	let factor = USUAL_FACTOR, best = Infinity;
@@ -294,7 +300,7 @@ export async function placeHighlights(outlines: Outline[], strokes: InkStroke[],
 		let cost = 0, n = 0;
 		for (const [k, indexes] of onPictures(pictures, shapes)) {
 			const read = await profile(pictures[k]!.image);
-			const along = indexes.filter(i => shapes[i]!.along);
+			const along = indexes.filter(i => aligning[i]);
 			if (!read?.pitch || !read.bands.length || !along.length) continue;
 			for (const off of offsets(pictures[k]!, read, along.map(i => shapes[i]!.y))) cost += Math.min(off, 0.5);
 			n += along.length;
@@ -308,12 +314,21 @@ export async function placeHighlights(outlines: Outline[], strokes: InkStroke[],
 	}
 
 	const pictures = layOut(outlines, factor, pins, aspects);
-	const placed: PlacedHighlights[] = [];
-	for (const [k, indexes] of onPictures(pictures, shapes)) {
+	// Which picture each stroke is on, by the rule for pictures placed on the page (at least half of
+	// its points on it, and a note beside it joined to such strokes), at the places laid out.
+	const owners = assignToPictures(strokes, pictures.map(picture => picture.box));
+	const on = new Map<number, number[]>();
+	owners.forEach((k, i) => {
+		if (k < 0) return;
+		if (!on.has(k)) on.set(k, []);
+		on.get(k)!.push(i);
+	});
+	const placed: PlacedMarks[] = [];
+	for (const [k, indexes] of [...on].sort((a, b) => a[0] - b[0])) {
 		const picture = pictures[k]!;
 		const read = await profile(picture.image);
-		const along = indexes.filter(i => shapes[i]!.along).map(i => shapes[i]!.y);
-		const result: PlacedHighlights = { image: picture.image, box: picture.box, strokes: indexes, sure: false };
+		const along = indexes.filter(i => aligning[i]).map(i => shapes[i]!.y);
+		const result: PlacedMarks = { image: picture.image, box: picture.box, strokes: indexes, sure: false };
 		placed.push(result);
 		if (!read?.pitch || read.periodic < PERIODIC || !read.bands.length || !along.length) continue;
 		const scale = read.height / (picture.box.bottom - picture.box.top);

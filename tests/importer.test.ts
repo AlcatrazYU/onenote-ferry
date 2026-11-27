@@ -69,7 +69,7 @@ const NOTEBOOKS = () => findNotebooks(files(
 	'Ferry log/Open Notebook.onetoc2', 'Ferry log/A.one', 'Ferry log/B.one', 'Ferry log/C.one',
 	'Tides/Open Notebook.onetoc2', 'Tides/Spring.one',
 ), 'Documents');
-const OPTIONS = { languageFor: () => 'zh-Hans' as const, boxMarkers: true, keepFontColor: true, links: true };
+const OPTIONS = { languageFor: () => 'zh-Hans' as const, boxMarkers: true, links: true };
 
 test('every section is converted in order; a failure and a password-protected section get a page that says why', async () => {
 	const { host: h, sink, seen } = host({ B: 'fail', C: 'locked' });

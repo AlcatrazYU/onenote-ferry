@@ -42,8 +42,8 @@ export interface Strings {
 	incompleteSection: string;
 	/** Title of the collapsed callout holding an image's alternative text. */
 	altTextTitle: string;
-	/** Title of the folded copy of a picture with highlighter strokes drawn where they were estimated to be (§11.5 item 67). */
-	highlighterEstimated: string;
+	/** Title of the folded copy of a picture with the writing on it (handwriting, highlighter) drawn where it was estimated to be (§11.5 items 67 and 69). */
+	inkEstimated: string;
 	/** The note in a section that could not be converted, with the parser's message. */
 	conversionFailedNote(error: string): string;
 	attachmentsFolder: string;
@@ -198,7 +198,7 @@ export const en: Strings = {
 	passwordProtected: 'This section is password protected and cannot be read. Remove its password protection in OneNote, then download it again.',
 	incompleteSection: 'This section did not download completely. Download again to get it.',
 	altTextTitle: 'Alt text',
-	highlighterEstimated: 'Highlighter strokes (estimated position)',
+	inkEstimated: 'Ink (estimated position)',
 	conversionFailedNote: error => `This section could not be converted. The parser reported: ${error}`,
 	attachmentsFolder: '_attachments',
 	tocFileName: '_contents',
@@ -301,7 +301,7 @@ export const zhHans: Strings = {
 	passwordProtected: '这个分区设了密码，无法读取。请在 OneNote 里取消它的密码保护，再重新下载。',
 	incompleteSection: '这个分区没有下载完整，请重新下载。',
 	altTextTitle: '替换文字',
-	highlighterEstimated: '荧光笔笔迹（位置为估算）',
+	inkEstimated: '笔迹（位置为估算）',
 	conversionFailedNote: error => `这个分区没能转换。解析器报告：${error}`,
 	attachmentsFolder: '_附件',
 	tocFileName: '_目录',
@@ -404,7 +404,7 @@ export const zhHant: Strings = {
 	passwordProtected: '這個節設了密碼，無法讀取。請在 OneNote 裡取消它的密碼保護，再重新下載。',
 	incompleteSection: '這個節沒有下載完整，請重新下載。',
 	altTextTitle: '替代文字',
-	highlighterEstimated: '螢光筆筆跡（位置為估算）',
+	inkEstimated: '筆跡（位置為估算）',
 	conversionFailedNote: error => `這個節沒能轉換。解析器報告：${error}`,
 	attachmentsFolder: '_附件',
 	tocFileName: '_目錄',
@@ -507,7 +507,7 @@ export const ja: Strings = {
 	passwordProtected: 'このセクションはパスワードで保護されているため読み取れません。OneNote でパスワード保護を解除してから、もう一度ダウンロードしてください。',
 	incompleteSection: 'このセクションは最後までダウンロードされていません。もう一度ダウンロードしてください。',
 	altTextTitle: '代替テキスト',
-	highlighterEstimated: '蛍光ペンの筆跡（位置は推定）',
+	inkEstimated: 'インク（位置は推定）',
 	conversionFailedNote: error => `このセクションは変換できませんでした。解析器のメッセージ：${error}`,
 	attachmentsFolder: '_添付ファイル',
 	tocFileName: '_目次',
@@ -610,7 +610,7 @@ export const ko: Strings = {
 	passwordProtected: '이 섹션은 암호로 보호되어 있어 읽을 수 없습니다. OneNote에서 암호 보호를 해제한 뒤 다시 다운로드하세요.',
 	incompleteSection: '이 섹션은 끝까지 다운로드되지 않았습니다. 다시 다운로드하세요.',
 	altTextTitle: '대체 텍스트',
-	highlighterEstimated: '형광펜 필적(위치는 추정)',
+	inkEstimated: '잉크(위치는 추정)',
 	conversionFailedNote: error => `이 섹션은 변환하지 못했습니다. 파서 메시지: ${error}`,
 	attachmentsFolder: '_첨부 파일',
 	tocFileName: '_목차',

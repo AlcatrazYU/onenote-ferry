@@ -275,7 +275,7 @@ export class ImportSession {
 		this.app = app;
 		this.client = client;
 		this.folder = defaults.folder;
-		this.options = { boxMarkers: defaults.boxMarkers, keepFontColor: defaults.keepFontColor, imageAltText: defaults.imageAltText };
+		this.options = { boxMarkers: defaults.boxMarkers, imageAltText: defaults.imageAltText };
 		this.readerLanguage = readerLanguage;
 		this.language = readerLanguage;
 		this.entry = entry;

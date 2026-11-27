@@ -17,7 +17,6 @@
 //                        or auto: each notebook's own language, read from its text first
 //   --no-box-markers     no position comments before text boxes
 //   --no-links           leave onenote: links between pages as they are
-//   --no-font-color      drop font colours
 //   --image-alt-text     write images' alternative text in a collapsed callout below them
 //
 //   node src/cli/main.ts plan <new download> <converted output folder> [options]
@@ -91,7 +90,6 @@ function parseArgs(argv: string[]) {
 		language: option('--language') ?? SYSTEM_LANGUAGE,
 		languageGiven: false,
 		boxMarkers: !flag('--no-box-markers'),
-		keepFontColor: !flag('--no-font-color'),
 		imageAltText: flag('--image-alt-text'),
 		links: !flag('--no-links'),
 		partial: flag('--partial'),
@@ -172,7 +170,7 @@ function sectionParser(options: ReturnType<typeof parseArgs>, download: Download
 async function main() {
 	const options = parseArgs(process.argv.slice(2));
 	if (!options.input || !options.output) {
-		console.error('Usage: node src/cli/main.ts <download zip or folder> <output folder> [--dump <native parser>] [--parser-wasm DIR] [--tmp DIR] [--only "A|B"] [--language CODE] [--no-box-markers] [--no-font-color] [--no-links] [--image-alt-text]');
+		console.error('Usage: node src/cli/main.ts <download zip or folder> <output folder> [--dump <native parser>] [--parser-wasm DIR] [--tmp DIR] [--only "A|B"] [--language CODE] [--no-box-markers] [--no-links] [--image-alt-text]');
 		process.exit(2);
 	}
 	if (options.language !== 'auto' && !isLanguage(options.language)) {
@@ -228,7 +226,7 @@ async function main() {
 				console.log(`Notebook "${notebook.name}": ${scan.language ?? 'too little text to tell'}`);
 			}
 		}
-		const sectionOptions = { boxMarkers: options.boxMarkers, keepFontColor: options.keepFontColor, imageAltText: options.imageAltText };
+		const sectionOptions = { boxMarkers: options.boxMarkers, imageAltText: options.imageAltText };
 		const result = await importNotebooks(notebooks, host, { languageFor: notebook => fixed ?? languages.get(notebook.name)!, ...sectionOptions, links: options.links });
 		if (result.links) console.log(`Links: ${result.links.resolved} of ${result.links.links} rewritten, ${result.links.unresolved} left as they were`);
 		const seconds = Math.round((Date.now() - started) / 1000);
@@ -391,7 +389,7 @@ async function plan(argv: string[], command: 'plan' | 'sync') {
 			console.log(`Would update ${count} section${count === 1 ? '' : 's'}. Nothing was written: run again with --apply to update.`);
 			return;
 		}
-		const defaults: SectionOptions = { boxMarkers: options.boxMarkers, keepFontColor: options.keepFontColor, imageAltText: options.imageAltText };
+		const defaults: SectionOptions = { boxMarkers: options.boxMarkers, imageAltText: options.imageAltText };
 		const host: UpdateHost = {
 			vault: sink, ...staging, ...sectionParser(options, download, wasm, scratch), listFolders,
 			onSectionDone(notebook, section, outcome) {

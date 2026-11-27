@@ -24,5 +24,5 @@ test('an equation split over several runs, with an empty piece, is one formula',
 	const pieces = ['x=', '\\frac{', '−b±', '\\unknown{25}{', '', '}{', '\\pow{', 'b}{', '2}', '−4ac}', '}{', '2a}'];
 	const section = new Adapter(zhHans).section(sectionJson('S', [pageJson('P', [outline([element([rich([run('formula: '), ...pieces.map(latex => run('\uFDD0', { latex }))])])])])]));
 	const paragraph = section.pages[0].outlines[0].children[0] as { runs: { text: string, math?: boolean }[] };
-	assert.equal(renderRuns(paragraph.runs as never, { keepFontColor: true }), 'formula: $x=\\frac{−b±\\sqrt{b^2−4ac}}{2a}$');
+	assert.equal(renderRuns(paragraph.runs as never, {}), 'formula: $x=\\frac{−b±\\sqrt{b^2−4ac}}{2a}$');
 });

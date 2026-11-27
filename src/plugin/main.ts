@@ -135,12 +135,11 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 	/** The saved settings, each kept only when it is of the right kind (the file may have been edited by hand). */
 	async loadSettings(): Promise<void> {
 		const saved = ((await this.loadData()) ?? {}) as Record<string, unknown>;
-		const flag = (key: 'boxMarkers' | 'keepFontColor' | 'imageAltText') => typeof saved[key] === 'boolean' ? saved[key] as boolean : DEFAULT_SETTINGS[key];
+		const flag = (key: 'boxMarkers' | 'imageAltText') => typeof saved[key] === 'boolean' ? saved[key] as boolean : DEFAULT_SETTINGS[key];
 		const folder = typeof saved.folder === 'string' ? cleanFolder(saved.folder) : DEFAULT_SETTINGS.folder;
 		this.settings = {
 			folder: folderProblem(folder) ? DEFAULT_SETTINGS.folder : folder,
 			boxMarkers: flag('boxMarkers'),
-			keepFontColor: flag('keepFontColor'),
 			imageAltText: flag('imageAltText'),
 		};
 		this.pendingUpdates = Array.isArray(saved.pendingUpdates) ? saved.pendingUpdates.filter((root): root is string => typeof root === 'string' && !folderProblem(root)) : [];

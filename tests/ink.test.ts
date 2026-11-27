@@ -35,7 +35,6 @@ function harness(assets: Record<string, Uint8Array> = {}, overrides: Partial<Pag
 	const saved: Saved[] = [];
 	let images = 0, inks = 0;
 	const options: PageRenderOptions = {
-		keepFontColor: true,
 		boxMarkers: true,
 		strings: zhHans,
 		saveAttachment: async (data, hint) => {

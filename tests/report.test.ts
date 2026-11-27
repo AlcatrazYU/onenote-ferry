@@ -18,7 +18,7 @@ const NOTEBOOKS = () => findNotebooks(files(
 	'Ferry log/Open Notebook.onetoc2', 'Ferry log/Crossings.one', 'Ferry log/Locked.one', 'Ferry log/Broken.one',
 	'Tides/Open Notebook.onetoc2', 'Tides/Spring.one',
 ), 'Documents');
-const OPTIONS = { boxMarkers: true, keepFontColor: true };
+const OPTIONS = { boxMarkers: true };
 const AT = new Date(2026, 10, 24, 21, 5);
 
 /** Crossings has a page with a picture whose bytes are missing; Locked is password protected; Broken fails. */

@@ -16,7 +16,6 @@ export interface SectionWriteOptions {
 	label: string;
 	strings: Strings;
 	boxMarkers: boolean;
-	keepFontColor: boolean;
 	keepHighlighterInk?: boolean;
 	/** Write images' alternative text in a collapsed callout below them (see PageRenderOptions). */
 	imageAltText?: boolean;
@@ -220,7 +219,6 @@ export async function writeSection(section: Section, source: SectionSource, sink
 		const rendered = await renderPage(page, {
 			strings,
 			boxMarkers: options.boxMarkers,
-			keepFontColor: options.keepFontColor,
 			keepHighlighterInk: options.keepHighlighterInk,
 			imageAltText: options.imageAltText,
 			isCancelled: options.isCancelled,

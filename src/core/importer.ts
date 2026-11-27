@@ -38,7 +38,6 @@ export interface SectionHost {
 /** How each section is written: everything that is not about the notebook as a whole. */
 export interface SectionOptions {
 	boxMarkers: boolean;
-	keepFontColor: boolean;
 	imageAltText?: boolean;
 }
 
@@ -250,7 +249,7 @@ export async function importNotebooks(notebooks: DownloadNotebook[], host: Impor
 			}
 			else {
 				host.onProgress?.({ notebook: notebook.name, section, done, total });
-				const sectionOptions: SectionOptions = { boxMarkers: options.boxMarkers, keepFontColor: options.keepFontColor, imageAltText: options.imageAltText };
+				const sectionOptions: SectionOptions = { boxMarkers: options.boxMarkers, imageAltText: options.imageAltText };
 				const dir = joinPath(notebookDir, folders.get(key)!);
 				result = host.convertSection
 					? await host.convertSection(section, dir, language, sectionOptions)
@@ -448,7 +447,7 @@ export async function convertSection(section: DownloadSection, dir: string, stri
 		const fingerprints = new Map<string, string>(await Promise.all((parsed.json.pages as { id: string, contents?: unknown }[]).map(async page => [page.id, await pageFingerprint(page.contents)] as [string, string])));
 		const report = await writeSection(adapter.section(parsed.json), parsed.source, host.sink, {
 			dir, label: parsed.json.name || label, strings,
-			boxMarkers: options.boxMarkers, keepFontColor: options.keepFontColor, imageAltText: options.imageAltText,
+			boxMarkers: options.boxMarkers, imageAltText: options.imageAltText,
 			...names, fingerprints,
 		});
 		return { groups, section: label, dir, report, stats: { parser: parsed.json.stats, parserErrors: parsed.json.errors, ...adapter.stats } };

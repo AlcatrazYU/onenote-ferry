@@ -22,7 +22,7 @@ import type { MemorySink } from './helpers.ts';
 /** Sections by their place in the notebook (`Group/Section`): their pages (parser JSON) and attachment bytes. */
 type Version = Record<string, { pages: unknown[], assets?: Record<string, string> }>;
 
-const OPTIONS = { boxMarkers: true, keepFontColor: true };
+const OPTIONS = { boxMarkers: true };
 const AT = new Date(2026, 11, 1, 14, 30);
 const BACKUP = '_旧版本/2026-12-01 1430';
 
@@ -312,25 +312,26 @@ test('what the user did in Obsidian: edits are kept or set aside, deleted pages 
 // Converting again with other settings (§11.5 item 65): sections without changes, chosen, are written
 // anew with the settings chosen now; pages edited in Obsidian stay; each section keeps its settings.
 
-const coloured = (name: string, title: string) => pageJson(title, [outline([element([rich([run('red words', { color: '#C00000' })])])])], { id: id(name), updated: hour(1) });
-const COLOURED: Version = {
-	Spring: { pages: [page('a', 'One', 'one'), coloured('b', 'Two'), coloured('c', 'Three')] },
-	Summer: { pages: [coloured('s', 'Sun')] },
+// Pages with two text boxes: with position comments on (OPTIONS), each has one before it.
+const boxed = (name: string, title: string, text = 'words') => pageJson(title, [outline([element([rich([run(text)])])], { x: 1, y: 1, w: 5 }), outline([element([rich([run('more')])])], { x: 8, y: 1, w: 5 })], { id: id(name), updated: hour(1) });
+const BOXED: Version = {
+	Spring: { pages: [page('a', 'One', 'one'), boxed('b', 'Two'), boxed('c', 'Three')] },
+	Summer: { pages: [boxed('s', 'Sun')] },
 };
-const PLAIN = { boxMarkers: true, keepFontColor: false };
+const PLAIN = { boxMarkers: false };
 const reconvert = async (vault: MemorySink, version: Version, keys: string[], defaults = PLAIN) => {
 	const asked = (await requests(version, keys)).map(request => ({ ...request, reconvert: new Set(keys) }));
 	return updateNotebooks(asked, host(vault, version), { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults, links: true, sources: ['same.zip'] });
 };
 
 test('a section without changes, chosen, is converted again with the settings chosen now; the others are left alone', async () => {
-	const vault = await imported(COLOURED);
-	assert.match(textOf(vault, 'Tides/Spring/Two.md')!, /color:#c00000/i);
+	const vault = await imported(BOXED);
+	assert.match(textOf(vault, 'Tides/Spring/Two.md')!, /<!--/);
 	const summer = textOf(vault, 'Tides/Summer/Sun.md');
-	const result = await reconvert(vault, COLOURED, ['Spring']);
+	const result = await reconvert(vault, BOXED, ['Spring']);
 	assert.ok(result);
-	assert.doesNotMatch(textOf(vault, 'Tides/Spring/Two.md')!, /color:/);
-	assert.match(textOf(vault, `${BACKUP}/Tides/Spring/Two.md`)!, /color:#c00000/i, 'the version before goes aside');
+	assert.doesNotMatch(textOf(vault, 'Tides/Spring/Two.md')!, /<!--/);
+	assert.match(textOf(vault, `${BACKUP}/Tides/Spring/Two.md`)!, /<!--/, 'the version before goes aside');
 	assert.equal(textOf(vault, 'Tides/Summer/Sun.md'), summer, 'a section not chosen is not touched');
 	assert.equal(result!.counts.sectionsReconverted, 1);
 	assert.equal(result!.counts.sectionsUpdated, 0);
@@ -346,12 +347,12 @@ test('a section without changes, chosen, is converted again with the settings ch
 });
 
 test('converting again leaves a page edited in Obsidian as it is, and says so', async () => {
-	const vault = await imported(COLOURED);
+	const vault = await imported(BOXED);
 	await vault.writeText('Tides/Spring/Two.md', `${textOf(vault, 'Tides/Spring/Two.md')}my words\n`, new Date(9e12));
 	const mine = textOf(vault, 'Tides/Spring/Two.md');
-	const result = await reconvert(vault, COLOURED, ['Spring']);
+	const result = await reconvert(vault, BOXED, ['Spring']);
 	assert.equal(textOf(vault, 'Tides/Spring/Two.md'), mine);
-	assert.doesNotMatch(textOf(vault, 'Tides/Spring/Three.md')!, /color:/);
+	assert.doesNotMatch(textOf(vault, 'Tides/Spring/Three.md')!, /<!--/);
 	assert.equal(result!.attention.keptEdited, 1);
 	const record = textOf(vault, '_更新记录/2026-12-01 1430.md')!;
 	assert.match(record, /以下页面在 Obsidian 中改过，保持原样，没有按新设置重写：\n\t- \[Two\]/);
@@ -359,12 +360,12 @@ test('converting again leaves a page edited in Obsidian as it is, and says so', 
 });
 
 test('settings go with each section: one updated because OneNote changed it keeps its own, a new one takes those chosen now', async () => {
-	const vault = await imported(COLOURED, section => section.label === 'Spring');
-	const V2: Version = { Spring: { pages: [page('a', 'One', 'one'), coloured('b', 'Two'), pageJson('Three', [outline([element([rich([run('changed', { color: '#C00000' })])])])], { id: id('c'), updated: hour(2) })] }, Summer: COLOURED.Summer! };
+	const vault = await imported(BOXED, section => section.label === 'Spring');
+	const V2: Version = { Spring: { pages: [page('a', 'One', 'one'), boxed('b', 'Two'), { ...boxed('c', 'Three', 'changed'), updated: hour(2) }] }, Summer: BOXED.Summer! };
 	await updateNotebooks(await requests(V2), host(vault, V2), { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults: PLAIN, links: true, sources: ['new.zip'] });
-	// Spring changed in OneNote: written as it was imported (colours kept); Summer, added now: as chosen now.
-	assert.match(textOf(vault, 'Tides/Spring/Three.md')!, /color:#c00000/i);
-	assert.doesNotMatch(textOf(vault, 'Tides/Summer/Sun.md')!, /color:/);
+	// Spring changed in OneNote: written as it was imported (with position comments); Summer, added now: as chosen now.
+	assert.match(textOf(vault, 'Tides/Spring/Three.md')!, /<!--/);
+	assert.doesNotMatch(textOf(vault, 'Tides/Summer/Sun.md')!, /<!--/);
 	const report = JSON.parse(textOf(vault, '_转换报告.json')!);
 	const sections = report.notebooks[0].sections as { section: string, options?: unknown }[];
 	assert.deepEqual(sections.find(section => section.section === 'Summer')!.options, PLAIN);

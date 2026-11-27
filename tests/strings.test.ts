@@ -117,7 +117,7 @@ test('a section written in English uses English folder names and marks', async (
 	])];
 	const sink = memorySink();
 	const section = new Adapter(strings).section(sectionJson('Section', pages));
-	await writeSection(section, memorySource({ 'i.png': 'PNG' }), sink, { dir: 'NB/Section', label: 'Section', strings, boxMarkers: true, keepFontColor: true });
+	await writeSection(section, memorySource({ 'i.png': 'PNG' }), sink, { dir: 'NB/Section', label: 'Section', strings, boxMarkers: true });
 	assert.deepEqual([...sink.files.keys()].sort(), ['NB/Section/Plan.md', 'NB/Section/_attachments/Plan - image001.png', 'NB/Section/_contents.md']);
 	assert.equal((sink.files.get('NB/Section/Plan.md') as string).split('---\n\n')[1], [
 		'<!-- Box 1 of 2, position on page: left 0.0 cm, top 0.0 cm -->',

@@ -8,8 +8,6 @@ import { escapeInline } from '../markdown.ts';
 import { highlightMarker } from './color.ts';
 
 export interface InlineOptions {
-	/** Keep emphasis font colours as `<span style="color:...">`. */
-	keepFontColor: boolean;
 	/** Turns an internal OneNote page title into a link target, or undefined to keep the original link. */
 	resolveInternalLink?: (pageTitle: string) => string | undefined;
 }
@@ -83,7 +81,8 @@ function renderLeaf(run: TextRun, options: InlineOptions): string {
 	}
 
 	const underline = run.underline && !run.hyperlinkUrl;
-	const color = options.keepFontColor ? run.color : undefined;
+	// Font colours are OneNote's own: always kept, as `<span style="color:...">` (§11.5 item 68).
+	const color = run.color;
 	if (!underline && !run.superscript && !run.subscript && !color) return leading + escapeInline(core) + trailing;
 
 	// Markdown is not parsed inside inline HTML, so HTML styles go innermost around plain text.
@@ -149,29 +148,29 @@ function renderLayers(runs: TextRun[], level: number, options: InlineOptions): s
 	return out;
 }
 
-function sameFormat(a: TextRun, b: TextRun, keepColor: boolean): boolean {
+function sameFormat(a: TextRun, b: TextRun): boolean {
 	return !!a.bold === !!b.bold && !!a.italic === !!b.italic && !!a.underline === !!b.underline
 		&& !!a.strikethrough === !!b.strikethrough && !!a.superscript === !!b.superscript
 		&& !!a.subscript === !!b.subscript && !!a.math === !!b.math
 		&& (a.hyperlinkUrl ?? '') === (b.hyperlinkUrl ?? '')
 		&& highlightMarker(a.highlight) === highlightMarker(b.highlight)
-		&& (!keepColor || (a.color ?? '') === (b.color ?? ''));
+		&& (a.color ?? '') === (b.color ?? '');
 }
 
 /** OneNote splits runs on every font change; joining equal ones avoids `====`. */
-function mergeRuns(runs: TextRun[], keepColor: boolean): TextRun[] {
+function mergeRuns(runs: TextRun[]): TextRun[] {
 	const merged: TextRun[] = [];
 	for (const run of runs) {
 		if (run.text === '') continue;
 		const last = merged[merged.length - 1];
-		if (last && sameFormat(last, run, keepColor)) last.text += run.text;
+		if (last && sameFormat(last, run)) last.text += run.text;
 		else merged.push({ ...run });
 	}
 	return merged;
 }
 
 export function renderRuns(runs: TextRun[], options: InlineOptions): string {
-	const merged = mergeRuns(runs, options.keepFontColor);
+	const merged = mergeRuns(runs);
 	return renderLayers(merged, 0, options)
 		// Two different highlights (or two bold spans) side by side need a break to parse.
 		.replace(/(==|\*\*|~~)(?=\1[^\s=*~])/g, (m, d, offset, all) => all[offset - 1] && all[offset - 1] !== ' ' ? `${d}${ZERO_WIDTH_SPACE}` : m)

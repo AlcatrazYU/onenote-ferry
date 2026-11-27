@@ -258,7 +258,6 @@ export class ImportWizard extends Modal {
 				.addToggle(toggle => toggle.setValue(session.options[key]).onChange(value => session.options[key] = value));
 		});
 		option(ui.boxMarkers, ui.boxMarkersDesc, 'boxMarkers');
-		option(ui.fontColor, ui.fontColorDesc, 'keepFontColor');
 		option(ui.altText, ui.altTextDesc, 'imageAltText');
 
 		// What the import or update will do, and the button that starts it.

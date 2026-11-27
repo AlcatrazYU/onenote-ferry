@@ -26,8 +26,6 @@ export interface UiStrings {
 	badFolder: string;
 	boxMarkers: string;
 	boxMarkersDesc: string;
-	fontColor: string;
-	fontColorDesc: string;
 	altText: string;
 	altTextDesc: string;
 
@@ -270,8 +268,6 @@ const en: UiStrings = {
 	badFolder: 'A folder name cannot start with a dot.',
 	boxMarkers: 'Text box positions',
 	boxMarkersDesc: 'Pages laid out in columns come out with their text boxes one after another. When on, a hidden comment before each text box says where it sat on the page.',
-	fontColor: 'Font colors',
-	fontColorDesc: 'Keep the color of colored text.',
 	altText: 'Picture alt text',
 	altTextDesc: 'Keep the alt text a picture already has in the notes: written below the picture, collapsed.',
 
@@ -481,8 +477,6 @@ const zh: UiStrings = {
 	badFolder: '文件夹名不能以点开头。',
 	boxMarkers: '文本框位置',
 	boxMarkersDesc: '多栏排版的页面导入后，文本框会依次排成一列。开启后，在每个文本框前加一条隐藏注释，写明它在原页面上的位置。',
-	fontColor: '字体颜色',
-	fontColorDesc: '保留彩色文字的颜色。',
 	altText: '图片替换文字',
 	altTextDesc: '保留原笔记已有的图片替换文字，写在图片下方，默认收起。',
 
@@ -694,8 +688,6 @@ const ja: UiStrings = {
 	badFolder: 'フォルダー名をドットで始めることはできません。',
 	boxMarkers: 'テキストボックスの位置',
 	boxMarkersDesc: '段組みのページは、インポートするとテキストボックスが順に一列に並びます。オンにすると、各テキストボックスの前に元のページでの位置を記した非表示のコメントを入れます。',
-	fontColor: 'フォントの色',
-	fontColorDesc: '色付きの文字の色を残します。',
 	altText: '画像の代替テキスト',
 	altTextDesc: '元のノートにある画像の代替テキストを残し、画像の下に折りたたんで書きます。',
 
@@ -906,8 +898,6 @@ const ko: UiStrings = {
 	badFolder: '폴더 이름은 점으로 시작할 수 없습니다.',
 	boxMarkers: '텍스트 상자 위치',
 	boxMarkersDesc: '여러 열로 된 페이지는 가져오면 텍스트 상자가 위에서 아래로 차례로 놓입니다. 켜면 각 텍스트 상자 앞에 원래 페이지에서의 위치를 적은 숨은 주석을 넣습니다.',
-	fontColor: '글꼴 색',
-	fontColorDesc: '색이 있는 글자의 색을 유지합니다.',
 	altText: '그림 대체 텍스트',
 	altTextDesc: '원래 노트에 있는 그림 대체 텍스트를 유지해 그림 아래에 접힌 상태로 씁니다.',
 

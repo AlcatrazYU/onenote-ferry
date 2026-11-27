@@ -29,7 +29,6 @@ function harness(overrides: Partial<PageRenderOptions> = {}): Harness {
 	const skipped: string[] = [];
 	let images = 0, inks = 0;
 	const options: PageRenderOptions = {
-		keepFontColor: true,
 		boxMarkers: true,
 		strings: zhHans,
 		saveAttachment: async (data, hint) => {

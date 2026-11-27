@@ -7,7 +7,7 @@ import { composedText } from '../src/core/names.ts';
 import { asset, element, memorySink, memorySource, outline, pageJson, rich, run, sectionJson, stroke } from './helpers.ts';
 
 const DIR = 'Notebook/Section';
-const options = { dir: DIR, label: 'Section', strings: zhHans, boxMarkers: true, keepFontColor: true };
+const options = { dir: DIR, label: 'Section', strings: zhHans, boxMarkers: true };
 
 async function write(pages: unknown[], assets: Record<string, string> = {}) {
 	const sink = memorySink();

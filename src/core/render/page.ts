@@ -11,7 +11,7 @@ import type { InlineOptions } from './inline.ts';
 import { strokesToSvg } from './ink-svg.ts';
 import type { DrawingParts } from './ink-svg.ts';
 import { assignToPictures, clusters, drawingUnder, insertionPoint, isHighlighter, strokeBox, unionBox } from './ink-layout.ts';
-import { placeHighlights, readProfile } from './flow-highlights.ts';
+import { placeOnPictures, readProfile } from './flow-highlights.ts';
 import type { Box, ColumnSpan } from './ink-layout.ts';
 import { base64, pictureInfo } from './picture.ts';
 import type { PictureInfo } from './picture.ts';
@@ -210,7 +210,7 @@ class PageWriter {
 	/** Handwriting drawn on a picture placed on the page, and where that picture sits. */
 	readonly annotations = new Map<Image, InkPiece[]>();
 	readonly pictures = new Map<Image, PlacedPicture>();
-	/** Highlighter strokes on a picture inside a text box whose place is not sure: drawn on a copy folded under it (§11.5 item 67). */
+	/** Writing on a picture inside a text box whose place is not sure: drawn on a copy folded under it (§11.5 items 67 and 69). */
 	readonly folded = new Map<Image, { pieces: InkPiece[], picture: PlacedPicture }>();
 	/** Printed documents with handwriting on some page: shown page by page (Mac printouts) so the notes can be drawn on. */
 	readonly annotatedDocuments = new Set<EmbeddedFile>();
@@ -446,15 +446,16 @@ class PageWriter {
 	}
 
 	/**
-	 * Highlighter strokes on a picture whose place in its text box is not sure (§11.5 item 67): drawn
-	 * on a copy of it where they were estimated to be, folded under the picture and marked as estimated.
+	 * Writing on a picture whose place in its text box is not sure (§11.5 items 67 and 69): all of it,
+	 * handwriting and highlighter, drawn on one copy of the picture where it was estimated to be,
+	 * folded under the picture and marked as estimated.
 	 * The copy is named as a drawing, so the pictures after it on the page keep their numbers.
 	 */
 	private async writeFoldedHighlights(pieces: InkPiece[], picture: PlacedPicture): Promise<void> {
 		if (!picture.bytes || !picture.info) return;
 		const underlay = { ...pixelRect(picture.box), href: `data:${picture.info.mime};base64,${base64(picture.bytes)}` };
 		const link = await this.drawingLink(pieces, { underlays: [underlay] }, { role: 'ink' });
-		if (link) this.push(`> [!info]- ${this.options.strings.highlighterEstimated}\n> ${link}`);
+		if (link) this.push(`> [!info]- ${this.options.strings.inkEstimated}\n> ${link}`);
 	}
 
 	/**
@@ -668,36 +669,23 @@ export async function renderPage(page: Page, options: PageRenderOptions): Promis
 		});
 		const boxOf = (item: { piece: InkPiece }) => strokeBox(item.piece.stroke);
 		const pen = (item: { piece: InkPiece }) => !isHighlighter(item.piece.stroke);
-		// Drawings are made of pen strokes and placed by them, as before; a highlighter stroke then
-		// goes into the drawing it lies on (§11.5 item 67), and one away from any is not drawn
-		// (unless every one is asked for).
 		const keepAll = !!options.keepHighlighterInk;
-		for (const group of clusters(keepAll ? free : free.filter(pen), boxOf)) {
-			const slot = insertionPoint(unionBox(group.map(boxOf)), spans, items.length);
-			if (!slotted.has(slot)) slotted.set(slot, []);
-			slotted.get(slot)!.push(...group);
-		}
+		// Writing on a picture inside a text box (§11.5 items 67 and 69): handwriting and highlighter
+		// together, drawn into the picture when its place is sure, else onto one copy folded under it.
+		let loose = free;
 		if (!keepAll) {
-			const drawings = [...slotted.values()];
-			const pens = drawings.map(list => list.map(item => item.piece.stroke));
-			const left: { piece: InkPiece, index: number }[] = [];
-			for (const item of free) {
-				if (pen(item)) continue;
-				const under = drawingUnder(item.piece.stroke, pens);
-				if (under >= 0) drawings[under]!.push(item);
-				else left.push(item);
-			}
-			// The rest may lie on a picture inside a text box (§11.5 item 67): drawn into it when its
-			// place is sure, else on a copy folded under it.
-			const placed = await placeHighlights(page.outlines, left.map(item => item.piece.stroke), async image => {
+			const placed = await placeOnPictures(page.outlines, free.map(item => item.piece.stroke), async image => {
 				const raw = image.data ? await options.rowProfile?.(image.data) : undefined;
 				return raw ? readProfile(raw) : undefined;
 			});
+			const taken = new Set<number>();
 			for (const { image, box, strokes, sure } of placed) {
 				const bytes = image.data ? await options.readAsset?.(image.data) : undefined;
 				const info = bytes ? pictureInfo(bytes) : undefined;
+				// A picture that cannot be drawn on: its handwriting stays a drawing of its own, as before.
 				if (!bytes || !info) continue;
-				const notes = strokes.map(i => left[i]!.piece);
+				const notes = strokes.map(i => free[i]!.piece);
+				for (const i of strokes) taken.add(i);
 				if (sure) {
 					writer.annotations.set(image, notes);
 					writer.pictures.set(image, { box, bytes, info });
@@ -706,6 +694,24 @@ export async function renderPage(page: Page, options: PageRenderOptions): Promis
 				// A Mac printout page marked so is shown page by page, as with handwriting on it: the
 				// strokes go onto its picture, or onto the copy folded under it.
 				if (image.printoutOf && !isWholeDocument(image)) writer.annotatedDocuments.add(image.printoutOf);
+			}
+			loose = free.filter((_, i) => !taken.has(i));
+		}
+		// The rest: drawings are made of pen strokes and placed by them, as before; a highlighter stroke
+		// goes into the drawing it lies on (§11.5 item 67), and one away from any is not drawn (unless
+		// every one is asked for).
+		for (const group of clusters(keepAll ? loose : loose.filter(pen), boxOf)) {
+			const slot = insertionPoint(unionBox(group.map(boxOf)), spans, items.length);
+			if (!slotted.has(slot)) slotted.set(slot, []);
+			slotted.get(slot)!.push(...group);
+		}
+		if (!keepAll) {
+			const drawings = [...slotted.values()];
+			const pens = drawings.map(list => list.map(item => item.piece.stroke));
+			for (const item of loose) {
+				if (pen(item)) continue;
+				const under = drawingUnder(item.piece.stroke, pens);
+				if (under >= 0) drawings[under]!.push(item);
 			}
 		}
 		// Within one drawing, strokes keep the order they were written in.

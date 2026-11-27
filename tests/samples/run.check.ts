@@ -63,7 +63,7 @@ function convert(path: string): Promise<Converted> {
 			const section = new Adapter(en).section(json);
 			const sink = memorySink();
 			const report = await writeSection(section, { readAsset: async key => parsed.readAsset(key) }, sink, {
-				dir: 'Section', label: 'Section', strings: en, boxMarkers: true, keepFontColor: true,
+				dir: 'Section', label: 'Section', strings: en, boxMarkers: true, 
 			});
 			return {
 				parserErrors: json.errors ?? [],

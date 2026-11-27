@@ -122,7 +122,7 @@ class FakeClient {
 	}
 }
 
-const DEFAULTS = { folder: 'T', boxMarkers: true, keepFontColor: true, imageAltText: false };
+const DEFAULTS = { folder: 'T', boxMarkers: true, imageAltText: false };
 
 /** A table of contents of ours, with how far its import got (§11.5 item 47). */
 const toc = (status: 'importing' | 'complete' | 'failed', name = 'Tides') => `---\ntitle: "${name}"\nonenote-import: ${status}\n---\n\n# ${name}\n`;

@@ -15,7 +15,7 @@ export interface Settings extends Required<SectionOptions> {
 	folder: string;
 }
 
-export const DEFAULT_SETTINGS: Settings = { folder: 'OneNote', boxMarkers: true, keepFontColor: true, imageAltText: false };
+export const DEFAULT_SETTINGS: Settings = { folder: 'OneNote', boxMarkers: true, imageAltText: false };
 
 /**
  * A folder as typed, made a vault path: `/` or `\\` between parts, no blank or `.` parts, no
@@ -115,7 +115,6 @@ export class FerrySettingTab extends PluginSettingTab {
 				await this.host.saveSettings();
 			}));
 		toggle(ui.boxMarkers, ui.boxMarkersDesc, 'boxMarkers');
-		toggle(ui.fontColor, ui.fontColorDesc, 'keepFontColor');
 		toggle(ui.altText, ui.altTextDesc, 'imageAltText');
 
 		// Importing from OneDrive (§11.5 item 61): the Microsoft account, and the download cache.

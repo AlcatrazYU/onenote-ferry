@@ -5,9 +5,7 @@ import { highlightMarker, emphasisColor } from '../src/core/render/color.ts';
 import { escapeLineStart } from '../src/core/markdown.ts';
 import type { TextRun } from '../src/core/model.ts';
 
-const plain = { keepFontColor: false };
-const colored = { keepFontColor: true };
-const render = (runs: TextRun[], options: Parameters<typeof renderRuns>[1] = plain) => renderRuns(runs, options);
+const render = (runs: TextRun[], options: Parameters<typeof renderRuns>[1] = {}) => renderRuns(runs, options);
 
 test('a highlight wraps a style change inside it instead of being cut', () => {
 	assert.equal(render([
@@ -51,8 +49,7 @@ test('only saturated emphasis colours are kept as font colours', () => {
 });
 
 test('a kept font colour is inline HTML, with Markdown characters escaped inside it', () => {
-	assert.equal(render([{ text: 'a*b', color: '#c00000' }], colored), '<span style="color:#c00000">a\\*b</span>');
-	assert.equal(render([{ text: 'a*b', color: '#c00000' }], plain), 'a*b');
+	assert.equal(render([{ text: 'a*b', color: '#c00000' }]), '<span style="color:#c00000">a\\*b</span>');
 });
 
 test('underline is innermost, and dropped on links where it is the link style', () => {
@@ -84,7 +81,7 @@ test('line starts that would become structure are escaped', () => {
 
 test('a link that names its page by id is not matched by title, even if this section has a page of that title', () => {
 	const url = 'onenote:https://d.docs.live.net/0/F/Other%20notebook/Other.one#Same%20Title&section-id={00000000-0000-0000-0000-000000000002}&page-id={00000000-0000-0000-0000-000000000003}&end';
-	const options = { keepFontColor: false, resolveInternalLink: (title: string) => title === 'Same Title' ? 'Same Title.md' : undefined };
+	const options = { resolveInternalLink: (title: string) => title === 'Same Title' ? 'Same Title.md' : undefined };
 	assert.equal(render([{ text: 'go', hyperlinkUrl: url }], options), `[go](${url})`);
 });
 
@@ -97,7 +94,7 @@ test('URLs: encoded ones are left alone, spaces and brackets are handled', () =>
 test('internal OneNote links resolve to notes when the resolver knows the page', () => {
 	const url = 'onenote:#Target%20Page&section-id={00000000-0000-0000-0000-000000000001}&end';
 	assert.equal(internalPageTitle(url), 'Target Page');
-	const options = { keepFontColor: false, resolveInternalLink: (title: string) => title === 'Target Page' ? 'Target Page.md' : undefined };
+	const options = { resolveInternalLink: (title: string) => title === 'Target Page' ? 'Target Page.md' : undefined };
 	assert.equal(render([{ text: 'go', hyperlinkUrl: url }], options), '[go](<Target Page.md>)');
 	assert.equal(internalPageTitle('https://example.com#x'), undefined);
 });

@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { placeHighlights, readProfile } from '../src/core/render/flow-highlights.ts';
+import { placeOnPictures, readProfile } from '../src/core/render/flow-highlights.ts';
 import type { RowProfile } from '../src/core/render/flow-highlights.ts';
 import { renderPage } from '../src/core/render/page.ts';
 import { zhHans } from '../src/core/strings.ts';
@@ -44,7 +44,7 @@ test('a picture under a line of text: placed where its rows meet the strokes on 
 	// Where OneNote really put it: a little lower than one line at 1.46 times the font size says.
 	const top = 2 + 11 * 1.46 / 36 + 0.08;
 	const strokes = [across(top + 12 / 60), across(top + 52 / 60), across(top + 92 / 60)];
-	const [placed] = await placeHighlights([outline], strokes, profileOf);
+	const [placed] = await placeOnPictures([outline], strokes, profileOf);
 	assert.ok(placed);
 	assert.equal(placed.image, shot);
 	assert.deepEqual(placed.strokes, [0, 1, 2]);
@@ -58,11 +58,11 @@ test('a picture under eight lines of text whose line height is not known: not su
 	const free = box([long, shot], { x: 2, y: 2, width: 13 });
 	const top = 2 + 8 * 11 * 1.5 / 36;
 	const strokes = [across(top + 12 / 60), across(top + 52 / 60)];
-	const [unsure] = await placeHighlights([free], strokes, profileOf);
+	const [unsure] = await placeOnPictures([free], strokes, profileOf);
 	assert.equal(unsure?.sure, false);
 	// The same box, sized by the user: its height is what eight lines at 1.5 times 11 pt and the picture take.
 	const pinned = box([long, shot], { x: 2, y: 2, width: 13, height: 8 * 11 * 1.5 / 36 + 5 }, true);
-	const [sure] = await placeHighlights([pinned], strokes, profileOf);
+	const [sure] = await placeOnPictures([pinned], strokes, profileOf);
 	assert.equal(sure?.sure, true);
 	assert.ok(Math.abs(sure!.box.top - top) < 0.02);
 });
@@ -70,12 +70,12 @@ test('a picture under eight lines of text whose line height is not known: not su
 test('a picture whose rows cannot be read, or with only a dot on it: not sure; strokes on no picture: on none', async () => {
 	const outline = box([text('Above.'), shot], { x: 2, y: 2, width: 13 });
 	const top = 2 + 11 * 1.46 / 36;
-	const [unread] = await placeHighlights([outline], [across(top + 1)], async () => undefined);
+	const [unread] = await placeOnPictures([outline], [across(top + 1)], async () => undefined);
 	assert.equal(unread?.sure, false);
 	const dot: InkStroke = { points: [{ x: 5, y: top + 1 }, { x: 5.1, y: top + 1 }], color: '#ffff00', width: 0.4, opacity: 0.5 };
-	const [dotted] = await placeHighlights([outline], [dot], profileOf);
+	const [dotted] = await placeOnPictures([outline], [dot], profileOf);
 	assert.equal(dotted?.sure, false);
-	assert.deepEqual(await placeHighlights([outline], [across(30, 30, 35)], profileOf), []);
+	assert.deepEqual(await placeOnPictures([outline], [across(30, 30, 35)], profileOf), []);
 });
 
 /** The first 24 bytes of a PNG of the given size: enough for its type and size. */
@@ -91,7 +91,7 @@ async function render(page: Page, profile: Float32Array | undefined) {
 	const saved: { role: string, text?: string }[] = [];
 	let n = 0;
 	const result = await renderPage(page, {
-		keepFontColor: true, boxMarkers: false, strings: zhHans,
+		boxMarkers: false, strings: zhHans,
 		saveAttachment: async (data, hint) => {
 			saved.push({ role: hint.role, text: data.kind === 'inline' ? new TextDecoder().decode(data.bytes) : undefined });
 			const name = hint.role === 'image' ? `img${++n}.${hint.extension ?? 'bin'}` : hint.role === 'ink' ? `ink${++n}.svg` : hint.fileName;
@@ -116,7 +116,7 @@ test('written: a sure picture with the strokes drawn into it; an unsure one as i
 	assert.equal((sure.saved[0]!.text!.match(/mix-blend-mode:multiply/g) ?? []).length, 2);
 	// No profile (the parser cannot read the picture): the picture as it is, the copy folded.
 	const unsure = await render(page([text('Above.'), picture(10, 5)]), undefined);
-	assert.equal(unsure.markdown, 'Above.\n\n![](<_附件/img1.png>)\n\n> [!info]- 荧光笔笔迹（位置为估算）\n> ![](<_附件/ink2.svg>)');
+	assert.equal(unsure.markdown, 'Above.\n\n![](<_附件/img1.png>)\n\n> [!info]- 笔迹（位置为估算）\n> ![](<_附件/ink2.svg>)');
 	assert.deepEqual(unsure.saved.map(s => s.role), ['image', 'ink']);
 });
 
@@ -132,5 +132,41 @@ test('Mac printout pages in a text box with highlighter on one: shown page by pa
 	const sure = await render(page(), raw(300, 20, 12));
 	assert.equal(sure.markdown, 'Above.\n\n![](<_附件/img1.svg>)\n\n![](<_附件/img2.png>)\n\n[doc.pdf](<_附件/doc.pdf>)');
 	const unsure = await render(page(), undefined);
-	assert.equal(unsure.markdown, 'Above.\n\n![](<_附件/img1.png>)\n\n> [!info]- 荧光笔笔迹（位置为估算）\n> ![](<_附件/ink2.svg>)\n\n![](<_附件/img3.png>)\n\n[doc.pdf](<_附件/doc.pdf>)');
+	assert.equal(unsure.markdown, 'Above.\n\n![](<_附件/img1.png>)\n\n> [!info]- 笔迹（位置为估算）\n> ![](<_附件/ink2.svg>)\n\n![](<_附件/img3.png>)\n\n[doc.pdf](<_附件/doc.pdf>)');
+});
+
+test('handwriting and highlighter on one picture in a text box go into one picture: drawn in when sure, one folded copy when not; handwriting elsewhere stays its own drawing', async () => {
+	const top = 2 + 11 * 1.46 / 36 + 0.08;
+	// A circle drawn on the picture, a note beside it joined to the circle, and a word written well below the text box.
+	const circle: InkStroke = { points: [{ x: 4, y: top + 1 }, { x: 6, y: top + 1 }, { x: 6, y: top + 2 }, { x: 4, y: top + 2 }, { x: 4, y: top + 1 }], color: '#ff0000', width: 0.05, opacity: 1 };
+	const beside: InkStroke = { points: [{ x: 12.1, y: top + 1.5 }, { x: 13, y: top + 1.5 }], color: '#ff0000', width: 0.05, opacity: 1 };
+	const arrow: InkStroke = { points: [{ x: 6, y: top + 1.5 }, { x: 12.1, y: top + 1.5 }], color: '#ff0000', width: 0.05, opacity: 1 };
+	const away: InkStroke = { points: [{ x: 3, y: 20 }, { x: 5, y: 20.2 }], color: '#ff0000', width: 0.05, opacity: 1 };
+	const page = (): Page => ({
+		id: '{P}', title: 'Sample', level: 0, isConflictPage: false, isDeleted: false,
+		outlines: [box([text('Above.'), picture(10, 5)], { x: 2, y: 2, width: 13 })],
+		directContent: [{ kind: 'ink', strokes: [circle, arrow, beside, away] }],
+		highlighterInk: [{ kind: 'ink', strokes: [across(top + 12 / 60), across(top + 52 / 60)] }],
+	});
+	const sure = await render(page(), raw(300, 20, 12));
+	assert.equal(sure.markdown, 'Above.\n\n![](<_附件/img1.svg>)\n\n![](<_附件/ink2.svg>)');
+	const drawn = sure.saved[0]!.text!;
+	assert.match(drawn, /<image /);
+	assert.equal((drawn.match(/<path /g) ?? []).length, 5, 'circle, arrow, note and two highlighter strokes, on the picture');
+	assert.equal((sure.saved[1]!.text!.match(/<path /g) ?? []).length, 1, 'the word below, on its own');
+	const unsure = await render(page(), undefined);
+	assert.equal(unsure.markdown, 'Above.\n\n![](<_附件/img1.png>)\n\n> [!info]- 笔迹（位置为估算）\n> ![](<_附件/ink2.svg>)\n\n![](<_附件/ink3.svg>)');
+	assert.equal((unsure.saved[1]!.text!.match(/<path /g) ?? []).length, 5);
+});
+
+test('handwriting alone on a picture in a text box: its rows say nothing of where it sits, so one folded copy, and no drawing of its own', async () => {
+	const top = 2 + 11 * 1.46 / 36;
+	const circle: InkStroke = { points: [{ x: 4, y: top + 1 }, { x: 6, y: top + 1 }, { x: 6, y: top + 2 }, { x: 4, y: top + 1 }], color: '#ff0000', width: 0.05, opacity: 1 };
+	const page: Page = {
+		id: '{P}', title: 'Sample', level: 0, isConflictPage: false, isDeleted: false,
+		outlines: [box([text('Above.'), picture(10, 5)], { x: 2, y: 2, width: 13 })],
+		directContent: [{ kind: 'ink', strokes: [circle] }],
+	};
+	const { markdown } = await render(page, raw(300, 20, 12));
+	assert.equal(markdown, 'Above.\n\n![](<_附件/img1.png>)\n\n> [!info]- 笔迹（位置为估算）\n> ![](<_附件/ink2.svg>)');
 });
