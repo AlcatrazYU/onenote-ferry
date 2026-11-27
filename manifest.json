@@ -3,7 +3,7 @@
 	"name": "OneNote Ferry",
 	"version": "0.1.0",
 	"minAppVersion": "1.11.5",
-	"description": "Import OneNote notebooks from OneDrive as Markdown, with highlights, links, attachments and handwriting kept, and check them for updates later.",
+	"description": "Import OneNote notebooks as Markdown from OneDrive, a OneDrive download or a OneNote for Windows export, with highlights, links, attachments, printouts and handwriting kept, and bring in later changes.",
 	"author": "AlcatrazYU",
 	"authorUrl": "https://github.com/AlcatrazYU",
 	"isDesktopOnly": true

@@ -2,401 +2,720 @@
 
 English | [中文](#中文) | [日本語](#日本語) | [한국어](#한국어)
 
-Ferry your OneNote notebooks into Obsidian, with highlights, layout order, links and original attachments intact, and keep them up to date.
+Convert your OneNote notebooks into Markdown notes in Obsidian, and keep them up to date as you go on using OneNote.
 
-> **Status: in development, not released yet.** Importing, straight from OneDrive or from a downloaded folder, and checking for updates work, and are tested on macOS with a personal Microsoft account on the maintainer's own notebooks. Windows OneNote exports and a few more improvements are still to come before the first release.
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/alcatrazyu)
 
-## What It Is For
+☕ OneNote Ferry is free and will stay free. If it saves you time moving your notes, you can [buy me a coffee](https://ko-fi.com/alcatrazyu).
 
-OneNote Ferry is an Obsidian community plugin (with a command line version) for people who keep their OneNote notebooks on a personal OneDrive and want a faithful Markdown copy in Obsidian, including Mac users, whose OneNote only exports PDF.
+OneNote Ferry reads the files your notebooks are stored in, straight from your OneDrive or from a download, and writes every page as a Markdown note in your vault, with its formatting, highlights, links, pictures, attachments, printouts and handwriting. It runs inside Obsidian on your computer and does not need OneNote for Windows, so it works on a Mac as well.
 
-It reads the original notebook files, either straight from your OneDrive once you sign in to your Microsoft account, or from the folder that holds your notebooks, downloaded from the OneDrive website (the zip, or the folder after unzipping). It converts them into an organized Markdown folder:
+## Why OneNote Ferry
 
-- text formatting and font colors, highlights (with their colors), web links, math as LaTeX
-- links between notes, rewritten as links inside your vault
-- original images and attachments, unchanged; printouts shown as the original PDF, with handwriting on a printout page drawn on that page
-- handwriting, drawn as a picture where it was written, with highlighter strokes drawn into the picture or handwriting they cover
-- page hierarchy, with a contents page for each notebook and section
-- a reading order for free-floating text boxes
-- a report of what was converted, and of anything that could not be
+There are already several ways to move notes out of OneNote. OneNote Ferry is meant for the cases they leave open:
+
+- **Your notes are on a Mac, or there are many of them.** OneNote for Mac exports only PDF, and most converters need OneNote for Windows. Converting through Microsoft's online interface, as Obsidian's official [Importer](https://github.com/obsidianmd/obsidian-importer) does, is held to Microsoft's request limits, which makes large notebooks slow. OneNote Ferry reads the notebook files themselves, so it needs neither. As far as we know, no other Obsidian plugin reads the notebook files downloaded from OneDrive.
+- **Your notes depend on their details.** Highlight colors, links between pages, the original attachments, printouts and their text, and handwriting where it was written are all kept. Anything that cannot be converted is listed in a report, so nothing goes missing without notice.
+- **You keep writing in OneNote.** A check for updates brings in only what changed, keeps every version it replaces, and leaves your edits in Obsidian alone.
+
+Which tool suits which situation:
+
+| Your situation | Suggested tool |
+| --- | --- |
+| A few notebooks, mostly text, and you want the simplest setup | [Obsidian Importer](https://github.com/obsidianmd/obsidian-importer) (official) |
+| You are also moving notes from Evernote, Notion or other apps | [Obsidian Importer](https://github.com/obsidianmd/obsidian-importer) (official) |
+| You have OneNote for Windows and want a one-time export | [OneNote Md Exporter](https://github.com/alxnbl/onenote-md-exporter) or OneNote Ferry |
+| You use a Mac, or have many notebooks with highlights, screenshots and text boxes | OneNote Ferry |
+| You keep using OneNote and want Obsidian to follow | OneNote Ferry |
+
+## Quick Start
+
+1. Install and enable OneNote Ferry from Obsidian's Community plugins. It works in Obsidian on the desktop.
+2. Click the paper boat icon ![OneNote Ferry ribbon icon](docs/assets/ribbon-icon.svg) in the left ribbon, or run `Import OneNote notes` from the command palette.
+3. Choose where your notebooks come from: `Import from OneDrive`, or `Choose files or folders` for a download from the OneDrive website or a OneNote for Windows export.
+4. Tick the notebooks and sections you want, and click `Start import`.
+5. When the import finishes, click `Open report` to see what was converted.
+
+## What Gets Converted
+
+- **Text**: formatting, font colors, highlights in their own colors, headings, lists with their numbering, tables, tags (as callouts or task boxes), equations (as LaTeX) and web links.
+- **Links between pages**: rewritten as links inside your vault.
+- **Pictures and attachments**: kept as the original files. TIF pictures become PNG with the same pixels. Formats Obsidian cannot show, such as EMF, are linked with a note saying so.
+- **Printouts**: a printout of a PDF shows the original PDF. A printout made in OneNote for Windows whose original is not in the notebook (a Word document, for example) is drawn page by page from the printout itself.
+- **Text in printouts and pictures**: the text of each printout page is kept below it in a folded box, so it can be searched in Obsidian. With `Text in pictures` turned on, the alt text of pictures and the text OneNote recognized in them are kept the same way.
+- **Handwriting and highlighter**: drawn as a picture where they were written. Highlighter strokes are drawn onto the picture or handwriting they mark.
+- **Structure**: a folder for each notebook and section, pages in OneNote's order and hierarchy, sections in the order OneNote shows them, and a contents page for each notebook and section.
+- **Text boxes**: in reading order, with an optional hidden comment giving each one's position on the page.
+- **A report** of what was converted, and of anything that could not be.
+
+## Where Your Notebooks Come From
+
+| Source | What you need | When to use it |
+| --- | --- | --- |
+| OneDrive | A Microsoft account and an internet connection | The usual way. Later updates download only what changed. |
+| A download from the OneDrive website | The zip file, or the folder after unzipping it | When you would rather not sign in from Obsidian, or want to work offline. |
+| A OneNote for Windows export | A notebook (`.onepkg`) or a section (`.one`) exported by OneNote for Windows | For notebooks kept on a Windows PC, or a single section. |
 
 ## Importing
 
-The import window lists your notebooks and their sections, and you tick the ones you want. The notebooks can come from OneDrive or from a download.
+### From OneDrive
 
-**From OneDrive**
+1. Open the import window (step 2 of Quick Start) and choose `Import from OneDrive`.
+2. Sign in to your Microsoft account in the browser that opens. When the page says you are signed in, return to Obsidian.
+3. Your notebooks are listed with their sections. Nothing is downloaded or ticked yet. Tick what you want. A notebook missing from the list can be added with `Look in another folder`.
+4. Click `Start import`. Only the sections you ticked are downloaded. You can close the window: the import continues, with its progress in the status bar.
 
-1. In Obsidian, click the paper boat icon in the left ribbon, or run `Import OneNote notes` from the command palette.
-2. Choose `Import from OneDrive`, and sign in to your Microsoft account in the browser that opens.
-3. Your notebooks are listed with their sections. Nothing is downloaded and nothing is ticked yet: tick the notebooks and sections you want. A notebook missing from the list can be added with `Look in another folder` (the folder icon on the OneDrive row).
-4. Click `Start import`. Only the sections you ticked are downloaded, then imported. You can close the window: the import goes on, with its progress in the status bar.
-5. When it ends, open the report it wrote.
+The page in the browser is shown only once. If the browser later says it cannot reach `localhost`, check in Obsidian whether you are signed in, and if not, start the sign-in again from there.
 
-**From a download**
+### From a download
 
-1. On the OneDrive website, download the folder that holds your notebooks.
-2. Open the import window as above, and choose `Choose zip files or folders`.
-3. Tick the notebooks and sections you want, and click `Start import`.
+1. On the OneDrive website, download the folder that holds your notebooks (usually `Documents`). You get a zip file.
+2. In the import window, choose `Choose files or folders` and pick the zip file, or the folder after unzipping it.
+3. Tick what you want and click `Start import`.
 
-When the target folder already holds some of these notebooks, the sections you tick are added to them, and a notebook imported only in part is marked `Partly imported`. The settings in the window apply to the sections imported now, except the language of contents pages and notices, which stays the notebook's.
+### From a OneNote for Windows export
 
-## Checking for Updates
+1. In OneNote for Windows, use `File` > `Export` to export a notebook as a OneNote Package (`.onepkg`) or a section as a OneNote Section (`.one`).
+2. In the import window, choose `Choose files or folders` and pick the exported file.
+3. Tick what you want and click `Start import`.
 
-If you keep using OneNote, run `Check for OneNote updates` from the command palette.
+On Windows and Linux, the window shows `Choose files` and `Choose folders` instead of `Choose files or folders`. When the folder you import into already holds some of these notebooks, the sections you tick are added to them.
 
-- With OneDrive, choose `Check OneDrive for updates`. Each notebook imported before is first brought up to date in the plugin's downloaded copy, which downloads only the files that changed in OneDrive.
-- With downloads, download the folder again and choose it (choosing a new download in the import window works too).
+## Keeping Notes Up to Date
 
-Each notebook imported before is then compared with your vault, section by section. Sections that changed, are new, or were cut off last time are ticked; a changed section opens to show its pages.
+If you keep using OneNote, open the import window the same way you did to import, and choose the same source: `Import from OneDrive`, or a newer download or export of your notebooks. The window compares each notebook you imported before with your vault and ticks the sections that changed or are new. Click `Start update`. (The command `Check for OneNote updates` opens the same window, ready to check OneDrive.)
 
-- Only the pages OneNote changed are replaced. Before a page is replaced, the vault's copy goes to `_previous versions/<time>/`. Pages OneNote did not change are not touched, so bookmarks, canvases and open tabs stay on them.
-- A page changed in OneNote and also edited in Obsidian: the new version goes in, your version is kept in `_previous versions`, and both the window and the log point it out.
-- To convert sections again with other settings, change the settings in the window, then click a section marked `No changes`, or its notebook, or `Select all` when nothing has updates: it shows `Convert again`. Its pages are written anew and the old ones go to `_previous versions`; pages you edited in Obsidian stay as they are. A section updated because OneNote changed it keeps its own settings.
-- Nothing is ever deleted. Pages and sections OneNote no longer has stay where they are. Pages you deleted in Obsidian come back only if you tick them.
-- Each update writes a page in `_sync log` that lists what changed. The `_conversion report` is the overview of every notebook in the folder; the two point to each other.
-- Notebooks from OneDrive are recognized by their OneDrive ID, which each notebook's contents page keeps. A notebook renamed in OneNote is updated in place, and its folder takes the new name, unless you renamed the folder yourself or another folder has that name. A folder you renamed in Obsidian is still found. A copy of a notebook counts as a notebook of its own.
-- If Obsidian quits during an update, the update is finished the next time Obsidian starts: each section ends up all old or all new.
+`Import into` must be the folder you imported into before: the window compares only with the notebooks in that folder, and with another folder they would be imported there anew. The window remembers the folder you last imported into; if you keep notebooks in more than one folder, choose the one that holds the notebooks to update.
 
-## Microsoft Account and OneDrive
+- Only the pages OneNote changed are replaced. The copy in your vault goes to `_previous versions` first.
+- Pages you edited in Obsidian stay as they are, unless OneNote changed them too. Then OneNote's version goes in, yours is kept in `_previous versions`, and the window points it out.
+- Pages you deleted in Obsidian stay deleted. To bring one back, open its section and tick the page.
+- Nothing is deleted from your vault. Pages and sections removed in OneNote stay, and their contents page lists them.
+- To convert sections again with other settings, change the settings in the window, then click a section marked `No changes`. It then shows `Convert again`.
+- Each update writes what it changed to `_sync log`.
 
-Importing from OneDrive is optional: importing a download needs no account and works offline.
+Notebooks from OneDrive are recognized by their OneDrive ID, so a notebook renamed in OneNote, or a folder you renamed in Obsidian, is still found. Notebooks from downloads are recognized by name.
 
-- **Signing in.** You sign in on Microsoft's own page, in your browser, so the plugin never sees your password. Microsoft sends the answer back to a one-time address on your own computer (127.0.0.1).
-- **Permissions.** The plugin asks to read your files (`Files.Read`), to stay signed in (`offline_access`), and for your basic sign-in profile (`openid`, `profile`), which tells a personal account from a work or school one. It cannot change or delete anything in your OneDrive. A sign-in page in the plugin's name that asks for more is not this plugin's.
-- **Network.** The plugin connects only to Microsoft: its sign-in service, Microsoft Graph (`graph.microsoft.com`) to list notebooks and files, and Microsoft's file servers to download them. Your notes go straight from Microsoft to your computer. There is no other server and no telemetry, and nothing is uploaded.
-- **Staying signed in.** The sign-in is kept in Obsidian's secret storage, not in the plugin's settings file. `Sign out` in the plugin's settings forgets it on this device. To withdraw the plugin's access altogether, go to account.live.com/consent/Manage for a personal account, or myapps.microsoft.com for a work or school account.
-- **Download cache.** Notebooks downloaded from OneDrive are kept outside your vault, in your system's cache folder (on macOS, `~/Library/Caches/onenote-ferry/onedrive`), so that later only changes are downloaded. Checking a notebook for updates keeps the whole notebook there. The plugin checks for free disk space before downloading. Under `Download cache`, the plugin's settings show its size and location and can clear it; your notes in the vault stay.
-- OneNote Ferry is an independent project, not made or endorsed by Microsoft. OneNote and OneDrive are trademarks of Microsoft.
+## Settings
+
+The import window shows these settings for each import. The plugin's settings hold their defaults.
+
+- **Import into** (**Folder** in the plugin's settings): where imported notes go. Each notebook and section gets its own subfolder. The window remembers the folder you last imported into.
+- **Language of contents pages and notices**: English, Simplified Chinese, Traditional Chinese, Japanese or Korean. A notebook keeps the language it was first imported with.
+- **Text box positions**: on pages laid out in columns, a hidden comment before each text box says where it sat on the page.
+- **Text in pictures**: keeps the alt text of pictures and the text OneNote recognized in them, folded below each picture. Printout pages always get their text.
+
+## What You Will Find in Your Vault
+
+```
+OneNote/                        the folder you import into
+├── _conversion report.md       what was imported, and what could not be
+├── _previous versions/         pages that updates replaced
+├── _sync log/                  what each update changed
+└── My notebook/
+    ├── _contents.md            the notebook's sections
+    ├── Lectures/               a section
+    │   ├── _contents.md        its pages, in OneNote's order
+    │   ├── First lecture.md
+    │   └── _attachments/       its pictures and files
+    └── Archive/                a section group, holding its sections
+```
+
+These names follow the language setting, for example `_目录.md` in Chinese.
 
 ## Privacy and Safety
 
-Your OneNote files are only read, never modified: in OneDrive, the plugin only has permission to read. Conversion runs entirely on your own computer, and nothing is uploaded. The plugin writes only inside the folder you choose and its own downloaded copy, and never deletes anything in your vault.
+- **Your OneNote files are only read.** In OneDrive, the plugin has read permission only and cannot change or delete anything.
+- **Everything happens on your computer.** There is no server of ours and no telemetry, and nothing is uploaded.
+- **The plugin writes only inside the folder you import into**, and in its download cache (below). It never deletes anything in your vault.
 
-## Limits
+**Microsoft account.** It is needed only to import from OneDrive. A download or an export needs no account.
 
-- Developed and tested on macOS with a personal Microsoft account. Windows and Linux are not verified yet. Work or school accounts are not verified either, and an organization may require its administrator to approve the plugin before you can sign in. Accounts in the Microsoft 365 operated by 21Vianet in China are not supported.
-- Only notebooks in your own OneDrive are listed, not notebooks others share with you.
-- A downloaded zip carries no notebook IDs, so notebooks from downloads are recognized by name: a notebook renamed in OneDrive, or whose folder you renamed in Obsidian, is taken for a new one; of two notebooks with the same name, the second is imported as `Name (2)`, and only the first is checked for updates.
-- Password-protected sections cannot be read: remove the password in OneNote, then import or check for updates again. From OneDrive, a password only shows once the section is downloaded, so such a section can be ticked, downloaded, and then reported as not converted.
-- The OneDrive website downloads the folder that holds your notebooks, not a single notebook.
-- The free layout of a page (fonts, sizes, exact positions) is not reproduced. Text boxes are put in reading order, with an optional comment giving each one's position.
-- OneNote does not record where a picture sits inside a text box, so handwriting and highlighter strokes on one are placed by estimate. When the estimate is not sure, the picture is kept as it is, followed by a folded copy with all of its strokes drawn where they are estimated to be. On a picture inside a table they are not placed yet: handwriting is drawn on its own, near where it was written, and highlighter strokes are not kept. Highlighter strokes on typed text or on empty space are not kept.
-- Handwriting on a printout page inserted with OneNote for Windows is drawn on that page when the page can be drawn from the printout; a page of plain text may not be, and then the handwriting is drawn on a blank sheet of the page's size.
-- Sections are sorted by name, because OneDrive's files do not record their order.
-- A page moved to another section in OneNote ends up twice: in its old section, listed under `Pages no longer in OneNote`, and in the new one.
-- A notebook keeps the language of its contents pages and notices. To change it, move the notebook's folder out of the target folder, then import the notebook again.
+- You sign in on Microsoft's own page in your browser, so the plugin never sees your password. Microsoft sends the result to a one-time address on your own computer (`127.0.0.1`), and the page you then see comes from the plugin.
+- Permissions asked for: `Files.Read` to read your files, `offline_access` to stay signed in, and `openid` and `profile` to tell a personal account from a work or school one.
+- The plugin connects only to Microsoft: its sign-in service, Microsoft Graph (`graph.microsoft.com`) to list notebooks and files, and Microsoft's file servers to download them.
+- The sign-in is kept in Obsidian's secret storage, not in the plugin's settings file. `Sign out` in the plugin's settings forgets it on this device.
+- To withdraw the plugin's access, go to [account.live.com/consent/Manage](https://account.live.com/consent/Manage) for a personal account, or [myapps.microsoft.com](https://myapps.microsoft.com) for a work or school account.
+
+**Download cache.** Notebooks downloaded from OneDrive are kept outside your vault, so that later only changes are downloaded: in `~/Library/Caches/onenote-ferry/onedrive` on macOS, `%LOCALAPPDATA%\onenote-ferry\onedrive` on Windows, and `~/.cache/onenote-ferry/onedrive` on Linux. `Download cache` in the plugin's settings shows its size and can clear it; your notes in the vault stay. Clear it before you uninstall the plugin.
+
+OneNote Ferry is an independent project, not made or endorsed by Microsoft. OneNote and OneDrive are trademarks of Microsoft.
+
+## Known Limits
+
+These are the main things OneNote Ferry does differently from OneNote, or does not handle yet:
+
+- The free layout of a page (exact positions, fonts and sizes) is not reproduced. Text boxes follow reading order.
+- OneNote does not record where a picture sits inside a text box, so handwriting and highlighter on such a picture are placed by estimate. When the estimate is uncertain, the picture is kept as it is, with a folded copy that shows the estimate.
+- Password-protected sections cannot be read. Remove the password in OneNote, then import again.
+- Only notebooks in your own OneDrive are listed, not those shared with you. A work or school account may need its administrator's approval before you can sign in.
+- OneNote Ferry is developed and tested on macOS. Windows and Linux are not verified yet.
+
+Less common cases are listed in [docs/requirements.md](docs/requirements.md) (in Chinese).
+
+## Feedback
+
+Everyone's OneNote notebooks are different, and OneNote Ferry keeps improving as it meets new ones. If a page does not convert as you expect, or something is missing, please [open an issue](https://github.com/AlcatrazYU/onenote-ferry/issues). The conversion report, a description of the page, or a small notebook made for the purpose helps most; please do not attach private notes. Suggestions are welcome too.
 
 ## Languages
 
-The interface follows Obsidian's language: English, Chinese, Japanese or Korean. The contents pages, notices and folder names written into your notes can be in English, Simplified Chinese, Traditional Chinese, Japanese or Korean.
+The interface follows Obsidian's language: English, Chinese, Japanese or Korean. Contents pages, notices and folder names written into your notes can be in English, Simplified Chinese, Traditional Chinese, Japanese or Korean.
 
-## Development
+## Acknowledgements
 
-```bash
-npm install
-npm run build:parser
-npm test
-node scripts/build-plugin.mjs --install "<your vault>/.obsidian/plugins/onenote-ferry"
-```
+OneNote Ferry is built on the work of these open-source projects, with thanks:
 
-`npm run build:parser` needs Rust and wasm-pack. The command line version converts a download with `node src/cli/main.ts <download> <output folder>`, and `node src/cli/main.ts sync <download> <output folder>` lists what an update would change (add `--apply` to update). It reads downloads only, and does not sign in to OneDrive.
+- [Joplin](https://github.com/laurent22/joplin)'s OneNote converter, based on [onenote.rs](https://github.com/msiemens/onenote.rs): reads the OneNote files. MPL-2.0; our changes to it are listed in [parser/UPSTREAM.md](parser/UPSTREAM.md).
+- [Obsidian Importer](https://github.com/obsidianmd/obsidian-importer): parts of the content model, Markdown escaping, page and handwriting rendering, and the `.onepkg` unpacker. MIT.
+- [OfficeIMO](https://github.com/EvotecIT/OfficeIMO): the Cabinet and LZX code that unpacks `.onepkg` files, by way of [Obsidian Importer](https://github.com/obsidianmd/obsidian-importer). MIT.
+- Microsoft's [Interop Test Suites](https://github.com/OfficeDev/Interop-TestSuites) and [Aspose.Note FOSS for Python](https://github.com/aspose-note-foss/Aspose.Note-FOSS-for-Python): sample OneNote files the tests read. MIT.
 
-The full scope is described in [docs/requirements.md](docs/requirements.md) (in Chinese).
+Their license texts, and the Rust libraries compiled into the parser, are in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+
+## Building from Source
+
+To build the plugin yourself, or to use the command line version, see [docs/development.md](docs/development.md).
 
 ## License
 
-MIT. See [LICENSE](LICENSE). OneNote Ferry includes code adapted from Joplin (MPL-2.0) and Obsidian Importer (MIT); see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+MIT. See [LICENSE](LICENSE).
 
 ## 中文
 
-把 OneNote 笔记本摆渡到 Obsidian：高亮、版面顺序、链接和原始附件都保留，以后还能检查更新。
+把 OneNote 笔记本转换成 Obsidian 里的 Markdown 笔记；之后在 OneNote 里继续记的内容，也能随时同步过来。
 
-> **状态：开发中，还没有发布。** 导入（直接从 OneDrive，或从下载的文件夹）和检查更新已经可以用，在 macOS 上用个人微软账号和维护者自己的笔记本测试过。第一个公开版本之前，还要支持 Windows 版 OneNote 的导出文件，并做几处改进。
+OneNote Ferry 直接读取笔记本本身的文件（来自你的 OneDrive，或来自下载的文件），把每一页写成库里的一篇 Markdown 笔记，格式、高亮、链接、图片、附件、打印页和手写都会保留。它在你电脑上的 Obsidian 里运行，不需要 Windows 版 OneNote，所以在 Mac 上也能使用。
 
-### 用途
+### 为什么用 OneNote Ferry
 
-OneNote Ferry（OneNote 摆渡）是一个 Obsidian 社区插件（附命令行版），面向笔记本存在个人 OneDrive 上、想在 Obsidian 里得到高还原 Markdown 的人，包括 OneNote 只能导出 PDF 的 Mac 用户。
+把笔记从 OneNote 迁出，现在已经有不少办法。OneNote Ferry 针对的是它们照顾不到的情况：
 
-它读取原始笔记文件：登录微软账号后直接从你的 OneDrive 读取，或者读取在 OneDrive 网页上下载的、装着笔记本的文件夹（zip，或解压后的文件夹）。然后转成整理好的 Markdown 文件夹：
+- **笔记在 Mac 上，或者数量很多。** Mac 版 OneNote 只能导出 PDF，多数转换工具又需要 Windows 版 OneNote。Obsidian 官方的 [Importer](https://github.com/obsidianmd/obsidian-importer) 通过微软的在线接口转换，受微软请求次数的限制，笔记本一多就很慢。OneNote Ferry 直接读取笔记本文件，这两样都不需要。据我们所知，目前还没有其他 Obsidian 插件能读取从 OneDrive 下载的笔记本文件。
+- **笔记离不开细节。** 高亮颜色、页面之间的链接、原始附件、打印页及其文字、手写原来的位置都会保留。转换不了的内容会列在报告里，不会悄悄丢失。
+- **你还会继续用 OneNote。** 检查更新只取回有改动的部分，被替换的旧版本都会留下，你在 Obsidian 里做的修改也不受影响。
 
-- 文字格式和字体颜色、高亮（保留颜色）、网页链接，数学公式转成 LaTeX
-- 笔记间链接，改写为仓库内链接
-- 原始图片和附件，不转码；打印页显示为原来的 PDF，写在打印页上的手写画在那一页上
-- 手写，画成图片放在原来的位置；荧光笔画进它盖住的图片或手写
-- 页面层级，每个笔记本和分区都有目录页
-- 自由文本框排出阅读顺序
-- 一份报告，写明转了什么、有什么没能转
+不同情况适合的工具：
+
+| 你的情况 | 推荐 |
+| --- | --- |
+| 笔记本不多、以文字为主，想最省事 | [Obsidian Importer](https://github.com/obsidianmd/obsidian-importer)（官方） |
+| 还要迁移 Evernote、Notion 等其他软件的笔记 | [Obsidian Importer](https://github.com/obsidianmd/obsidian-importer)（官方） |
+| 有 Windows 版 OneNote，只想导出一次 | [OneNote Md Exporter](https://github.com/alxnbl/onenote-md-exporter) 或 OneNote Ferry |
+| 使用 Mac，或笔记本多，高亮、截图、文本框多 | OneNote Ferry |
+| 还会继续用 OneNote，想让 Obsidian 随之更新 | OneNote Ferry |
+
+### 快速开始
+
+1. 在 Obsidian 的社区插件中安装并启用 OneNote Ferry。它适用于桌面版 Obsidian。
+2. 点击左侧功能区的纸船图标 ![OneNote Ferry 功能区图标](docs/assets/ribbon-icon.svg)，或在命令面板中运行 `导入 OneNote 笔记`。
+3. 选择笔记本的来源：`从 OneDrive 导入`；或者 `选择文件或文件夹`，选取从 OneDrive 网页下载的文件，或 Windows 版 OneNote 导出的文件。
+4. 勾选要导入的笔记本和分区，点击 `开始导入`。
+5. 导入完成后，点击 `打开报告`，查看转换了哪些内容。
+
+### 转换后得到什么
+
+- **文字**：格式、字体颜色、保留原有颜色的高亮、标题、带编号的列表、表格、标签（转为标注框或任务框）、公式（转为 LaTeX）和网页链接。
+- **页面之间的链接**：改写为库内链接。
+- **图片和附件**：保留原始文件。TIF 图片转为像素完全相同的 PNG；Obsidian 无法显示的格式（如 EMF）改为链接，并附说明。
+- **打印页**：PDF 的打印页直接显示原 PDF。Windows 版 OneNote 插入的打印页，如果笔记本里没有原文件（例如 Word 文档），就按打印页本身逐页画出。
+- **打印页和图片里的文字**：每页打印页上的文字写在它下方的折叠框里，可以在 Obsidian 中搜索。打开 `图片里的文字` 设置后，图片的替换文字和 OneNote 识别出的文字也会这样保留。
+- **手写和荧光笔**：按书写的位置画成图片；荧光笔画进它所标记的图片或手写中。
+- **结构**：每本笔记本、每个分区各一个文件夹；页面保持 OneNote 中的顺序和层级，分区按 OneNote 中显示的顺序排列；每本笔记本和每个分区都有目录页。
+- **文本框**：按阅读顺序排列；可以选择在每个文本框前加一条隐藏注释，记下它在页面上的位置。
+- **转换报告**：列出转换了哪些内容，以及没能转换的内容。
+
+### 笔记从哪里来
+
+| 来源 | 需要什么 | 适合什么情况 |
+| --- | --- | --- |
+| OneDrive | 微软账号和网络连接 | 一般情况下的首选。以后更新时只下载有改动的部分。 |
+| 从 OneDrive 网页下载的文件 | 下载得到的压缩包，或解压后的文件夹 | 不想在 Obsidian 里登录，或需要离线使用。 |
+| Windows 版 OneNote 导出的文件 | Windows 版 OneNote 导出的笔记本（`.onepkg`）或分区（`.one`） | 保存在 Windows 电脑上的笔记本，或只导入一个分区。 |
 
 ### 导入
 
-导入窗口会列出笔记本和分区，勾选要导入的即可。笔记本可以来自 OneDrive，也可以来自下载的文件夹。
+#### 从 OneDrive 导入
 
-**从 OneDrive**
+1. 打开导入窗口（见快速开始第 2 步），选择 `从 OneDrive 导入`。
+2. 在打开的浏览器中登录微软账号。页面显示已登录后，回到 Obsidian。
+3. 窗口会列出你的笔记本及其分区。此时不会下载任何内容，也没有勾选任何项目。勾选需要的部分；列表中没有的笔记本，可以用 `在其他文件夹里找` 添加。
+4. 点击 `开始导入`。只会下载你勾选的分区。导入过程中可以关闭窗口，导入会继续进行，进度显示在状态栏中。
 
-1. 在 Obsidian 里点左侧功能区的纸船图标，或在命令面板里运行“导入 OneNote 笔记”。
-2. 选“从 OneDrive 导入”，在打开的浏览器里登录微软账号。
-3. 窗口列出你的笔记本和分区。这时什么都没下载，也什么都没勾：勾选要导入的笔记本和分区。列表里没有的笔记本，可以用“在其他文件夹里找”（OneDrive 那一行的文件夹图标）加进来。
-4. 点“开始导入”。只下载勾上的分区，下载完就导入。可以关掉窗口，导入会继续，进度显示在状态栏。
-5. 结束后打开它写的报告。
+浏览器里的登录页面只显示一次。如果之后浏览器提示无法连接 `localhost`，请在 Obsidian 中查看是否已经登录；如果没有，从 Obsidian 重新登录。
 
-**从下载的文件夹**
+#### 从下载的文件导入
 
-1. 在 OneDrive 网页上下载装着笔记本的文件夹。
-2. 照上面打开导入窗口，选“选择 zip 文件或文件夹”。
-3. 勾选要导入的笔记本和分区，点“开始导入”。
+1. 在 OneDrive 网页上，下载存放笔记本的文件夹（通常是 `文档`），得到一个压缩包。
+2. 在导入窗口中选择 `选择文件或文件夹`，选取这个压缩包，或解压后的文件夹。
+3. 勾选需要的部分，点击 `开始导入`。
 
-目标文件夹里已经有其中的笔记本时，勾上的分区会补进原来的笔记本；只导入了一部分的笔记本标“部分导入”。窗口里的设置用于这次导入的分区；目录和提示的语言沿用笔记本原来的。
+#### 从 Windows 版 OneNote 导出的文件导入
 
-### 检查更新
+1. 在 Windows 版 OneNote 中，通过 `文件` > `导出`，把笔记本导出为 OneNote 包（`.onepkg`），或把分区导出为 OneNote 分区（`.one`）。
+2. 在导入窗口中选择 `选择文件或文件夹`，选取导出的文件。
+3. 勾选需要的部分，点击 `开始导入`。
 
-如果还在继续用 OneNote，在命令面板里运行“检查 OneNote 更新”。
+在 Windows 和 Linux 上，窗口中显示的是 `选择文件` 和 `选择文件夹` 两个按钮，而不是 `选择文件或文件夹`。如果要导入到的文件夹里已经有这些笔记本，勾选的分区会加到原来的笔记本中。
 
-- 用 OneDrive：选“从 OneDrive 检查更新”。每本以前导入过的笔记本，先在插件下载的副本里更新到最新，只下载 OneDrive 上变了的文件。
-- 用下载的文件夹：重新下载这个文件夹，选进来（在导入窗口里选进新的下载也一样）。
+### 保持同步
 
-然后，以前导入过的笔记本会逐个分区和仓库比较；有更新、新分区、上次没写完的分区默认勾上，有更新的分区可以展开看每一页。
+如果你还在继续使用 OneNote，像导入时一样再次打开导入窗口，选择原来的来源即可：`从 OneDrive 导入`；或者选择新下载、新导出的那一份文件。窗口会把以前导入过的每本笔记本与库中的内容逐一比较，有改动或新增的分区会自动勾选。然后点击 `开始更新`。（在命令面板中运行 `检查 OneNote 更新`，打开的也是这个窗口，可以直接从 OneDrive 检查。）
 
-- 只换 OneNote 里改过的页面。换之前，仓库里那份先复制进 `_旧版本/<时间>/`。OneNote 里没改的页面一个字节不动，书签、白板、打开的标签页都留在原页面上。
-- OneNote 里改了、你在 Obsidian 里也改过的页面：换成新版，你的版本留在 `_旧版本` 里，窗口和更新记录都会标出。
-- 想按别的设置重新转换：在窗口里改好设置，再点标着“无变化”的分区、它的笔记本，或者在没有更新时点“全选”，它们会标成“重新转换”。分区的页面全部重写，旧的放进 `_旧版本`；你在 Obsidian 里改过的页面保持原样。因 OneNote 有更新而更新的分区沿用自己原来的设置。
-- 任何东西都不删除。OneNote 里已经没有的页面和分区留在原处。你在 Obsidian 里删掉的页面，勾选了才会补回。
-- 每次更新在 `_更新记录` 里写一页，列出改了什么。`_转换报告` 是整个文件夹所有笔记本的总览，两页开头互相指引。
-- 从 OneDrive 来的笔记本按 OneDrive 的编号认，编号记在每本笔记本的目录页里。在 OneNote 里改了名的笔记本照常原地更新，文件夹也改成新名字（你自己改过文件夹名，或新名字已被别的文件夹占用时除外）；在 Obsidian 里改了文件夹名也认得出。复制出来的笔记本算另一本。
-- 更新时退出了 Obsidian，下次打开时会自动处理完毕，每个分区要么全旧、要么全新。
+注意 `导入到` 必须是当初导入的那个文件夹：窗口只和这个文件夹里已有的笔记比较，换成别的文件夹，就会在那里重新导入一份。窗口会记住你上次导入用的文件夹；如果你把笔记本分别放在了几个文件夹里，请改成要更新的笔记本所在的那个。
 
-### 微软账号与 OneDrive
+- 只替换 OneNote 中改过的页面。替换之前，库中的那一份会先放进 `_旧版本`。
+- 你在 Obsidian 中改过的页面保持原样；如果 OneNote 中也改过，就放入 OneNote 的新版本，你改过的那一份保存在 `_旧版本` 中，窗口里也会标出来。
+- 你在 Obsidian 中删掉的页面保持删除。想找回某一页，展开它所在的分区，勾选那一页即可。
+- 库中的内容不会被删除。OneNote 中删掉的页面和分区仍然留在库里，并在目录页中列出。
+- 想用别的设置重新转换某些分区：先在窗口中改好设置，再点击标着 `无变化` 的分区，它会变为 `重新转换`。
+- 每次更新改了什么，都记录在 `_更新记录` 中。
 
-从 OneDrive 导入是可选的：导入下载的文件夹不需要账号，也不用联网。
+来自 OneDrive 的笔记本按 OneDrive 中的编号识别，因此在 OneNote 中改了名的笔记本，或你在 Obsidian 中改了名的文件夹，都仍然能被找到。来自下载文件的笔记本按名称识别。
 
-- **登录**：在你的浏览器里、微软自己的页面上登录，插件看不到你的密码。微软把结果送回你电脑上的一个一次性地址（127.0.0.1）。
-- **权限**：插件请求读取你的文件（`Files.Read`）、保持登录（`offline_access`）和基本的登录资料（`openid`、`profile`，用来分辨个人账号和工作或学校账号）。它不能修改或删除 OneDrive 里的任何东西。以本插件名义请求更多权限的登录页，不是本插件的。
-- **联网**：插件只连接微软：登录服务、Microsoft Graph（`graph.microsoft.com`，列出笔记本和文件）和微软的文件服务器（下载文件）。笔记从微软直接到你的电脑；没有别的服务器，没有遥测，不上传任何东西。
-- **保持登录**：登录信息存在 Obsidian 的密钥存储里，不在插件的设置文件里。在插件设置里点“退出登录”，就会忘掉这台设备上的登录。要彻底收回插件的访问权限，个人账号去 account.live.com/consent/Manage，工作或学校账号去 myapps.microsoft.com。
-- **下载缓存**：从 OneDrive 下载的笔记本放在仓库外面、系统的缓存文件夹里（macOS 上是 `~/Library/Caches/onenote-ferry/onedrive`），以后只需下载变化的部分。检查更新时，以前导入过的笔记本会在这里保存整本。下载前会检查剩余空间。插件设置里的“下载缓存”显示占用和位置，也可以清除；仓库里的笔记不受影响。
-- OneNote Ferry 是独立项目，不是微软制作的，也没有得到微软认可。OneNote 和 OneDrive 是微软的商标。
+### 设置
+
+每次导入时，导入窗口都会显示下面这些设置；插件的设置页保存它们的默认值。
+
+- **导入到**（设置页中称为 **文件夹**）：导入的笔记存放在哪里。每本笔记本和每个分区各有一个子文件夹。窗口会记住你上次导入用的文件夹。
+- **目录和提示的语言**：英文、简体中文、繁体中文、日文或韩文。一本笔记本始终使用它第一次导入时的语言。
+- **文本框位置**：在多栏排版的页面中，于每个文本框前加一条隐藏注释，写明它在页面上的位置。
+- **图片里的文字**：保留图片的替换文字和 OneNote 识别出的文字，折叠在每张图片下方。打印页上的文字总会保留。
+
+### 库里会有哪些文件
+
+```
+OneNote/                   导入到的文件夹
+├── _转换报告.md           导入了什么，哪些没能转换
+├── _旧版本/               更新时被替换的页面
+├── _更新记录/             每次更新改了什么
+└── 我的笔记本/
+    ├── _目录.md           这本笔记本的分区
+    ├── 讲座/              一个分区
+    │   ├── _目录.md       这个分区的页面，按 OneNote 中的顺序
+    │   ├── 第一讲.md
+    │   └── _附件/         这个分区的图片和文件
+    └── 归档/              一个分区组，里面是它的分区
+```
+
+这些名称跟随 `目录和提示的语言` 设置，例如英文是 `_contents.md`。
 
 ### 隐私与安全
 
-插件只读取 OneNote 文件，从不修改：在 OneDrive 上它只有读取权限。转换全部在你的电脑上完成，不上传任何东西。插件只写你选的文件夹和它自己的下载副本，从不删除仓库里的任何东西。
+- **只读取，不修改你的 OneNote 文件。** 在 OneDrive 中，插件只有读取权限，无法修改或删除任何内容。
+- **所有处理都在你的电脑上完成。** 没有我们自己的服务器，不收集使用数据，也不上传任何内容。
+- **插件只在你导入到的文件夹中写入**，另外还有它的下载缓存（见下文）。它不会删除库中的任何内容。
 
-### 限制
+**微软账号。** 只有从 OneDrive 导入时才需要；导入下载的文件或导出的文件都不需要账号。
 
-- 在 macOS 和个人微软账号上开发和测试；Windows、Linux 还没有验证。工作或学校账号也没有验证，有的组织要管理员先批准这个插件才能登录。世纪互联运营的中国版 Microsoft 365 账号不支持。
-- 只列出你自己 OneDrive 里的笔记本，不列出别人共享给你的。
-- 下载的 zip 里没有笔记本编号，所以用下载的文件夹时按名字认：在 OneDrive 上改了名、或在 Obsidian 里改了文件夹名的笔记本，会被当成新笔记本；两本同名的笔记本，第二本导入为“名字 (2)”，检查更新时只看第一本。
-- 设了密码的分区读不出：请在 OneNote 里取消密码，再导入或检查更新。从 OneDrive 导入时，分区下载后才能看出有没有密码，所以这样的分区可能被勾上、下载，然后在报告里列为没有转换。
-- OneDrive 网页上只能下载装着笔记本的文件夹，不能单独下载一本笔记本。
-- 不还原页面的自由版面（字体、字号、精确位置）。文本框排成阅读顺序，可选在每块前加一行注释写明它的位置。
-- OneNote 不记图片在文本框里的位置，图片上的手写和荧光笔按估算放置。估算没有把握时，图片保持原样，下面跟一个折叠框，里面是按估算位置画上全部笔迹的副本。表格里的图片上的笔迹暂时还不放到图上：手写单独画成一张图，放在写的地方附近；荧光笔不保留。打字文字上和空白处的荧光笔不保留。
-- 用 Windows 版 OneNote 插入的打印页上的手写，能从打印页文件里画出这一页时画在页面上；纯文字的页面可能画不出来，这时手写画在一张和页面一样大的空白纸上。
-- 分区按名称排序，因为 OneDrive 上的文件没有记下分区的顺序。
-- 在 OneNote 里把页面挪到别的分区后，仓库里会有两份：旧分区里那份（列在“OneNote 中已移除的页面”下）和新分区里的。
-- 笔记本的目录和提示的语言不能改。要换语言，把这本的文件夹移出目标文件夹，再重新导入。
+- 你在浏览器中、在微软自己的页面上登录，插件看不到你的密码。微软把登录结果发回你电脑上的一个一次性地址（`127.0.0.1`），之后看到的页面由插件显示。
+- 申请的权限：`Files.Read`（读取你的文件）、`offline_access`（保持登录）、`openid` 和 `profile`（区分个人账号与工作或学校账号）。
+- 插件只连接微软的服务：微软的登录服务、用于列出笔记本和文件的 Microsoft Graph（`graph.microsoft.com`），以及用于下载文件的微软文件服务器。
+- 登录状态保存在 Obsidian 的安全存储中，不在插件的设置文件里。在插件设置中点击 `退出登录`，即可在这台设备上清除。
+- 要撤销插件的访问权限：个人账号请前往 [account.live.com/consent/Manage](https://account.live.com/consent/Manage)，工作或学校账号请前往 [myapps.microsoft.com](https://myapps.microsoft.com)。
+
+**下载缓存。** 从 OneDrive 下载的笔记本保存在库外，以便以后只下载改动：macOS 上在 `~/Library/Caches/onenote-ferry/onedrive`，Windows 上在 `%LOCALAPPDATA%\onenote-ferry\onedrive`，Linux 上在 `~/.cache/onenote-ferry/onedrive`。插件设置中的 `下载缓存` 显示它的大小，并可以通过 `清除下载缓存` 清除；库中的笔记不受影响。卸载插件之前，请先清除它。
+
+OneNote Ferry 是独立项目，并非由微软制作或认可。OneNote 和 OneDrive 是微软的商标。
+
+### 已知限制
+
+以下是 OneNote Ferry 与 OneNote 处理方式不同，或暂时还做不到的主要地方：
+
+- 页面的自由排版（精确位置、字体和字号）不会还原，文本框按阅读顺序排列。
+- OneNote 不记录图片在文本框中的位置，所以这类图片上的手写和荧光笔按估算放置。估算没有把握时，图片保持原样，另附一份折叠的估算副本。
+- 设了密码的分区无法读取。请先在 OneNote 中取消密码，再重新导入。
+- 只列出你自己 OneDrive 中的笔记本，不包括别人共享给你的。工作或学校账号可能需要管理员批准后才能登录。
+- OneNote Ferry 在 macOS 上开发和测试，Windows 和 Linux 尚未验证。
+
+较少见的情况列在 [docs/requirements.md](docs/requirements.md) 中。
+
+### 反馈
+
+每个人的 OneNote 笔记都各不相同，OneNote Ferry 也会在遇到新情况时不断改进。如果某一页转换得和你预期的不一样，或者有内容缺失，欢迎[在 GitHub 上提出问题](https://github.com/AlcatrazYU/onenote-ferry/issues)。附上转换报告、对那一页的描述，或为此专门做的一个小笔记本，最有帮助；请不要附上私人笔记。也欢迎提出意见和建议。
+
+### 请我喝杯咖啡
+
+OneNote Ferry 永久免费。如果它为你迁移笔记省下了时间，欢迎在 [Ko-fi](https://ko-fi.com/alcatrazyu) 上请我喝一杯咖啡。
 
 ### 语言
 
-界面跟随 Obsidian 的语言：English、中文、日本語、한국어。写进笔记的目录页、提示和文件夹名可以用 English、简体中文、繁體中文、日本語、한국어。
+插件界面跟随 Obsidian 的语言：英文、中文、日文或韩文。写进笔记的目录页、提示和文件夹名称，可以使用英文、简体中文、繁体中文、日文或韩文。
 
-### 开发
+### 致谢
 
-见上方英文部分的 Development。命令行版只读取下载的文件夹，不登录 OneDrive。完整的功能范围见 [docs/requirements.md](docs/requirements.md)。
+OneNote Ferry 建立在以下开源项目的基础之上，在此致谢：
+
+- [Joplin](https://github.com/laurent22/joplin) 的 OneNote 转换器，它基于 [onenote.rs](https://github.com/msiemens/onenote.rs)：负责读取 OneNote 文件。采用 MPL-2.0 许可；我们对它的改动列在 [parser/UPSTREAM.md](parser/UPSTREAM.md) 中。
+- [Obsidian Importer](https://github.com/obsidianmd/obsidian-importer)：内容模型的一部分、Markdown 转义、页面和手写的渲染，以及 `.onepkg` 的解包。采用 MIT 许可。
+- [OfficeIMO](https://github.com/EvotecIT/OfficeIMO)：解包 `.onepkg` 的 Cabinet 和 LZX 代码，经由 [Obsidian Importer](https://github.com/obsidianmd/obsidian-importer) 引入。采用 MIT 许可。
+- 微软的 [Interop Test Suites](https://github.com/OfficeDev/Interop-TestSuites) 和 [Aspose.Note FOSS for Python](https://github.com/aspose-note-foss/Aspose.Note-FOSS-for-Python)：测试所用的 OneNote 样本文件。采用 MIT 许可。
+
+各项目的许可全文，以及编译进解析器的 Rust 库，见 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。
+
+### 从源码构建
+
+如需自行构建插件，或使用命令行版本，请参阅 [docs/development.md](docs/development.md)（英文）。
 
 ### 许可
 
-MIT，见 [LICENSE](LICENSE)。其中有改编自 Joplin（MPL-2.0）和 Obsidian Importer（MIT）的代码，见 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。
+MIT。详见 [LICENSE](LICENSE)。
 
 ## 日本語
 
-OneNote のノートブックを Obsidian へ運びます。ハイライト、レイアウトの順序、リンク、元の添付ファイルをそのまま残し、あとから更新を確認することもできます。
+OneNote のノートブックを Obsidian の Markdown ノートに変換します。その後も OneNote で書き続けた内容を、いつでも取り込めます。
 
-> **状況：開発中で、まだ公開していません。** インポート（OneDrive から直接、またはダウンロードしたフォルダーから）と更新の確認は動作し、macOS 上で個人の Microsoft アカウントとメンテナー自身のノートブックで試験しています。最初の公開版までに、Windows 版 OneNote のエクスポートファイルへの対応といくつかの改良を加える予定です。
+OneNote Ferry は、ノートブックそのもののファイルを OneDrive から、またはダウンロードしたファイルから直接読み取り、各ページを保管庫の Markdown ノートとして書き出します。書式、ハイライト、リンク、画像、添付ファイル、印刷イメージ、手書きも残ります。お使いのコンピューター上の Obsidian の中で動作し、Windows 版 OneNote を必要としないため、Mac でも使えます。
 
-### 目的
+### OneNote Ferry を選ぶ理由
 
-OneNote Ferry は、Obsidian コミュニティプラグイン（コマンドライン版つき）です。ノートブックを個人の OneDrive に保存していて、Obsidian で再現度の高い Markdown を得たい人、特に OneNote から PDF しか書き出せない Mac の利用者を想定しています。
+OneNote からノートを移す方法は、すでにいくつもあります。OneNote Ferry は、それらでは対応しきれない場合のためのものです。
 
-元のノートファイルを、Microsoft アカウントにサインインして OneDrive から直接、または OneDrive の Web サイトでダウンロードした、ノートブックが入っているフォルダー（zip、または展開したフォルダー）から読み込みます。そして整理された Markdown フォルダーに変換します。
+- **ノートが Mac にある、または量が多い。** Mac 版 OneNote は PDF しか書き出せず、多くの変換ツールは Windows 版 OneNote を必要とします。Obsidian 公式の [Importer](https://github.com/obsidianmd/obsidian-importer) は Microsoft のオンラインのインターフェース経由で変換するため、Microsoft のリクエスト数の制限を受け、ノートブックが大きいと時間がかかります。OneNote Ferry はノートブックのファイルを直接読むので、どちらも必要ありません。私たちの知る限り、OneDrive からダウンロードしたノートブックのファイルを読める Obsidian プラグインはほかにありません。
+- **ノートの細部が大切。** ハイライトの色、ページ間のリンク、元の添付ファイル、印刷イメージとその文字、書かれた位置の手書きがすべて残ります。変換できなかったものはレポートに記されるので、知らないうちに失われることはありません。
+- **これからも OneNote を使い続ける。** 更新の確認では変わった部分だけを取り込み、置き換えた古い版はすべて残し、Obsidian での編集には手を触れません。
 
-- 文字の書式と文字の色、ハイライト（色つき）、Web リンク、数式（LaTeX に変換）
-- ノート間リンク（保管庫内のリンクに書き換え）
-- 元の画像と添付ファイル（変換なし）、印刷イメージは元の PDF として表示し、印刷イメージ上の手書きはそのページに描く
-- 手書き（書かれた位置に画像として配置）、蛍光ペン（重なっている画像や手書きに描き込む）
-- ページの階層、ノートブックとセクションごとの目次ページ
-- 自由配置のテキストボックスを読む順に並べる
-- 変換できたもの、できなかったものを記したレポート
+状況に応じたツールの選び方：
+
+| 状況 | おすすめ |
+| --- | --- |
+| ノートブックが少なく、主に文字で、できるだけ手軽に済ませたい | [Obsidian Importer](https://github.com/obsidianmd/obsidian-importer)（公式） |
+| Evernote や Notion など、ほかのアプリのノートも移したい | [Obsidian Importer](https://github.com/obsidianmd/obsidian-importer)（公式） |
+| Windows 版 OneNote があり、一度だけ書き出したい | [OneNote Md Exporter](https://github.com/alxnbl/onenote-md-exporter) または OneNote Ferry |
+| Mac を使っている、またはハイライト、スクリーンショット、テキストボックスの多いノートブックがたくさんある | OneNote Ferry |
+| これからも OneNote を使い、Obsidian にも反映させたい | OneNote Ferry |
+
+### クイックスタート
+
+1. Obsidian のコミュニティプラグインから OneNote Ferry をインストールし、有効にします。デスクトップ版の Obsidian で使えます。
+2. 左のリボンにある紙の船のアイコン ![OneNote Ferry のリボンアイコン](docs/assets/ribbon-icon.svg) をクリックするか、コマンドパレットで `OneNote のノートをインポート` を実行します。
+3. ノートブックの取り込み元を選びます。`OneDrive からインポート` を選ぶか、`ファイルまたはフォルダーを選択` で、OneDrive の Web サイトからダウンロードしたファイルや、Windows 版 OneNote で書き出したファイルを選びます。
+4. インポートするノートブックとセクションにチェックを入れ、`インポートを開始` をクリックします。
+5. インポートが終わったら、`レポートを開く` をクリックして、変換された内容を確認します。
+
+### 変換される内容
+
+- **文字**：書式、文字の色、元の色のままのハイライト、見出し、番号付きのリスト、表、タグ（コールアウトまたはタスクのチェックボックスに変換）、数式（LaTeX に変換）、Web リンク。
+- **ページ間のリンク**：保管庫内のリンクに書き換えます。
+- **画像と添付ファイル**：元のファイルのまま残します。TIF 画像は、画素がまったく同じ PNG に変換します。Obsidian で表示できない形式（EMF など）は、その旨を添えたリンクにします。
+- **印刷イメージ**：PDF の印刷イメージは元の PDF を表示します。Windows 版 OneNote で挿入した印刷イメージのうち、元のファイル（Word 文書など）がノートブックにないものは、印刷イメージ自体からページごとに描きます。
+- **印刷イメージと画像の文字**：印刷イメージの各ページの文字を、その下の折りたたみボックスに書き出すので、Obsidian で検索できます。`画像の中の文字` の設定をオンにすると、画像の代替テキストと OneNote が認識した文字も同じように残します。
+- **手書きと蛍光ペン**：書かれた位置に画像として描きます。蛍光ペンは、それが示す画像や手書きに描き込みます。
+- **構成**：ノートブックとセクションごとにフォルダーを作り、ページは OneNote の順序と階層のまま、セクションは OneNote に表示される順に並べます。ノートブックとセクションごとに目次ページを作ります。
+- **テキストボックス**：読む順に並べます。各テキストボックスの前に、ページ上の位置を記した非表示のコメントを入れることもできます。
+- **レポート**：変換した内容と、変換できなかった内容を記します。
+
+### ノートブックの取り込み元
+
+| 取り込み元 | 必要なもの | 向いている場合 |
+| --- | --- | --- |
+| OneDrive | Microsoft アカウントとインターネット接続 | 通常はこちらです。その後の更新では、変わった部分だけをダウンロードします。 |
+| OneDrive の Web サイトからダウンロードしたファイル | ダウンロードした zip ファイル、または展開したフォルダー | Obsidian からサインインしたくない場合や、オフラインで使う場合。 |
+| Windows 版 OneNote で書き出したファイル | Windows 版 OneNote で書き出したノートブック（`.onepkg`）またはセクション（`.one`） | Windows パソコンに保存しているノートブックや、1 つのセクションだけを取り込む場合。 |
 
 ### インポート
 
-インポート画面にノートブックとセクションが一覧表示されるので、必要なものにチェックを入れます。ノートブックは OneDrive からでも、ダウンロードしたフォルダーからでも読み込めます。
+#### OneDrive から
 
-**OneDrive から**
+1. インポート画面を開き（クイックスタートの手順 2）、`OneDrive からインポート` を選びます。
+2. 開いたブラウザーで Microsoft アカウントにサインインします。サインインしたと表示されたら、Obsidian に戻ります。
+3. ノートブックとセクションが一覧表示されます。この時点では何もダウンロードされておらず、何もチェックされていません。必要なものにチェックを入れます。一覧にないノートブックは `ほかのフォルダーを探す` で追加できます。
+4. `インポートを開始` をクリックします。チェックを入れたセクションだけがダウンロードされます。画面を閉じてもインポートは続き、進行状況はステータスバーに表示されます。
 
-1. Obsidian の左のリボンにある紙の船のアイコンをクリックするか、コマンドパレットで「OneNote のノートをインポート」を実行します。
-2. 「OneDrive からインポート」を選び、開いたブラウザーで Microsoft アカウントにサインインします。
-3. ノートブックとセクションが一覧表示されます。この時点では何もダウンロードされておらず、何もチェックされていません。インポートするノートブックとセクションにチェックを入れます。一覧にないノートブックは「ほかのフォルダーを探す」（OneDrive の行にあるフォルダーのアイコン）で追加できます。
-4. 「インポートを開始」をクリックします。チェックを入れたセクションだけをダウンロードし、インポートします。画面を閉じてもインポートは続き、進行状況はステータスバーに表示されます。
-5. 終わったら、作成されたレポートを開きます。
+ブラウザーのサインインのページは一度だけ表示されます。あとでブラウザーが `localhost` に接続できないと表示した場合は、Obsidian でサインイン済みかどうかを確認し、まだであれば Obsidian からもう一度サインインしてください。
 
-**ダウンロードしたフォルダーから**
+#### ダウンロードしたファイルから
 
-1. OneDrive の Web サイトで、ノートブックが入っているフォルダーをダウンロードします。
-2. 上と同じようにインポート画面を開き、「zip ファイルまたはフォルダーを選択」を選びます。
-3. インポートするノートブックとセクションにチェックを入れ、「インポートを開始」をクリックします。
+1. OneDrive の Web サイトで、ノートブックが入っているフォルダー（通常は `ドキュメント`）をダウンロードします。zip ファイルが得られます。
+2. インポート画面で `ファイルまたはフォルダーを選択` を選び、その zip ファイル、または展開したフォルダーを選びます。
+3. 必要なものにチェックを入れ、`インポートを開始` をクリックします。
 
-保存先のフォルダーにすでにその中のノートブックがある場合は、チェックを入れたセクションを元のノートブックに追加し、一部だけインポートしたノートブックには「一部インポート済み」と表示します。画面の設定は今回インポートするセクションに適用されます。目次と注記の言語はノートブックの元の言語のままです。
+#### Windows 版 OneNote で書き出したファイルから
 
-### 更新の確認
+1. Windows 版 OneNote の `ファイル` > `エクスポート` で、ノートブックを OneNote パッケージ（`.onepkg`）として、またはセクションを OneNote セクション（`.one`）として書き出します。
+2. インポート画面で `ファイルまたはフォルダーを選択` を選び、書き出したファイルを選びます。
+3. 必要なものにチェックを入れ、`インポートを開始` をクリックします。
 
-OneNote を使い続ける場合は、コマンドパレットで「OneNote の更新を確認」を実行します。
+Windows と Linux では、`ファイルまたはフォルダーを選択` の代わりに `ファイルを選択` と `フォルダーを選択` が表示されます。インポート先のフォルダーにこれらのノートブックがすでにある場合、チェックを入れたセクションはそのノートブックに追加されます。
 
-- OneDrive の場合は「OneDrive で更新を確認」を選びます。以前インポートしたノートブックを、まずプラグインのダウンロードしたコピーの中で最新にします。ダウンロードするのは OneDrive で変更されたファイルだけです。
-- ダウンロードの場合は、フォルダーをもう一度ダウンロードして選びます（インポート画面で新しいダウンロードを選んでも同じです）。
+### 最新の状態に保つ
 
-そのあと、以前インポートしたノートブックをセクションごとに保管庫と比べます。更新のあるセクション、新しいセクション、前回完了しなかったセクションにはチェックが入り、更新のあるセクションは開いてページごとの変更を確認できます。
+OneNote を使い続ける場合は、インポートしたときと同じようにインポート画面を開き、同じ取り込み元を選びます。`OneDrive からインポート` を選ぶか、新しくダウンロードしたファイルや書き出したファイルを選びます。画面は以前にインポートした各ノートブックを保管庫の内容と比べ、変更や追加のあったセクションにチェックを入れます。`更新を開始` をクリックします。（コマンドパレットの `OneNote の更新を確認` でも同じ画面が開き、そのまま OneDrive を確認できます。）
 
-- 置き換えるのは OneNote で変更されたページだけです。置き換える前に、保管庫にある版を `_旧バージョン/<日時>/` にコピーします。OneNote で変更のないページには一切手を触れないので、ブックマーク、キャンバス、開いているタブはそのまま残ります。
-- OneNote で変更され、Obsidian でも編集したページは、新しい版に置き換え、あなたの版は `_旧バージョン` に残します。画面と更新記録の両方で知らせます。
-- 別の設定で変換し直すには、画面で設定を変えてから「変更なし」のセクションかそのノートブックをクリックします。更新がないときは「すべて選択」でも構いません。「変換し直す」と表示されます。ページはすべて書き直され、元の版は `_旧バージョン` に入ります。Obsidian で編集したページはそのまま残ります。OneNote で変更があって更新されるセクションは元の設定のままです。
-- 何も削除しません。OneNote にもうないページやセクションはその場に残ります。Obsidian で削除したページは、チェックを入れたときだけ戻します。
-- 更新のたびに `_更新記録` に変更点を記したページを書きます。`_変換レポート` はフォルダー内のすべてのノートブックの概要で、二つのページは互いを案内します。
-- OneDrive からのノートブックは OneDrive の ID で見分け、ID は各ノートブックの目次ページに記録されます。OneNote で名前を変えたノートブックはその場で更新され、フォルダーも新しい名前に変わります（フォルダー名を自分で変えた場合や、その名前のフォルダーがすでにある場合を除く）。Obsidian でフォルダー名を変えても見つかります。コピーしたノートブックは別のノートブックとして扱います。
-- 更新中に Obsidian が終了した場合は、次に起動したときに処理を終えます。各セクションは、すべて古いままか、すべて新しくなるかのどちらかです。
+`インポート先` は、以前インポートしたときと同じフォルダーにしてください。画面はそのフォルダーにあるノートとだけ比べるため、別のフォルダーを選ぶと、そこに改めてインポートされます。画面は前回インポートしたフォルダーを覚えています。ノートブックを複数のフォルダーに分けている場合は、更新するノートブックがあるフォルダーを選んでください。
 
-### Microsoft アカウントと OneDrive
+- OneNote で変更されたページだけを置き換えます。置き換える前に、保管庫にあった版を `_旧バージョン` に移します。
+- Obsidian で編集したページはそのまま残ります。OneNote でも変更されていた場合は OneNote の新しい版を入れ、編集した版は `_旧バージョン` に残し、画面でもそのことを示します。
+- Obsidian で削除したページは削除されたままです。元に戻したいページは、そのセクションを開いてチェックを入れます。
+- 保管庫から何かを削除することはありません。OneNote で削除されたページやセクションも保管庫に残り、目次ページに一覧表示されます。
+- 別の設定でセクションを変換し直すには、画面で設定を変えてから、`変更なし` と表示されたセクションをクリックします。表示が `変換し直す` に変わります。
+- 各更新で何を変えたかは `_更新記録` に記録されます。
 
-OneDrive からのインポートは任意です。ダウンロードしたフォルダーのインポートには、アカウントもネットワーク接続も要りません。
+OneDrive のノートブックは OneDrive の ID で識別されるため、OneNote で名前を変えたノートブックや、Obsidian で名前を変えたフォルダーも見つかります。ダウンロードしたファイルのノートブックは名前で識別されます。
 
-- **サインイン**：ブラウザーで Microsoft 自身のページにサインインするので、プラグインがパスワードを見ることはありません。Microsoft は結果を、お使いのコンピューター上の一度きりのアドレス（127.0.0.1）に返します。
-- **アクセス許可**：プラグインが求めるのは、ファイルの読み取り（`Files.Read`）、サインインの維持（`offline_access`）、基本的なサインイン情報（`openid`、`profile`。個人アカウントか職場または学校のアカウントかを見分けるため）だけです。OneDrive の中のものを変更したり削除したりはできません。このプラグインの名前でこれ以上の許可を求めるサインインページは、このプラグインのものではありません。
-- **ネットワーク**：プラグインが接続するのは Microsoft だけです。サインインのサービス、Microsoft Graph（`graph.microsoft.com`、ノートブックとファイルの一覧）、Microsoft のファイルサーバー（ファイルのダウンロード）です。ノートは Microsoft からお使いのコンピューターへ直接届きます。ほかのサーバーはなく、テレメトリーもなく、何もアップロードしません。
-- **サインインの維持**：サインイン情報は Obsidian のシークレットストレージに保存し、プラグインの設定ファイルには書きません。プラグインの設定で「サインアウト」すると、このデバイスのサインイン情報が消えます。プラグインのアクセス権そのものを取り消すには、個人アカウントは account.live.com/consent/Manage、職場または学校のアカウントは myapps.microsoft.com で行います。
-- **ダウンロードキャッシュ**：OneDrive からダウンロードしたノートブックは、保管庫の外、システムのキャッシュフォルダー（macOS では `~/Library/Caches/onenote-ferry/onedrive`）に置き、次からは変更分だけをダウンロードします。更新を確認すると、以前インポートしたノートブックはここにまるごと保存されます。ダウンロードの前に空き容量を確認します。プラグインの設定の「ダウンロードキャッシュ」で、容量と場所を確認でき、クリアもできます。保管庫のノートはそのまま残ります。
-- OneNote Ferry は独立したプロジェクトで、Microsoft が作成したものでも、Microsoft が認めたものでもありません。OneNote と OneDrive は Microsoft の商標です。
+### 設定
+
+インポート画面には、インポートのたびに次の設定が表示されます。プラグインの設定画面には、その既定値が保存されます。
+
+- **インポート先**（設定画面では **フォルダー**）：インポートしたノートの保存先です。ノートブックとセクションごとにサブフォルダーが作られます。画面は前回インポートしたフォルダーを覚えています。
+- **目次と注記の言語**：英語、簡体字中国語、繁体字中国語、日本語、韓国語のいずれかです。ノートブックは最初にインポートしたときの言語のままです。
+- **テキストボックスの位置**：段組みのページで、各テキストボックスの前に、ページ上の位置を記した非表示のコメントを入れます。
+- **画像の中の文字**：画像の代替テキストと OneNote が認識した文字を、各画像の下に折りたたんで残します。印刷イメージの文字は常に残します。
+
+### 保管庫に作られるもの
+
+```
+OneNote/                   インポート先のフォルダー
+├── _変換レポート.md       インポートした内容と、変換できなかった内容
+├── _旧バージョン/         更新で置き換えたページ
+├── _更新記録/             各更新で変えた内容
+└── マイノートブック/
+    ├── _目次.md           ノートブックのセクション
+    ├── 講義/              セクション
+    │   ├── _目次.md       セクションのページ（OneNote の順序）
+    │   ├── 第1回.md
+    │   └── _添付ファイル/ セクションの画像とファイル
+    └── アーカイブ/        セクショングループ（中にセクション）
+```
+
+これらの名前は `目次と注記の言語` の設定に従います。たとえば英語では `_contents.md` です。
 
 ### プライバシーと安全性
 
-OneNote のファイルは読み込むだけで、変更しません。OneDrive では、プラグインには読み取りの許可しかありません。変換はすべてお使いのコンピューター上で行われ、何もアップロードしません。プラグインが書き込むのは、選んだフォルダーと自身のダウンロードしたコピーの中だけで、保管庫の中のものを削除することはありません。
+- **OneNote のファイルは読み取るだけです。** OneDrive では読み取りの権限しか持たず、何も変更・削除できません。
+- **処理はすべてお使いのコンピューター上で行います。** 私たちのサーバーはなく、利用データの収集もせず、何もアップロードしません。
+- **プラグインが書き込むのは、インポート先のフォルダーの中**と、ダウンロードキャッシュ（後述）だけです。保管庫の中のものを削除することはありません。
 
-### 制限
+**Microsoft アカウント。** OneDrive からインポートする場合にだけ必要です。ダウンロードしたファイルや書き出したファイルには、アカウントは要りません。
 
-- macOS と個人の Microsoft アカウントで開発、試験しています。Windows と Linux はまだ確認していません。職場または学校のアカウントも確認しておらず、組織によっては管理者がこのプラグインを承認するまでサインインできません。21Vianet が運営する中国版 Microsoft 365 のアカウントには対応していません。
-- 一覧に出るのは自分の OneDrive にあるノートブックだけで、ほかの人から共有されたノートブックは出ません。
-- ダウンロードした zip にはノートブックの ID がないため、ダウンロードからのノートブックは名前で見分けます。OneDrive で名前を変えたノートブックや、Obsidian でフォルダー名を変えたノートブックは、新しいノートブックとして扱われます。同じ名前のノートブックが二つあると、二つ目は「名前 (2)」としてインポートされ、更新の確認は一つ目だけが対象になります。
-- パスワードで保護されたセクションは読み込めません。OneNote でパスワードを解除してから、もう一度インポートするか更新を確認してください。OneDrive からの場合、パスワードの有無はセクションをダウンロードしたあとでしかわからないため、そのようなセクションにチェックを入れるとダウンロードされ、レポートで変換できなかったものとして示されます。
-- OneDrive の Web サイトでダウンロードできるのはノートブックが入っているフォルダーで、ノートブックを 1 冊ずつダウンロードすることはできません。
-- ページの自由なレイアウト（フォント、文字サイズ、正確な位置）は再現しません。テキストボックスは読む順に並べ、オプションで各ブロックの位置を記したコメントを付けます。
-- OneNote はテキストボックス内の画像の位置を記録しないため、その上の手書きと蛍光ペンは推定で配置します。推定に確信が持てない場合は、画像をそのまま残し、その下に推定位置にすべての書き込みを描いたコピーを折りたたんで置きます。表の中の画像の上の書き込みは、まだ画像に重ねません。手書きは書いた場所の近くに単独の画像として置き、蛍光ペンは残りません。入力した文字の上や空白部分の蛍光ペンは残りません。
-- Windows 版 OneNote で挿入した印刷イメージ上の手書きは、印刷イメージのファイルからそのページを描ける場合はページの上に描きます。文字だけのページは描けないことがあり、その場合はページと同じ大きさの白紙に描きます。
-- OneDrive のファイルにはセクションの順序が記録されていないため、セクションは名前順に並びます。
-- OneNote でページをほかのセクションに移すと、保管庫には 2 つ残ります。元のセクションのもの（「OneNote にはもうないページ」の下に表示）と、新しいセクションのものです。
-- ノートブックの目次と注記の言語は変えられません。変えるには、そのノートブックのフォルダーを保存先のフォルダーの外へ移してから、もう一度インポートします。
+- サインインはブラウザーで、Microsoft 自身のページで行うため、プラグインがパスワードを見ることはありません。Microsoft はサインインの結果をお使いのコンピューター上の一時的なアドレス（`127.0.0.1`）に送り返し、その後に表示されるページはプラグインが表示しています。
+- 求める権限：`Files.Read`（ファイルの読み取り）、`offline_access`（サインインの維持）、`openid` と `profile`（個人用アカウントと職場または学校のアカウントの区別）。
+- プラグインが接続するのは Microsoft だけです。Microsoft のサインインサービス、ノートブックとファイルの一覧を取得する Microsoft Graph（`graph.microsoft.com`）、ファイルをダウンロードする Microsoft のファイルサーバーです。
+- サインインの状態は Obsidian の安全な保存領域に保存され、プラグインの設定ファイルには入りません。プラグインの設定で `サインアウト` をクリックすると、このデバイスから消去されます。
+- プラグインへのアクセス許可を取り消すには、個人用アカウントは [account.live.com/consent/Manage](https://account.live.com/consent/Manage)、職場または学校のアカウントは [myapps.microsoft.com](https://myapps.microsoft.com) で行います。
+
+**ダウンロードキャッシュ。** OneDrive からダウンロードしたノートブックは、あとで変更分だけをダウンロードできるよう、保管庫の外に保存します。macOS では `~/Library/Caches/onenote-ferry/onedrive`、Windows では `%LOCALAPPDATA%\onenote-ferry\onedrive`、Linux では `~/.cache/onenote-ferry/onedrive` です。プラグインの設定の `ダウンロードキャッシュ` で容量を確認でき、`ダウンロードキャッシュをクリア` で消去できます。保管庫のノートには影響しません。プラグインをアンインストールする前に消去してください。
+
+OneNote Ferry は独立したプロジェクトであり、Microsoft が作成または承認したものではありません。OneNote と OneDrive は Microsoft の商標です。
+
+### 既知の制限
+
+OneNote Ferry が OneNote と異なる扱いをするところ、またはまだ対応していない主なところです。
+
+- ページの自由な配置（正確な位置、フォント、文字サイズ）は再現しません。テキストボックスは読む順に並びます。
+- OneNote はテキストボックスの中の画像の位置を記録しないため、そうした画像の上の手書きと蛍光ペンは推定で配置します。推定に確信が持てないときは画像をそのまま残し、推定した位置を示す折りたたみのコピーを添えます。
+- パスワードで保護されたセクションは読み取れません。OneNote でパスワードを解除してから、もう一度インポートしてください。
+- 一覧に表示されるのは自分の OneDrive にあるノートブックだけで、ほかの人から共有されたものは含まれません。職場または学校のアカウントでは、サインインの前に管理者の承認が必要な場合があります。
+- OneNote Ferry は macOS で開発・テストしています。Windows と Linux ではまだ確認していません。
+
+あまり起こらないケースは [docs/requirements.md](docs/requirements.md)（中国語）に記載しています。
+
+### フィードバック
+
+OneNote のノートブックは人によって大きく異なり、OneNote Ferry も新しいケースに出会うたびに改善を続けています。ページが期待どおりに変換されない場合や、内容が欠けている場合は、[GitHub で issue を作成](https://github.com/AlcatrazYU/onenote-ferry/issues)してください。変換レポート、そのページの説明、またはそのために作った小さなノートブックがあると特に助かります。私的なノートは添付しないでください。ご意見やご提案も歓迎します。
+
+### サポート
+
+OneNote Ferry は無料で、今後も無料のままです。ノートの移行の時間短縮に役立ったら、[Ko-fi](https://ko-fi.com/alcatrazyu) でコーヒーを一杯ごちそうしていただけると嬉しいです。
 
 ### 言語
 
-画面は Obsidian の言語に合わせて、英語、中国語、日本語、韓国語で表示します。ノートに書き込む目次ページ、注記、フォルダー名には、英語、簡体字中国語、繁体字中国語、日本語、韓国語を使えます。
+インターフェースは Obsidian の言語（英語、中国語、日本語、韓国語）に従います。ノートに書き込む目次ページ、注記、フォルダー名には、英語、簡体字中国語、繁体字中国語、日本語、韓国語を使えます。
 
-### 開発
+### 謝辞
 
-英語の Development の項を参照してください。コマンドライン版はダウンロードしたフォルダーだけを読み込み、OneDrive にはサインインしません。予定している機能範囲は [docs/requirements.md](docs/requirements.md)（中国語）にあります。
+OneNote Ferry は、次のオープンソースプロジェクトの成果の上に成り立っています。感謝を込めて記します。
+
+- [Joplin](https://github.com/laurent22/joplin) の OneNote コンバーター（[onenote.rs](https://github.com/msiemens/onenote.rs) がベース）：OneNote のファイルを読み取ります。MPL-2.0。私たちの変更点は [parser/UPSTREAM.md](parser/UPSTREAM.md) にあります。
+- [Obsidian Importer](https://github.com/obsidianmd/obsidian-importer)：コンテンツモデルの一部、Markdown のエスケープ、ページと手書きの描画、`.onepkg` の展開。MIT。
+- [OfficeIMO](https://github.com/EvotecIT/OfficeIMO)：`.onepkg` を展開する Cabinet と LZX のコード（[Obsidian Importer](https://github.com/obsidianmd/obsidian-importer) 経由）。MIT。
+- Microsoft の [Interop Test Suites](https://github.com/OfficeDev/Interop-TestSuites) と [Aspose.Note FOSS for Python](https://github.com/aspose-note-foss/Aspose.Note-FOSS-for-Python)：テストで読み込む OneNote のサンプルファイル。MIT。
+
+各ライセンスの全文と、パーサーに組み込まれている Rust ライブラリの一覧は [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) にあります。
+
+### ソースからのビルド
+
+プラグインを自分でビルドする場合や、コマンドライン版を使う場合は、[docs/development.md](docs/development.md)（英語）を参照してください。
 
 ### ライセンス
 
-MIT。[LICENSE](LICENSE) を参照してください。Joplin（MPL-2.0）と Obsidian Importer（MIT）を元にしたコードを含みます。[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) を参照してください。
+MIT。[LICENSE](LICENSE) を参照してください。
 
 ## 한국어
 
-OneNote 전자 필기장을 Obsidian으로 옮겨 줍니다. 하이라이트, 레이아웃 순서, 링크, 원본 첨부 파일을 그대로 유지하고, 나중에 업데이트를 확인할 수도 있습니다.
+OneNote 전자 필기장을 Obsidian의 Markdown 노트로 변환합니다. 이후 OneNote에서 계속 작성한 내용도 언제든 가져올 수 있습니다.
 
-> **상태: 개발 중이며 아직 공개하지 않았습니다.** 가져오기(OneDrive에서 바로, 또는 다운로드한 폴더에서)와 업데이트 확인은 작동하며, macOS에서 개인 Microsoft 계정과 관리자 본인의 전자 필기장으로 시험했습니다. 첫 공개 버전 전에 Windows용 OneNote 내보내기 파일 지원과 몇 가지 개선을 더할 예정입니다.
+OneNote Ferry는 전자 필기장 자체의 파일을 OneDrive에서, 또는 다운로드한 파일에서 바로 읽어, 각 페이지를 보관함의 Markdown 노트로 씁니다. 서식, 하이라이트, 링크, 그림, 첨부 파일, 인쇄물, 손글씨도 그대로 남습니다. 사용자 컴퓨터의 Obsidian 안에서 실행되고 Windows용 OneNote가 필요하지 않으므로 Mac에서도 쓸 수 있습니다.
 
-### 용도
+### OneNote Ferry를 쓰는 이유
 
-OneNote Ferry는 Obsidian 커뮤니티 플러그인(명령줄 버전 포함)입니다. 전자 필기장을 개인 OneDrive에 보관하며 Obsidian에서 충실한 Markdown 사본을 얻고 싶은 사람, 특히 OneNote에서 PDF만 내보낼 수 있는 Mac 사용자를 위한 것입니다.
+OneNote에서 노트를 옮기는 방법은 이미 여러 가지가 있습니다. OneNote Ferry는 그 방법들로는 해결되지 않는 경우를 위한 것입니다.
 
-원본 노트 파일을, Microsoft 계정으로 로그인해 OneDrive에서 바로 읽거나, OneDrive 웹사이트에서 다운로드한 전자 필기장이 든 폴더(zip 또는 압축을 푼 폴더)에서 읽습니다. 그리고 정리된 Markdown 폴더로 변환합니다.
+- **노트가 Mac에 있거나 양이 많을 때.** Mac용 OneNote는 PDF로만 내보낼 수 있고, 많은 변환 도구는 Windows용 OneNote가 필요합니다. Obsidian 공식 [Importer](https://github.com/obsidianmd/obsidian-importer)는 Microsoft의 온라인 인터페이스를 통해 변환하기 때문에 Microsoft의 요청 횟수 제한을 받아, 전자 필기장이 크면 오래 걸립니다. OneNote Ferry는 전자 필기장 파일을 직접 읽으므로 둘 다 필요하지 않습니다. 저희가 아는 한, OneDrive에서 다운로드한 전자 필기장 파일을 읽는 Obsidian 플러그인은 따로 없습니다.
+- **노트의 세부가 중요할 때.** 하이라이트 색, 페이지 간 링크, 원본 첨부 파일, 인쇄물과 그 글자, 쓴 자리의 손글씨가 모두 남습니다. 변환하지 못한 내용은 보고서에 적히므로, 모르는 사이에 사라지는 일이 없습니다.
+- **앞으로도 OneNote를 계속 쓸 때.** 업데이트 확인은 바뀐 부분만 가져오고, 바꿔 넣는 이전 버전은 모두 남기며, Obsidian에서 고친 내용은 건드리지 않습니다.
 
-- 글자 서식과 글자 색, 하이라이트(색상 유지), 웹 링크, 수식(LaTeX로 변환)
-- 노트 간 링크(보관함 안의 링크로 변환)
-- 원본 이미지와 첨부 파일(변환 없음), 인쇄 페이지는 원래 PDF로 표시하고, 인쇄 페이지 위의 손글씨는 그 페이지에 그림
-- 손글씨(쓴 자리에 그림으로 배치), 형광펜(덮고 있는 그림이나 손글씨에 그려 넣음)
-- 페이지 계층, 전자 필기장과 섹션마다 목차 페이지
-- 자유 배치 텍스트 상자를 읽는 순서대로 정렬
-- 무엇을 변환했고 무엇을 변환하지 못했는지 적은 보고서
+상황별 도구 선택:
+
+| 상황 | 추천 |
+| --- | --- |
+| 전자 필기장이 적고 주로 글자이며, 가장 간단하게 끝내고 싶을 때 | [Obsidian Importer](https://github.com/obsidianmd/obsidian-importer)(공식) |
+| Evernote, Notion 등 다른 앱의 노트도 옮길 때 | [Obsidian Importer](https://github.com/obsidianmd/obsidian-importer)(공식) |
+| Windows용 OneNote가 있고 한 번만 내보내면 될 때 | [OneNote Md Exporter](https://github.com/alxnbl/onenote-md-exporter) 또는 OneNote Ferry |
+| Mac을 쓰거나, 하이라이트, 스크린샷, 텍스트 상자가 많은 전자 필기장이 많을 때 | OneNote Ferry |
+| 앞으로도 OneNote를 쓰면서 Obsidian에도 반영하고 싶을 때 | OneNote Ferry |
+
+### 빠른 시작
+
+1. Obsidian의 커뮤니티 플러그인에서 OneNote Ferry를 설치하고 활성화합니다. 데스크톱용 Obsidian에서 쓸 수 있습니다.
+2. 왼쪽 리본의 종이배 아이콘 ![OneNote Ferry 리본 아이콘](docs/assets/ribbon-icon.svg)을 클릭하거나, 명령 팔레트에서 `OneNote 노트 가져오기`를 실행합니다.
+3. 전자 필기장을 가져올 곳을 고릅니다. `OneDrive에서 가져오기`를 선택하거나, `파일 또는 폴더 선택`으로 OneDrive 웹사이트에서 다운로드한 파일이나 Windows용 OneNote에서 내보낸 파일을 고릅니다.
+4. 가져올 전자 필기장과 섹션을 선택하고 `가져오기 시작`을 클릭합니다.
+5. 가져오기가 끝나면 `보고서 열기`를 클릭해 변환된 내용을 확인합니다.
+
+### 변환되는 내용
+
+- **글자**: 서식, 글자 색, 원래 색 그대로의 하이라이트, 제목, 번호 매기기 목록, 표, 태그(콜아웃이나 할 일 확인란으로 변환), 수식(LaTeX로 변환), 웹 링크.
+- **페이지 간 링크**: 보관함 안의 링크로 바꿉니다.
+- **그림과 첨부 파일**: 원본 파일 그대로 남깁니다. TIF 그림은 픽셀이 똑같은 PNG로 바꿉니다. Obsidian에서 표시할 수 없는 형식(EMF 등)은 그 사실을 적은 링크로 남깁니다.
+- **인쇄물**: PDF 인쇄물은 원본 PDF를 보여 줍니다. Windows용 OneNote에서 넣은 인쇄물 중 원본 파일(Word 문서 등)이 전자 필기장에 없는 것은 인쇄물 자체에서 페이지마다 그립니다.
+- **인쇄물과 그림 속 글자**: 인쇄물 각 페이지의 글자를 그 아래 접힌 상자에 써 두므로 Obsidian에서 검색할 수 있습니다. `그림 속 글자` 설정을 켜면 그림의 대체 텍스트와 OneNote가 인식한 글자도 같은 방식으로 남깁니다.
+- **손글씨와 형광펜**: 쓴 자리에 그림으로 그립니다. 형광펜은 표시한 그림이나 손글씨에 그려 넣습니다.
+- **구성**: 전자 필기장과 섹션마다 폴더를 만들고, 페이지는 OneNote의 순서와 계층 그대로, 섹션은 OneNote에 보이는 순서대로 둡니다. 전자 필기장과 섹션마다 목차 페이지를 만듭니다.
+- **텍스트 상자**: 읽는 순서대로 둡니다. 각 텍스트 상자 앞에 페이지에서의 위치를 적은 숨은 주석을 넣을 수도 있습니다.
+- **보고서**: 변환한 내용과 변환하지 못한 내용을 적습니다.
+
+### 전자 필기장을 가져올 곳
+
+| 가져올 곳 | 필요한 것 | 알맞은 경우 |
+| --- | --- | --- |
+| OneDrive | Microsoft 계정과 인터넷 연결 | 보통은 이쪽입니다. 이후 업데이트 때는 바뀐 부분만 다운로드합니다. |
+| OneDrive 웹사이트에서 다운로드한 파일 | 다운로드한 zip 파일, 또는 압축을 푼 폴더 | Obsidian에서 로그인하고 싶지 않거나 오프라인으로 쓸 때. |
+| Windows용 OneNote에서 내보낸 파일 | Windows용 OneNote에서 내보낸 전자 필기장(`.onepkg`)이나 섹션(`.one`) | Windows PC에 저장한 전자 필기장이나, 섹션 하나만 가져올 때. |
 
 ### 가져오기
 
-가져오기 창에 전자 필기장과 섹션이 나열되며, 원하는 것을 선택하면 됩니다. 전자 필기장은 OneDrive에서도, 다운로드한 폴더에서도 가져올 수 있습니다.
+#### OneDrive에서
 
-**OneDrive에서**
+1. 가져오기 창을 열고(빠른 시작의 2단계) `OneDrive에서 가져오기`를 선택합니다.
+2. 열린 브라우저에서 Microsoft 계정으로 로그인합니다. 로그인했다는 페이지가 나오면 Obsidian으로 돌아갑니다.
+3. 전자 필기장과 섹션이 나열됩니다. 이때는 아무것도 다운로드하지 않았고 아무것도 선택되어 있지 않습니다. 필요한 것을 선택합니다. 목록에 없는 전자 필기장은 `다른 폴더에서 찾기`로 추가할 수 있습니다.
+4. `가져오기 시작`을 클릭합니다. 선택한 섹션만 다운로드합니다. 창을 닫아도 가져오기는 계속되며, 진행 상황은 상태 표시줄에 나옵니다.
 
-1. Obsidian 왼쪽 리본의 종이배 아이콘을 클릭하거나, 명령 팔레트에서 "OneNote 노트 가져오기"를 실행합니다.
-2. "OneDrive에서 가져오기"를 선택하고, 열린 브라우저에서 Microsoft 계정으로 로그인합니다.
-3. 전자 필기장과 섹션이 나열됩니다. 이때는 아무것도 다운로드하지 않았고 아무것도 선택되어 있지 않습니다. 가져올 전자 필기장과 섹션을 선택합니다. 목록에 없는 전자 필기장은 "다른 폴더에서 찾기"(OneDrive 줄의 폴더 아이콘)로 추가할 수 있습니다.
-4. "가져오기 시작"을 클릭합니다. 선택한 섹션만 다운로드한 뒤 가져옵니다. 창을 닫아도 가져오기는 계속되며, 진행 상황은 상태 표시줄에 나옵니다.
-5. 끝나면 만들어진 보고서를 엽니다.
+브라우저의 로그인 페이지는 한 번만 표시됩니다. 나중에 브라우저가 `localhost`에 연결할 수 없다고 표시하면, Obsidian에서 로그인되어 있는지 확인하고, 그렇지 않으면 Obsidian에서 다시 로그인하세요.
 
-**다운로드한 폴더에서**
+#### 다운로드한 파일에서
 
-1. OneDrive 웹사이트에서 전자 필기장이 든 폴더를 다운로드합니다.
-2. 위와 같이 가져오기 창을 열고 "zip 파일 또는 폴더 선택"을 선택합니다.
-3. 가져올 전자 필기장과 섹션을 선택하고 "가져오기 시작"을 클릭합니다.
+1. OneDrive 웹사이트에서 전자 필기장이 들어 있는 폴더(보통 `문서`)를 다운로드합니다. zip 파일을 받게 됩니다.
+2. 가져오기 창에서 `파일 또는 폴더 선택`을 선택하고, 그 zip 파일이나 압축을 푼 폴더를 고릅니다.
+3. 필요한 것을 선택하고 `가져오기 시작`을 클릭합니다.
 
-대상 폴더에 그중 일부 전자 필기장이 이미 있으면, 선택한 섹션을 원래 전자 필기장에 추가하고, 일부만 가져온 전자 필기장에는 "일부만 가져옴"이라고 표시합니다. 창의 설정은 이번에 가져오는 섹션에 적용됩니다. 목차와 안내 문구의 언어는 전자 필기장의 원래 언어를 그대로 씁니다.
+#### Windows용 OneNote에서 내보낸 파일에서
 
-### 업데이트 확인
+1. Windows용 OneNote의 `파일` > `내보내기`에서 전자 필기장을 OneNote 패키지(`.onepkg`)로, 또는 섹션을 OneNote 섹션(`.one`)으로 내보냅니다.
+2. 가져오기 창에서 `파일 또는 폴더 선택`을 선택하고, 내보낸 파일을 고릅니다.
+3. 필요한 것을 선택하고 `가져오기 시작`을 클릭합니다.
 
-OneNote를 계속 쓴다면, 명령 팔레트에서 "OneNote 업데이트 확인"을 실행합니다.
+Windows와 Linux에서는 `파일 또는 폴더 선택` 대신 `파일 선택`과 `폴더 선택`이 표시됩니다. 가져올 위치의 폴더에 이 전자 필기장이 이미 있으면, 선택한 섹션은 그 전자 필기장에 추가됩니다.
 
-- OneDrive를 쓴다면 "OneDrive에서 업데이트 확인"을 선택합니다. 이전에 가져온 전자 필기장을 먼저 플러그인이 다운로드한 사본에서 최신으로 맞추며, OneDrive에서 바뀐 파일만 다운로드합니다.
-- 다운로드를 쓴다면 폴더를 다시 다운로드해 선택합니다(가져오기 창에서 새 다운로드를 선택해도 같습니다).
+### 최신 상태로 유지하기
 
-그다음 이전에 가져온 전자 필기장을 섹션별로 보관함과 비교합니다. 업데이트가 있는 섹션, 새 섹션, 지난번에 끝나지 않은 섹션은 선택되어 있으며, 업데이트가 있는 섹션은 펼쳐서 페이지별 변경을 볼 수 있습니다.
+OneNote를 계속 쓴다면, 가져올 때와 같은 방법으로 가져오기 창을 다시 열고 같은 곳을 고르면 됩니다. `OneDrive에서 가져오기`를 선택하거나, 새로 다운로드하거나 새로 내보낸 파일을 고릅니다. 창은 전에 가져온 전자 필기장을 하나하나 보관함의 내용과 비교하고, 바뀌었거나 새로 생긴 섹션을 선택해 둡니다. `업데이트 시작`을 클릭합니다. (명령 팔레트의 `OneNote 업데이트 확인`도 같은 창을 열며, 바로 OneDrive를 확인할 수 있습니다.)
 
-- OneNote에서 바뀐 페이지만 바꿉니다. 바꾸기 전에 보관함에 있던 버전을 `_이전 버전/<시간>/`에 복사합니다. OneNote에서 바뀌지 않은 페이지는 전혀 건드리지 않으므로 북마크, 캔버스, 열린 탭이 그대로 남습니다.
-- OneNote에서 바뀌었고 Obsidian에서도 수정한 페이지는 새 버전으로 바꾸고, 사용자의 버전은 `_이전 버전`에 남깁니다. 창과 업데이트 기록 모두에서 알려 줍니다.
-- 다른 설정으로 다시 변환하려면, 창에서 설정을 바꾼 뒤 "변경 없음"으로 표시된 섹션이나 그 전자 필기장을 클릭합니다. 업데이트가 없을 때는 "모두 선택"을 눌러도 됩니다. "다시 변환"으로 표시됩니다. 페이지를 모두 새로 쓰고, 이전 버전은 `_이전 버전`에 들어갑니다. Obsidian에서 수정한 페이지는 그대로 남습니다. OneNote에서 바뀌어 업데이트되는 섹션은 원래 설정을 유지합니다.
-- 아무것도 삭제하지 않습니다. OneNote에 더 이상 없는 페이지와 섹션은 그 자리에 남습니다. Obsidian에서 삭제한 페이지는 선택했을 때만 복원합니다.
-- 업데이트할 때마다 `_업데이트 기록`에 바뀐 내용을 적은 페이지를 씁니다. `_변환 보고서`는 폴더 안 모든 전자 필기장의 개요이며, 두 페이지는 서로를 안내합니다.
-- OneDrive에서 가져온 전자 필기장은 OneDrive ID로 구분하며, ID는 각 전자 필기장의 목차 페이지에 기록됩니다. OneNote에서 이름을 바꾼 전자 필기장은 그 자리에서 업데이트되고, 폴더 이름도 새 이름으로 바뀝니다(폴더 이름을 직접 바꿨거나 그 이름의 폴더가 이미 있으면 제외). Obsidian에서 폴더 이름을 바꿔도 찾아냅니다. 복사한 전자 필기장은 별개의 전자 필기장으로 취급합니다.
-- 업데이트 중에 Obsidian이 종료되면, 다음에 Obsidian을 시작할 때 마무리합니다. 각 섹션은 모두 이전 상태이거나 모두 새 상태입니다.
+`가져올 위치`는 전에 가져왔을 때와 같은 폴더여야 합니다. 창은 그 폴더에 있는 노트와만 비교하므로, 다른 폴더를 고르면 그곳에 새로 가져오게 됩니다. 창은 마지막으로 가져온 폴더를 기억합니다. 전자 필기장을 여러 폴더에 나눠 두었다면, 업데이트할 전자 필기장이 있는 폴더를 고르세요.
 
-### Microsoft 계정과 OneDrive
+- OneNote에서 바뀐 페이지만 바꿔 넣습니다. 바꾸기 전에 보관함에 있던 것을 `_이전 버전`으로 옮깁니다.
+- Obsidian에서 고친 페이지는 그대로 둡니다. OneNote에서도 바뀌었다면 OneNote의 새 버전을 넣고, 고친 것은 `_이전 버전`에 남기며, 창에서도 알려 줍니다.
+- Obsidian에서 지운 페이지는 지운 상태로 둡니다. 다시 살리려면 그 섹션을 펼쳐 해당 페이지를 선택합니다.
+- 보관함에서 아무것도 지우지 않습니다. OneNote에서 지운 페이지와 섹션도 보관함에 남고, 목차 페이지에 나열됩니다.
+- 다른 설정으로 섹션을 다시 변환하려면, 창에서 설정을 바꾼 뒤 `변경 없음`으로 표시된 섹션을 클릭합니다. 표시가 `다시 변환`으로 바뀝니다.
+- 업데이트마다 무엇을 바꿨는지 `_업데이트 기록`에 적습니다.
 
-OneDrive에서 가져오기는 선택 사항입니다. 다운로드한 폴더를 가져올 때는 계정도 네트워크 연결도 필요 없습니다.
+OneDrive의 전자 필기장은 OneDrive의 ID로 알아보므로, OneNote에서 이름을 바꾼 전자 필기장이나 Obsidian에서 이름을 바꾼 폴더도 찾을 수 있습니다. 다운로드한 파일의 전자 필기장은 이름으로 알아봅니다.
 
-- **로그인**: 브라우저에서 Microsoft의 자체 페이지에 로그인하므로, 플러그인은 비밀번호를 볼 수 없습니다. Microsoft는 결과를 사용자 컴퓨터의 일회용 주소(127.0.0.1)로 돌려보냅니다.
-- **권한**: 플러그인이 요청하는 것은 파일 읽기(`Files.Read`), 로그인 유지(`offline_access`), 기본 로그인 정보(`openid`, `profile`, 개인 계정인지 회사 또는 학교 계정인지 구분하는 데 사용)뿐입니다. OneDrive 안의 어떤 것도 바꾸거나 삭제할 수 없습니다. 이 플러그인의 이름으로 그보다 많은 권한을 요청하는 로그인 페이지는 이 플러그인의 것이 아닙니다.
-- **네트워크**: 플러그인은 Microsoft에만 연결합니다. 로그인 서비스, Microsoft Graph(`graph.microsoft.com`, 전자 필기장과 파일 목록), Microsoft의 파일 서버(파일 다운로드)입니다. 노트는 Microsoft에서 사용자 컴퓨터로 바로 옵니다. 다른 서버도, 원격 분석도 없으며, 아무것도 업로드하지 않습니다.
-- **로그인 유지**: 로그인 정보는 Obsidian의 보안 저장소에 두고, 플러그인 설정 파일에는 쓰지 않습니다. 플러그인 설정에서 "로그아웃"하면 이 기기의 로그인 정보가 지워집니다. 플러그인의 접근 권한 자체를 거두려면 개인 계정은 account.live.com/consent/Manage, 회사 또는 학교 계정은 myapps.microsoft.com에서 할 수 있습니다.
-- **다운로드 캐시**: OneDrive에서 다운로드한 전자 필기장은 보관함 밖, 시스템의 캐시 폴더(macOS에서는 `~/Library/Caches/onenote-ferry/onedrive`)에 두어, 다음부터는 바뀐 부분만 다운로드합니다. 업데이트를 확인하면 이전에 가져온 전자 필기장은 여기에 통째로 저장됩니다. 다운로드하기 전에 남은 공간을 확인합니다. 플러그인 설정의 "다운로드 캐시"에서 크기와 위치를 볼 수 있고 지울 수도 있습니다. 보관함의 노트는 그대로 남습니다.
-- OneNote Ferry는 독립 프로젝트이며, Microsoft가 만들거나 승인한 것이 아닙니다. OneNote와 OneDrive는 Microsoft의 상표입니다.
+### 설정
+
+가져오기 창에는 가져올 때마다 다음 설정이 표시됩니다. 플러그인 설정 화면에는 그 기본값이 저장됩니다.
+
+- **가져올 위치**(설정 화면에서는 **폴더**): 가져온 노트를 저장할 곳입니다. 전자 필기장과 섹션마다 하위 폴더가 만들어집니다. 창은 마지막으로 가져온 폴더를 기억합니다.
+- **목차와 안내 문구의 언어**: 영어, 중국어 간체, 중국어 번체, 일본어, 한국어 중 하나입니다. 전자 필기장은 처음 가져왔을 때의 언어를 계속 씁니다.
+- **텍스트 상자 위치**: 여러 단으로 배치된 페이지에서, 각 텍스트 상자 앞에 페이지에서의 위치를 적은 숨은 주석을 넣습니다.
+- **그림 속 글자**: 그림의 대체 텍스트와 OneNote가 인식한 글자를 각 그림 아래에 접어서 남깁니다. 인쇄물의 글자는 항상 남깁니다.
+
+### 보관함에 생기는 것
+
+```
+OneNote/                   가져올 위치의 폴더
+├── _변환 보고서.md        가져온 내용과 변환하지 못한 내용
+├── _이전 버전/            업데이트로 바뀐 페이지
+├── _업데이트 기록/        업데이트마다 바꾼 내용
+└── 내 전자 필기장/
+    ├── _목차.md           전자 필기장의 섹션
+    ├── 강의/              섹션
+    │   ├── _목차.md       섹션의 페이지(OneNote의 순서)
+    │   ├── 첫 강의.md
+    │   └── _첨부 파일/    섹션의 그림과 파일
+    └── 보관/              섹션 그룹(안에 섹션)
+```
+
+이 이름들은 `목차와 안내 문구의 언어` 설정을 따릅니다. 예를 들어 영어로는 `_contents.md`입니다.
 
 ### 개인정보와 안전
 
-OneNote 파일은 읽기만 하고 수정하지 않습니다. OneDrive에서 플러그인에는 읽기 권한만 있습니다. 변환은 모두 사용자의 컴퓨터에서 이루어지며, 아무것도 업로드하지 않습니다. 플러그인은 선택한 폴더와 자체 다운로드 사본 안에만 쓰고, 보관함 안의 어떤 것도 삭제하지 않습니다.
+- **OneNote 파일은 읽기만 합니다.** OneDrive에서는 읽기 권한만 있어서 아무것도 바꾸거나 지울 수 없습니다.
+- **모든 처리는 사용자 컴퓨터에서 이루어집니다.** 저희 서버는 없고, 사용 데이터를 수집하지 않으며, 아무것도 업로드하지 않습니다.
+- **플러그인이 쓰는 곳은 가져올 위치의 폴더 안**과 다운로드 캐시(아래)뿐입니다. 보관함 안의 어떤 것도 지우지 않습니다.
 
-### 제한
+**Microsoft 계정.** OneDrive에서 가져올 때만 필요합니다. 다운로드한 파일이나 내보낸 파일에는 계정이 필요하지 않습니다.
 
-- macOS와 개인 Microsoft 계정에서 개발하고 시험했습니다. Windows와 Linux는 아직 확인하지 않았습니다. 회사 또는 학교 계정도 확인하지 않았으며, 조직에 따라 관리자가 이 플러그인을 승인해야 로그인할 수 있습니다. 21Vianet이 운영하는 중국판 Microsoft 365 계정은 지원하지 않습니다.
-- 목록에는 자신의 OneDrive에 있는 전자 필기장만 나오며, 다른 사람이 공유한 전자 필기장은 나오지 않습니다.
-- 내려받은 zip에는 전자 필기장 ID가 없으므로, 내려받은 전자 필기장은 이름으로 구분합니다. OneDrive에서 이름을 바꾸거나 Obsidian에서 폴더 이름을 바꾼 전자 필기장은 새 전자 필기장으로 취급됩니다. 이름이 같은 전자 필기장이 둘이면 두 번째는 "이름 (2)"로 가져오며, 업데이트 확인은 첫 번째만 대상입니다.
-- 암호로 보호된 섹션은 읽을 수 없습니다. OneNote에서 암호를 해제한 뒤 다시 가져오거나 업데이트를 확인하세요. OneDrive에서 가져올 때는 섹션을 다운로드한 뒤에야 암호 여부를 알 수 있으므로, 그런 섹션을 선택하면 다운로드된 뒤 보고서에 변환하지 못한 것으로 표시됩니다.
-- OneDrive 웹사이트에서는 전자 필기장이 든 폴더를 다운로드할 수 있을 뿐, 전자 필기장을 하나씩 다운로드할 수는 없습니다.
-- 페이지의 자유로운 레이아웃(글꼴, 글자 크기, 정확한 위치)은 재현하지 않습니다. 텍스트 상자는 읽는 순서대로 정렬하고, 선택에 따라 각 블록 앞에 위치를 적은 주석을 붙입니다.
-- OneNote는 텍스트 상자 안 그림의 위치를 기록하지 않으므로, 그 위의 손글씨와 형광펜은 추정으로 배치합니다. 추정이 확실하지 않으면 그림은 그대로 두고, 그 아래에 추정한 위치에 모든 필기를 그려 넣은 사본을 접어서 둡니다. 표 안 그림 위의 필기는 아직 그림에 겹치지 않습니다. 손글씨는 쓴 곳 근처에 따로 그림으로 두고, 형광펜은 남지 않습니다. 입력한 글자 위나 빈 곳의 형광펜은 남지 않습니다.
-- Windows용 OneNote로 넣은 인쇄 페이지 위의 손글씨는 인쇄 페이지 파일에서 그 페이지를 그릴 수 있으면 페이지 위에 그립니다. 글자만 있는 페이지는 그리지 못할 수 있으며, 그때는 페이지와 같은 크기의 빈 종이에 그립니다.
-- OneDrive의 파일에는 섹션 순서가 기록되지 않으므로 섹션은 이름순으로 정렬됩니다.
-- OneNote에서 페이지를 다른 섹션으로 옮기면 보관함에 두 개가 남습니다. 원래 섹션에 있는 것("OneNote에 더 이상 없는 페이지" 아래에 표시)과 새 섹션에 있는 것입니다.
-- 전자 필기장의 목차와 안내 문구의 언어는 바꿀 수 없습니다. 바꾸려면 그 전자 필기장의 폴더를 대상 폴더 밖으로 옮긴 뒤 다시 가져옵니다.
+- 로그인은 브라우저에서, Microsoft 자체 페이지에서 하므로 플러그인은 비밀번호를 보지 못합니다. Microsoft는 로그인 결과를 사용자 컴퓨터의 일회용 주소(`127.0.0.1`)로 돌려보내며, 그 뒤에 보이는 페이지는 플러그인이 표시합니다.
+- 요청하는 권한: `Files.Read`(파일 읽기), `offline_access`(로그인 유지), `openid`와 `profile`(개인 계정과 회사 또는 학교 계정 구분).
+- 플러그인은 Microsoft에만 연결합니다. Microsoft 로그인 서비스, 전자 필기장과 파일 목록을 가져오는 Microsoft Graph(`graph.microsoft.com`), 파일을 다운로드하는 Microsoft 파일 서버입니다.
+- 로그인 상태는 Obsidian의 보안 저장소에 보관되며, 플러그인 설정 파일에는 들어가지 않습니다. 플러그인 설정에서 `로그아웃`을 클릭하면 이 기기에서 지워집니다.
+- 플러그인의 접근 권한을 철회하려면, 개인 계정은 [account.live.com/consent/Manage](https://account.live.com/consent/Manage), 회사 또는 학교 계정은 [myapps.microsoft.com](https://myapps.microsoft.com)에서 하세요.
+
+**다운로드 캐시.** OneDrive에서 다운로드한 전자 필기장은 나중에 바뀐 부분만 다운로드할 수 있도록 보관함 밖에 둡니다. macOS에서는 `~/Library/Caches/onenote-ferry/onedrive`, Windows에서는 `%LOCALAPPDATA%\onenote-ferry\onedrive`, Linux에서는 `~/.cache/onenote-ferry/onedrive`입니다. 플러그인 설정의 `다운로드 캐시`에서 크기를 확인하고 `다운로드 캐시 지우기`로 지울 수 있습니다. 보관함의 노트에는 영향이 없습니다. 플러그인을 제거하기 전에 지워 주세요.
+
+OneNote Ferry는 독립 프로젝트이며, Microsoft가 만들거나 보증한 것이 아닙니다. OneNote와 OneDrive는 Microsoft의 상표입니다.
+
+### 알려진 제한
+
+OneNote Ferry가 OneNote와 다르게 처리하거나 아직 지원하지 않는 주요 부분입니다.
+
+- 페이지의 자유로운 배치(정확한 위치, 글꼴, 글자 크기)는 재현하지 않습니다. 텍스트 상자는 읽는 순서대로 놓입니다.
+- OneNote는 텍스트 상자 안 그림의 위치를 기록하지 않으므로, 그런 그림 위의 손글씨와 형광펜은 추정해서 배치합니다. 추정이 확실하지 않으면 그림은 그대로 두고, 추정한 위치를 보여 주는 접힌 사본을 덧붙입니다.
+- 암호로 보호된 섹션은 읽을 수 없습니다. OneNote에서 암호를 해제한 뒤 다시 가져오세요.
+- 목록에는 자신의 OneDrive에 있는 전자 필기장만 나오며, 다른 사람이 공유한 것은 포함되지 않습니다. 회사 또는 학교 계정은 로그인하기 전에 관리자의 승인이 필요할 수 있습니다.
+- OneNote Ferry는 macOS에서 개발하고 테스트했습니다. Windows와 Linux에서는 아직 확인하지 않았습니다.
+
+드문 경우는 [docs/requirements.md](docs/requirements.md)(중국어)에 정리되어 있습니다.
+
+### 피드백
+
+OneNote 전자 필기장은 사람마다 크게 다르며, OneNote Ferry도 새로운 경우를 만날 때마다 계속 개선하고 있습니다. 페이지가 기대한 대로 변환되지 않거나 내용이 빠졌다면 [GitHub에 이슈를 올려](https://github.com/AlcatrazYU/onenote-ferry/issues) 주세요. 변환 보고서, 그 페이지에 대한 설명, 또는 이를 위해 따로 만든 작은 전자 필기장이 있으면 가장 도움이 됩니다. 개인 노트는 첨부하지 마세요. 의견과 제안도 환영합니다.
+
+### 후원
+
+OneNote Ferry는 무료이며 앞으로도 무료입니다. 노트를 옮기는 시간을 줄이는 데 도움이 되었다면 [Ko-fi](https://ko-fi.com/alcatrazyu)에서 커피 한 잔으로 응원해 주세요.
 
 ### 언어
 
-UI는 Obsidian 언어를 따르며, 영어, 중국어, 일본어, 한국어를 지원합니다. 노트에 쓰는 목차 페이지, 안내 문구, 폴더 이름은 영어, 중국어 간체, 중국어 번체, 일본어, 한국어로 쓸 수 있습니다.
+인터페이스는 Obsidian의 언어(영어, 중국어, 일본어, 한국어)를 따릅니다. 노트에 쓰는 목차 페이지, 안내 문구, 폴더 이름에는 영어, 중국어 간체, 중국어 번체, 일본어, 한국어를 쓸 수 있습니다.
 
-### 개발
+### 감사의 말
 
-영어 부분의 Development를 참고하세요. 명령줄 버전은 다운로드한 폴더만 읽으며, OneDrive에 로그인하지 않습니다. 계획한 기능 범위는 [docs/requirements.md](docs/requirements.md)(중국어)에 있습니다.
+OneNote Ferry는 다음 오픈 소스 프로젝트의 성과 위에 만들어졌습니다. 감사드립니다.
+
+- [Joplin](https://github.com/laurent22/joplin)의 OneNote 변환기([onenote.rs](https://github.com/msiemens/onenote.rs) 기반): OneNote 파일을 읽습니다. MPL-2.0. 저희가 고친 부분은 [parser/UPSTREAM.md](parser/UPSTREAM.md)에 있습니다.
+- [Obsidian Importer](https://github.com/obsidianmd/obsidian-importer): 콘텐츠 모델의 일부, Markdown 이스케이프, 페이지와 손글씨 그리기, `.onepkg` 풀기. MIT.
+- [OfficeIMO](https://github.com/EvotecIT/OfficeIMO): `.onepkg`를 푸는 Cabinet과 LZX 코드([Obsidian Importer](https://github.com/obsidianmd/obsidian-importer)를 거쳐 사용). MIT.
+- Microsoft의 [Interop Test Suites](https://github.com/OfficeDev/Interop-TestSuites)와 [Aspose.Note FOSS for Python](https://github.com/aspose-note-foss/Aspose.Note-FOSS-for-Python): 테스트에서 읽는 OneNote 샘플 파일. MIT.
+
+각 라이선스의 전문과 파서에 함께 컴파일된 Rust 라이브러리 목록은 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)에 있습니다.
+
+### 소스에서 빌드하기
+
+플러그인을 직접 빌드하거나 명령줄 버전을 쓰려면 [docs/development.md](docs/development.md)(영어)를 참고하세요.
 
 ### 라이선스
 
-MIT. [LICENSE](LICENSE)를 참고하세요. Joplin(MPL-2.0)과 Obsidian Importer(MIT)를 바탕으로 한 코드가 포함되어 있습니다. [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)를 참고하세요.
+MIT. [LICENSE](LICENSE)를 참고하세요.
