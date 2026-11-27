@@ -4,12 +4,12 @@
 // `.onepkg`, unpacked into a temporary folder the first time one of its sections is needed.
 // Shared by the command line and the plugin's worker (Obsidian is desktop only, so Node is there).
 
-import { closeSync, createReadStream, createWriteStream, fstatSync, mkdirSync, openSync, readdirSync, readSync, rmSync, statSync, writeSync } from 'node:fs';
+import { closeSync, createReadStream, createWriteStream, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeSync } from 'node:fs';
 import { basename, dirname, join, relative, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { createInflateRaw } from 'node:zlib';
+import { createInflateRaw, inflateRawSync } from 'node:zlib';
 import { extractCab, readCabIndex } from '../core/cab.ts';
-import { findNotebooks } from '../core/download.ts';
+import { findNotebooks, groupsKey, orderByTables, tableFiles } from '../core/download.ts';
 import type { DownloadFile, DownloadNotebook, DownloadSection } from '../core/download.ts';
 import type { ParsedSection } from '../core/importer.ts';
 import { ENCRYPTION_MARKER_WINDOW, isPasswordProtected } from '../core/encryption.ts';
@@ -59,6 +59,41 @@ export function fileAccess(path: string): RandomAccessFile & { close(): void } {
 		},
 		close: () => closeSync(fd),
 	};
+}
+
+/** Tables of contents are small: a larger one is not read, and its folder keeps the order by name. */
+const TABLE_LIMIT = 16 * 1024 * 1024;
+
+/**
+ * Puts each notebook's sections in the order OneNote shows them, from its tables of contents
+ * (§11.5 item 76): `read` gives the bytes of the files asked for, `tocNames` (the parser's) the
+ * names a table lists. A table that cannot be read leaves its folder in the order by name.
+ */
+async function orderSections(notebooks: DownloadNotebook[], files: DownloadFile[], read: (paths: Set<string>) => Promise<Map<string, Uint8Array>>, tocNames: (data: Uint8Array) => string[]): Promise<void> {
+	const tables = notebooks.map(notebook => tableFiles(notebook, files));
+	const wanted = new Set(tables.flatMap(table => [...table.values()]).filter(path => (files.find(file => file.path === path)?.size ?? 0) <= TABLE_LIMIT));
+	if (!wanted.size) return;
+	let bytes: Map<string, Uint8Array>;
+	try {
+		bytes = await read(wanted);
+	}
+	catch {
+		return;
+	}
+	notebooks.forEach((notebook, i) => {
+		const names = new Map<string, string[]>();
+		for (const [key, path] of tables[i]!) {
+			const data = bytes.get(path);
+			if (!data) continue;
+			try {
+				names.set(key, tocNames(data));
+			}
+			catch {
+				// Unreadable: this folder keeps the order by name.
+			}
+		}
+		orderByTables(notebook, groups => names.get(groupsKey(groups)));
+	});
 }
 
 export function listFolder(root: string): DownloadFile[] {
@@ -126,12 +161,21 @@ function openSectionFile(input: string): Download {
  * A notebook packaged by OneNote for Windows: its sections are listed from the package's index;
  * the package is unpacked into `tmp` once, when the first section is needed.
  */
-async function openPackage(input: string, tmp: string): Promise<Download> {
+async function openPackage(input: string, tmp: string, tocNames?: (data: Uint8Array) => string[]): Promise<Download> {
 	const pkg = fileAccess(input);
 	let notebooks: DownloadNotebook[];
 	try {
 		const entries = await readCabIndex(pkg);
-		notebooks = findNotebooks(entries.map(entry => ({ path: entry.path, size: entry.size })), basename(input).replace(/\.onepkg$/i, ''));
+		const files = entries.map(entry => ({ path: entry.path, size: entry.size }));
+		notebooks = findNotebooks(files, basename(input).replace(/\.onepkg$/i, ''));
+		if (tocNames) await orderSections(notebooks, files, async paths => {
+			const pieces = new Map<string, Buffer[]>();
+			await extractCab(pkg, async (entry, piece) => {
+				if (!pieces.has(entry.path)) pieces.set(entry.path, []);
+				pieces.get(entry.path)!.push(Buffer.from(piece));
+			}, entry => paths.has(entry.path));
+			return new Map([...pieces].map(([path, parts]) => [path, new Uint8Array(Buffer.concat(parts))]));
+		}, tocNames);
 	}
 	catch (error) {
 		pkg.close();
@@ -183,11 +227,17 @@ async function openPackage(input: string, tmp: string): Promise<Download> {
 	};
 }
 
-export async function openDownload(input: string, tmp: string, inPlace: boolean): Promise<Download> {
+/**
+ * Opens a download: a zip or folder from the OneDrive website, or what OneNote for Windows exports.
+ * With `tocNames` (the parser's), sections come in the order their notebook's tables of contents give.
+ */
+export async function openDownload(input: string, tmp: string, inPlace: boolean, tocNames?: (data: Uint8Array) => string[]): Promise<Download> {
 	if (/\.one$/i.test(input)) return openSectionFile(input);
-	if (/\.onepkg$/i.test(input)) return openPackage(input, tmp);
+	if (/\.onepkg$/i.test(input)) return openPackage(input, tmp, tocNames);
 	if (!/\.zip$/i.test(input)) {
-		const notebooks = findNotebooks(listFolder(input), basename(input));
+		const listed = listFolder(input);
+		const notebooks = findNotebooks(listed, basename(input));
+		if (tocNames) await orderSections(notebooks, listed, async paths => new Map([...paths].map(path => [path, new Uint8Array(readFileSync(join(input, ...path.split('/'))))] as [string, Uint8Array])), tocNames);
 		return {
 			notebooks,
 			parserPath: async section => join(input, ...section.path.split('/')),
@@ -231,6 +281,17 @@ export async function openDownload(input: string, tmp: string, inPlace: boolean)
 	const files: DownloadFile[] = [...entries.values()].map(entry => ({ path: entry.name, size: entry.size }));
 	if (cutOff && !entries.has(cutOff)) files.push({ path: cutOff, size: 0, incomplete: true });
 	const notebooks = findNotebooks(files, basename(input).replace(/\.zip$/i, ''));
+	if (tocNames) await orderSections(notebooks, files, async paths => {
+		const out = new Map<string, Uint8Array>();
+		for (const path of paths) {
+			const entry = entries.get(path);
+			if (!entry || (entry.method !== 0 && entry.method !== 8)) continue;
+			const offset = await entryDataOffset(zip, entry);
+			const stored = await zip.read(offset, entry.compressedSize);
+			out.set(path, entry.method === 0 ? stored : new Uint8Array(inflateRawSync(stored)));
+		}
+		return out;
+	}, tocNames);
 	const copies = new Map<string, string>();
 	let copyCount = 0;
 	const parserPath = async (section: DownloadSection): Promise<string> => {
@@ -288,6 +349,8 @@ export async function passwordProtected(download: Download, section: DownloadSec
 /** The WebAssembly parser (`parser/ferry`, built for Node). */
 export interface WasmParser {
 	parseSection(path: string): { takeJson(): string; readAsset(key: string): Uint8Array; rowProfile?(key: string): Float32Array | undefined; free(): void };
+	/** The names a table of contents (its bytes) lists, in OneNote's order; empty when it cannot be read. */
+	tocNames?(data: Uint8Array): string[];
 }
 
 /** Parses a section of a download with the WebAssembly parser; release() frees it and its temporary copy. */

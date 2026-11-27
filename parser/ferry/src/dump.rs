@@ -444,7 +444,14 @@ pub fn dump_section(path: &str, sink: AssetSink) -> Result<Dumped, String> {
 
 /// Section names listed in a `.onetoc2` table of contents (empty in OneDrive downloads).
 pub fn toc_names(path: &str) -> Result<Vec<String>, String> {
-    Parser::new().parse_toc_names(path).map_err(|e| e.to_string())
+    let data = std::fs::read(path).map_err(|e| e.to_string())?;
+    toc_names_from_data(&data)
+}
+
+/// The names a notebook's table of contents lists, in OneNote's order: sections as `<name>.one`,
+/// section groups (and the recycle bin) by their folder names.
+pub fn toc_names_from_data(data: &[u8]) -> Result<Vec<String>, String> {
+    Parser::new().parse_toc_names_from_data(data).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

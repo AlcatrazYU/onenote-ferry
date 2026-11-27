@@ -73,7 +73,7 @@ async function opened(input: string): Promise<Download> {
 	if (!scratchRoot) throw new Error('the converter has no scratch folder');
 	const scratch = join(scratchRoot, String(scratchCount++));
 	try {
-		const download = await openDownload(input, join(scratch, 'zip'), true);
+		const download = await openDownload(input, join(scratch, 'zip'), true, data => parser().tocNames!(data));
 		downloads.set(input, { download, scratch });
 		return download;
 	}

@@ -100,6 +100,107 @@ export function findNotebooks(files: DownloadFile[], rootName: string): Download
 	return distinctNames(notebooks);
 }
 
+/** A key for a folder of a notebook: its section groups, from the notebook's folder down. */
+export const groupsKey = (groups: readonly string[]) => groups.join('\u0000');
+/** Places after every place a table of contents can give. */
+const UNLISTED = 1e9;
+/** Names as tables of contents and file names are compared: composed, any case. */
+const foldName = (name: string) => name.normalize('NFC').toLowerCase();
+
+/**
+ * The table of contents (`.onetoc2`) in each folder of a notebook that holds its sections: the
+ * notebook's own and each section group's, by `groupsKey`. `files` is the download's file list.
+ */
+export function tableFiles(notebook: DownloadNotebook, files: DownloadFile[]): Map<string, string> {
+	const folders = new Map<string, string>();
+	const add = (groups: string[]) => folders.set([notebook.path, ...groups].filter(Boolean).join('/'), groupsKey(groups));
+	add([]);
+	for (const section of notebook.sections) for (let level = 1; level <= section.groups.length; level++) add(section.groups.slice(0, level));
+	const tables = new Map<string, string>();
+	for (const file of [...files].sort((a, b) => nameCollator.compare(a.path, b.path))) {
+		const at = file.path.lastIndexOf('/');
+		const key = folders.get(at < 0 ? '' : file.path.slice(0, at));
+		if (key !== undefined && isNotebookFile(file) && !tables.has(key)) tables.set(key, file.path);
+	}
+	return tables;
+}
+
+/**
+ * Puts a notebook's sections in the order OneNote shows them, as its tables of contents list them
+ * (§11.5 item 76). `listed(groups)` gives the names the table of that folder lists, in order
+ * (`<name>.one` for a section, the folder's name for a section group), or nothing when there is
+ * none or it could not be read. At each level sections still come before section groups; what a
+ * table does not list follows what it does, by name, as before.
+ */
+export function orderByTables(notebook: DownloadNotebook, listed: (groups: string[]) => string[] | undefined): void {
+	// What each folder holds: its sections (`<name>.one`) and the groups right under it.
+	const held = new Map<string, Set<string>>();
+	const hold = (groups: string[], name: string) => {
+		const key = groupsKey(groups);
+		if (!held.has(key)) held.set(key, new Set());
+		held.get(key)!.add(name);
+	};
+	for (const section of notebook.sections) {
+		section.groups.forEach((group, level) => hold(section.groups.slice(0, level), group));
+		hold(section.groups, `${section.label}.one`);
+	}
+	const ranks = new Map<string, Map<string, number>>();
+	const rank = (groups: string[], name: string) => {
+		const key = groupsKey(groups);
+		if (!ranks.has(key)) ranks.set(key, placesInTable(listed(groups) ?? [], [...held.get(key) ?? []]));
+		return ranks.get(key)!.get(name) ?? Infinity;
+	};
+	// What a table does not list goes after what it does, where it was (by name): the place of its
+	// first section in the list as it stands.
+	const first = new Map<string, number>();
+	notebook.sections.forEach((section, index) => {
+		for (let level = 1; level <= section.groups.length; level++) {
+			const key = groupsKey(section.groups.slice(0, level));
+			if (!first.has(key)) first.set(key, index);
+		}
+	});
+	const place = (ranked: number, where: number) => (Number.isFinite(ranked) ? ranked : UNLISTED + where);
+	// Each level: a section (0) or a group (1), then its place in that folder.
+	const keyOf = (section: DownloadSection, index: number) => section.groups
+		.flatMap((group, level) => [1, place(rank(section.groups.slice(0, level), group), first.get(groupsKey(section.groups.slice(0, level + 1)))!)])
+		.concat([0, place(rank(section.groups, `${section.label}.one`), index)]);
+	const keys = new Map(notebook.sections.map((section, index) => [section, keyOf(section, index)] as [DownloadSection, number[]]));
+	const compare = (a: number[], b: number[]) => {
+		for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i]! < b[i]! ? -1 : 1;
+		return a.length - b.length;
+	};
+	notebook.sections = [...notebook.sections].sort((a, b) => compare(keys.get(a)!, keys.get(b)!));
+}
+
+/**
+ * Where each of `names` (a folder's sections and groups) stands in its table of contents `listed`.
+ * Tables write some characters as `^` and another one (a full-width colon as `^7`), so a listed
+ * name is first looked for as it is, then with each `^` and the character after it standing for any
+ * one character. A name the table does not list (renamed elsewhere, or added since) gets no place.
+ */
+function placesInTable(listed: string[], names: string[]): Map<string, number> {
+	const places = new Map<string, number>();
+	const free = new Set(names);
+	const take = (index: number, matches: (name: string) => boolean) => {
+		const name = [...free].find(matches);
+		if (name === undefined) return false;
+		places.set(name, index);
+		free.delete(name);
+		return true;
+	};
+	const left: number[] = [];
+	listed.forEach((entry, index) => {
+		if (!take(index, name => foldName(name) === foldName(entry))) left.push(index);
+	});
+	for (const index of left) {
+		const entry = foldName(listed[index]!);
+		if (!entry.includes('^')) continue;
+		const pattern = new RegExp(`^${entry.split(/\^[\s\S]/u).map(part => part.replace(/[.*+?$()|[\]{}\\]/g, '\\$&')).join('.')}$`, 'u');
+		take(index, name => pattern.test(foldName(name)));
+	}
+	return places;
+}
+
 /**
  * The folder a notebook name gets, as a key that two names share when they would get the same
  * folder: on a disk that ignores case, and in Obsidian, which composes every path (full NFC).

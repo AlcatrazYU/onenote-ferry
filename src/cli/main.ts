@@ -192,7 +192,7 @@ async function main() {
 	const wasm = options.dump ? undefined : loadWasmParser(options.parserWasm);
 	const scratch = scratchFolder(options.tmp);
 	const started = Date.now();
-	const download = await openDownload(options.input, join(scratch, 'zip'), !!wasm);
+	const download = await openDownload(options.input, join(scratch, 'zip'), !!wasm, wasm?.tocNames && (data => wasm.tocNames!(data)));
 	if (download.incomplete) console.warn(incompleteZipMessage(download.incomplete));
 	try {
 		const notebooks = download.notebooks.filter(notebook => !options.only || options.only.includes(notebook.name));
@@ -292,7 +292,7 @@ async function plan(argv: string[], command: 'plan' | 'sync') {
 		for (const result of resumed.finished) console.log(`Finished an update that was cut off: ${result.record}`);
 		for (const journal of resumed.ignored) console.warn(`Left alone: ${journal} was changed since the update wrote it, so it is not followed. The sections it was updating are checked again below.`);
 	}
-	const download = await openDownload(options.input, join(scratch, 'zip'), !!wasm);
+	const download = await openDownload(options.input, join(scratch, 'zip'), !!wasm, wasm?.tocNames && (data => wasm.tocNames!(data)));
 	if (download.incomplete) console.warn(incompleteZipMessage(download.incomplete));
 	try {
 

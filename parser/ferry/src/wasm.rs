@@ -76,6 +76,14 @@ pub fn parse_section(path: &str) -> Result<ParsedSection, JsError> {
     Ok(ParsedSection { json, assets: dumped.ctx.kept })
 }
 
+/// The names a notebook's table of contents (`.onetoc2`, its bytes) lists, in OneNote's order:
+/// sections as `<name>.one`, section groups by their folder names. Empty when it cannot be read.
+#[wasm_bindgen(js_name = tocNames)]
+pub fn toc_names(data: &[u8]) -> Vec<String> {
+    console_error_panic_hook::set_once();
+    crate::dump::toc_names_from_data(data).unwrap_or_default()
+}
+
 /// Current WebAssembly memory in bytes. Memory never shrinks, so after a parse this is its peak.
 #[wasm_bindgen(js_name = memoryBytes)]
 pub fn memory_bytes() -> f64 {

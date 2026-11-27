@@ -125,7 +125,10 @@ impl Revision {
                     iterator,
                     Some(FileNodeData::DataSignatureGroupDefinitionFND(_))
                 );
-                while let Some(object) = Object::try_parse(iterator, context)? {
+                // OneNote Ferry patch: these objects resolve their references with the table they follow;
+                // with the outer context every reference failed and was dropped (a table of contents read empty).
+                let table_context = context.with_id_table(&global_id_table);
+                while let Some(object) = Object::try_parse(iterator, &table_context)? {
                     objects.push(Rc::new(object));
 
                     // Skip the reference counting object, if present

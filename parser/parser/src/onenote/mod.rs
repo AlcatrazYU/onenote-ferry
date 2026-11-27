@@ -75,6 +75,29 @@ impl Parser {
         notebook::parse_toc(store.data_root())
     }
 
+    /// OneNote Ferry patch: `parse_toc_names` for a table of contents in memory. Tables of contents
+    /// stored in OneDrive often begin with an empty table in the desktop format and hold the real
+    /// one, in the format OneDrive downloads use, after it; when the beginning gives no names, they
+    /// are read from where that second one starts.
+    pub fn parse_toc_names_from_data(&mut self, data: &[u8]) -> Result<Vec<String>> {
+        let first = Self::toc_names_in(data);
+        if matches!(&first, Ok(names) if !names.is_empty()) {
+            return first;
+        }
+        match packaged_store_after_start(data) {
+            Some(at) => Self::toc_names_in(&data[at..]),
+            None => first,
+        }
+    }
+
+    fn toc_names_in(data: &[u8]) -> Result<Vec<String>> {
+        let store = parse_onestore(&mut Reader::from(data))?;
+        if store.get_type() != OneStoreType::TableOfContents {
+            return Err(ErrorKind::NotATocFile { file: "(table of contents)".to_string() }.into());
+        }
+        notebook::parse_toc(store.data_root())
+    }
+
     /// Parse a OneNote section file.
     ///
     /// The `path` argument must point to a `.one` file that contains a
@@ -140,4 +163,12 @@ impl Default for Parser {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// OneNote Ferry patch: where a store in the format OneDrive downloads use begins after the start of
+/// `data`: its file type GUID, then 48 bytes on, the GUID of that format ([MS-ONESTORE] 2.8).
+fn packaged_store_after_start(data: &[u8]) -> Option<usize> {
+    const FILE_TYPE: [u8; 16] = [0xE4, 0x52, 0x5C, 0x7B, 0x8C, 0xD8, 0xA7, 0x4D, 0xAE, 0xB1, 0x53, 0x78, 0xD0, 0x29, 0x96, 0xD3];
+    const PACKAGING: [u8; 16] = [0x2F, 0xE9, 0x8D, 0x63, 0xD4, 0xA6, 0xC1, 0x4B, 0x9A, 0x36, 0xB3, 0xFC, 0x25, 0x11, 0xA5, 0xB7];
+    (1..data.len().saturating_sub(64)).find(|&at| data[at..at + 16] == FILE_TYPE && data[at + 48..at + 64] == PACKAGING)
 }

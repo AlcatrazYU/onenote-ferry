@@ -61,7 +61,21 @@ TypeScript core reads, as a native `dump` binary and as WebAssembly.
    same JSON as before. (`ferry` uses it as the page's id unless two pages of a section would share
    one.)
 
-Changes 4, 5, 7 and 8 are marked in the code with comments that start with "OneNote Ferry patch"; changes 2 and 3
+9. `parser/src/local_onestore/objects/revision.rs` (desktop tables of contents): objects that follow
+   a global ID table in a revision now resolve their references with that table. They were parsed
+   with the enclosing context, whose table is empty, so every reference failed and was dropped, and
+   a `.onetoc2` exported by OneNote for Windows read as having no sections. A public notebook
+   package of 12 sections now lists them in their OneNote order. Section files are unchanged.
+
+10. `parser/src/onenote/mod.rs`: adds `Parser::parse_toc_names_from_data`, `parse_toc_names` for a
+   table of contents in memory. Many tables of contents stored in OneDrive begin with an empty table
+   in the desktop format and hold the real one, in the format OneDrive downloads use, after it
+   (always at byte 0x4C0 in 38 such files); when the beginning gives no names, the names are read
+   from where that second one starts. Of 79 tables of contents (two OneDrive accounts' worth of
+   notebooks, a web download, two packages exported by OneNote for Windows), all now list their
+   sections.
+
+Changes 4, 5, 7, 8, 9 and 10 are marked in the code with comments that start with "OneNote Ferry patch"; changes 2 and 3
 and the table part of change 1 carry comments that explain them, and the outline part of change 1
 only makes `parse_outline_item` visible to the crate. Change 6 carries a comment starting with
 "OneNote Ferry". To see every change, compare this folder with
