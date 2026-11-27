@@ -22,6 +22,8 @@ export interface Strings {
 	missingPrintoutPages(document: string, first: number, last: number): string;
 	/** Above handwriting written on a printout page that cannot be drawn under it (the notes follow on a blank page outline). */
 	printoutNotes(document: string, page: number): string;
+	/** A printout page named over its copy in the folded box of estimated writing (§11.5 item 72). */
+	printoutPage(document: string, page: number): string;
 	unnamedFile: string;
 	untitledPage: string;
 	conflictPageSuffix: string;
@@ -185,6 +187,7 @@ export const en: Strings = {
 		? `[Missing printout page ${first} of ${document}. The OneDrive download has no data for this page.]`
 		: `[Missing printout pages ${first} to ${last} of ${document}. The OneDrive download has no data for these pages.]`,
 	printoutNotes: (document, page) => `[Handwriting on page ${page} of ${document}, drawn where it sits on that page.]`,
+	printoutPage: (document, page) => `${document}, page ${page}`,
 	unnamedFile: 'unnamed file',
 	untitledPage: 'Untitled',
 	conflictPageSuffix: ' (conflict)',
@@ -288,6 +291,7 @@ export const zhHans: Strings = {
 		? `〔打印页缺失：${document} 第 ${first} 页（OneDrive 下载包里没有这一页的数据）〕`
 		: `〔打印页缺失：${document} 第 ${first} 到 ${last} 页（OneDrive 下载包里没有这些页面的数据）〕`,
 	printoutNotes: (document, page) => `〔${document} 第 ${page} 页上的手写批注（按它在这一页上的位置画出）〕`,
+	printoutPage: (document, page) => `${document} 第 ${page} 页`,
 	unnamedFile: '未命名文件',
 	untitledPage: '无标题',
 	conflictPageSuffix: '（冲突版本）',
@@ -391,6 +395,7 @@ export const zhHant: Strings = {
 		? `〔列印頁缺失：${document} 第 ${first} 頁（OneDrive 下載包裡沒有這一頁的資料）〕`
 		: `〔列印頁缺失：${document} 第 ${first} 到 ${last} 頁（OneDrive 下載包裡沒有這些頁面的資料）〕`,
 	printoutNotes: (document, page) => `〔${document} 第 ${page} 頁上的手寫批註（按它在這一頁上的位置畫出）〕`,
+	printoutPage: (document, page) => `${document} 第 ${page} 頁`,
 	unnamedFile: '未命名檔案',
 	untitledPage: '無標題',
 	conflictPageSuffix: '（衝突版本）',
@@ -494,6 +499,7 @@ export const ja: Strings = {
 		? `〔印刷イメージなし：${document} ${first} ページ目（OneDrive のダウンロードにこのページのデータがありません）〕`
 		: `〔印刷イメージなし：${document} ${first} ページ目から ${last} ページ目（OneDrive のダウンロードにこれらのページのデータがありません）〕`,
 	printoutNotes: (document, page) => `〔${document} の ${page} ページへの手書きメモ（そのページ上の位置どおりに描画）〕`,
+	printoutPage: (document, page) => `${document} の ${page} ページ`,
 	unnamedFile: '名前のないファイル',
 	untitledPage: '無題',
 	conflictPageSuffix: '（競合）',
@@ -597,6 +603,7 @@ export const ko: Strings = {
 		? `〔인쇄물 페이지 없음: ${document} ${first}페이지 (OneDrive 다운로드에 이 페이지의 데이터가 없습니다)〕`
 		: `〔인쇄물 페이지 없음: ${document} ${first}페이지부터 ${last}페이지까지 (OneDrive 다운로드에 이 페이지들의 데이터가 없습니다)〕`,
 	printoutNotes: (document, page) => `〔${document} ${page}쪽에 쓴 손글씨 메모(그 쪽에서의 위치대로 그림)〕`,
+	printoutPage: (document, page) => `${document} ${page}쪽`,
 	unnamedFile: '이름 없는 파일',
 	untitledPage: '제목 없음',
 	conflictPageSuffix: ' (충돌 버전)',

@@ -9,6 +9,7 @@ import { assignToPictures, clusters, insertionPoint, strokeBox } from '../src/co
 import { base64, pictureInfo } from '../src/core/render/picture.ts';
 import { strokesToSvg } from '../src/core/render/ink-svg.ts';
 import { zhHans } from '../src/core/strings.ts';
+import { xpsDocument } from './samples-xps.ts';
 import type { AssetData, Element, EmbeddedFile, Image, Ink, InkStroke, Outline, Page, Paragraph, Placement } from '../src/core/model.ts';
 
 // Positions are in half inches, as in the model.
@@ -215,19 +216,60 @@ test('a Mac printout with handwriting on a page is shown page by page; one witho
 	assert.equal(plain.markdown, '[doc.pdf](<_附件/doc.pdf>)\n\n![](<_附件/doc.pdf#page=1>)');
 });
 
-test('handwriting on a Windows printout page follows that page of the PDF, on a blank sheet of its size', async () => {
+test('handwriting on a Windows printout page follows the PDF, once its run of pages is over, on a blank sheet of the page\'s size', async () => {
 	const pdf: EmbeddedFile = { kind: 'embedded-file', fileName: 'doc.pdf', extension: 'pdf', data: { kind: 'stored', key: 'doc.pdf', size: 10 } };
 	const winPage = (n: number): Image => ({
 		kind: 'image', fileName: 'doc.pdf', extension: 'xps', data: { kind: 'stored', key: 'doc.xps', size: 10 },
 		printoutPage: n, printoutName: 'doc.pdf', printoutOf: pdf, place: { x: 1, y: 2 + (n - 1) * 18, width: 12.4 },
 	});
 	const { markdown, saved } = await render(page([], [winPage(1), winPage(2), winPage(3), ink(pen([[3, 24], [6, 24]], '#ff0000'))]));
+	// One embed for the three pages (Obsidian shows the whole PDF in it), the notes on page 2 after it (§11.5 item 72).
 	assert.equal(markdown, [
 		'![](<_附件/doc.pdf#page=1>)',
 		'*〔doc.pdf 第 2 页上的手写批注（按它在这一页上的位置画出）〕*',
 		'![](<_附件/ink1.svg>)',
-		'![](<_附件/doc.pdf#page=3>)',
 	].join('\n\n'));
 	// The sheet is the page: 12.4 x 18 half inches.
 	assert.ok(saved.find(s => s.hint.role === 'ink')!.text!.includes('width="595.2" height="864" fill="#ffffff" stroke="#c8c8c8"'));
+});
+
+test('handwriting on a Windows printout page whose document can be drawn: on the page itself; on a page of text, on a blank sheet as before (§11.5 item 70)', async () => {
+	const pdf: EmbeddedFile = { kind: 'embedded-file', fileName: 'doc.pdf', extension: 'pdf', data: { kind: 'stored', key: 'doc.pdf', size: 10 } };
+	const winPage = (n: number): Image => ({
+		kind: 'image', fileName: 'doc.pdf', extension: 'xps', data: { kind: 'stored', key: 'doc.xps', size: 10 },
+		printoutPage: n, printoutName: 'doc.pdf', printoutOf: pdf, place: { x: 1, y: 2 + (n - 1) * 18, width: 12.4 },
+	});
+	const assets = { 'doc.xps': xpsDocument() };
+	const onFirst = await render(page([], [winPage(1), winPage(2), ink(pen([[3, 6], [6, 6]], '#ff0000'))]), assets);
+	assert.equal(onFirst.markdown, ['![](<_附件/doc.pdf#page=1>)', '*〔doc.pdf 第 1 页上的手写批注（按它在这一页上的位置画出）〕*', '![](<_附件/ink1.svg>)'].join('\n\n'));
+	const drawing = onFirst.saved.find(s => s.hint.role === 'ink')!.text!;
+	// The page (12.4 half inches wide, 96 by 192 of its own units) under the stroke, not a blank sheet.
+	assert.match(drawing, /<svg x="0" y="0" width="595.2" height="1190.4" preserveAspectRatio="none" viewBox="0 0 96 192"><rect width="96" height="192" fill="#ffffff"\/>/);
+	assert.doesNotMatch(drawing, /stroke="#c8c8c8"/);
+	const onSecond = await render(page([], [winPage(1), winPage(2), ink(pen([[3, 24], [6, 24]], '#ff0000'))]), assets);
+	assert.match(onSecond.saved.find(s => s.hint.role === 'ink')!.text!, /stroke="#c8c8c8"/);
+});
+
+test('handwriting on a Windows printout page inside a text box: the page with the writing, folded under it as estimated', async () => {
+	const pdf: EmbeddedFile = { kind: 'embedded-file', fileName: 'doc.pdf', extension: 'pdf', data: { kind: 'stored', key: 'doc.pdf', size: 10 } };
+	const winPage: Image = { kind: 'image', fileName: 'doc.pdf', extension: 'xps', data: { kind: 'stored', key: 'doc.xps', size: 10 }, printoutPage: 1, printoutName: 'doc.pdf', printoutOf: pdf, size: { width: 12.4, height: 24.8 } };
+	const { markdown, saved } = await render(page([box([winPage], { x: 1, y: 2, width: 13 })], [pdf, ink(pen([[3, 6], [6, 6]], '#ff0000'), pen([[3, 7], [6, 7]], '#ff0000'))]), { 'doc.xps': xpsDocument() });
+	assert.equal(markdown, ['![](<_附件/doc.pdf#page=1>)', '> [!info]- 笔迹（位置为估算）\n> *doc.pdf 第 1 页*\n> ![](<_附件/ink1.svg>)', '[doc.pdf](<_附件/doc.pdf>)'].join('\n\n'));
+	const folded = saved.find(s => s.hint.role === 'ink')!.text!;
+	assert.match(folded, /viewBox="0 0 96 192"><rect width="96" height="192"/);
+	assert.equal((folded.match(/stroke="#ff0000"/g) ?? []).length, 2);
+});
+
+test('two pages of a Windows printout in a text box with writing on them: one embed for the run, then one folded box with both pages, each named (§11.5 item 72)', async () => {
+	const pdf: EmbeddedFile = { kind: 'embedded-file', fileName: 'doc.pdf', extension: 'pdf', data: { kind: 'stored', key: 'doc.pdf', size: 10 } };
+	const winPage = (n: number): Image => ({ kind: 'image', fileName: 'doc.pdf', extension: 'xps', data: { kind: 'stored', key: 'doc.xps', size: 10 }, printoutPage: n, printoutName: 'doc.pdf', printoutOf: pdf, size: { width: 12.4, height: 24.8 } });
+	// Page 1 from 2 to 26.8 half inches, page 2 below it; a box drawn on each, and the first page of the document is drawn twice (page 2 is text).
+	const strokes = [pen([[3, 6], [6, 6], [6, 7], [3, 7], [3, 6]], '#ff0000'), pen([[3, 30], [6, 30], [6, 31], [3, 31], [3, 30]], '#ff0000')];
+	const { markdown } = await render(page([box([winPage(1), winPage(1), p('after')], { x: 1, y: 2, width: 13 })], [pdf, ink(...strokes)]), { 'doc.xps': xpsDocument() });
+	assert.equal(markdown, [
+		'![](<_附件/doc.pdf#page=1>)',
+		'> [!info]- 笔迹（位置为估算）\n> *doc.pdf 第 1 页*\n> ![](<_附件/ink1.svg>)\n>\n> *doc.pdf 第 1 页*\n> ![](<_附件/ink2.svg>)',
+		'after',
+		'[doc.pdf](<_附件/doc.pdf>)',
+	].join('\n\n'));
 });

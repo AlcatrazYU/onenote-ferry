@@ -140,6 +140,19 @@ test('what places a picture inside a text box: font size and spacing, picture si
 	assert.deepEqual([second!.place?.height, second!.sizedByUser, (second!.children[0] as Paragraph).layout], [undefined, undefined, undefined]);
 });
 
+test('a text box holding nothing but handwriting: its ink is the page\'s, where it was written; with text beside it, it stays in the line', async () => {
+	// A dot at (10, 20) half inches, in page positions; a second one given from the text box's corner.
+	const dot = (x: number, y: number) => ({ strokes: [stroke(0, [[x * 1270, y * 1270], [0, 0]])] });
+	const lone = { ...outline([element([rich([run('\uFFFC')], { inks: [dot(10, 20)] })]), element([rich([run('\uFFFC')], { inks: [dot(1, 0.5)] })])], { x: 9.9, y: 19.9, w: 1.3 }), h: 0.6 };
+	const withText = outline([element([rich([run('a'), run('\uFFFC')], { inks: [dot(30, 40)] })])], { x: 29, y: 39, w: 5 });
+	const { page } = adapt([lone, withText]);
+	// The text box keeps its place in the reading order, empty.
+	assert.deepEqual(page.outlines.map(outline => outline.children.length), [0, 1]);
+	const inks = page.directContent.filter((e): e is Ink => e.kind === 'ink');
+	assert.deepEqual(inks.map(ink => ink.strokes[0]!.points[0]), [{ x: 10, y: 20 }, { x: 10.9, y: 20.4 }]);
+	assert.equal(((page.outlines[1]!.children[0] as Paragraph).children[0] as Image).inkSvg, true);
+});
+
 test('list items: numbered when the format holds the number placeholder, children attached to the item', () => {
 	const numbered = element([rich([run('first')])], [element([rich([run('child')])])], { list: { format: '\uFFFD.' } });
 	const bulleted = element([rich([run('second')])], [], { list: { format: '•' } });

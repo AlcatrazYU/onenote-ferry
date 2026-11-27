@@ -15,9 +15,13 @@ export interface Rect {
 	height: number;
 }
 
-/** A picture to draw under the strokes, as a data URL. */
+/**
+ * A picture to draw under the strokes: as a data URL, or as SVG drawn in place (a Windows printout
+ * page, §11.5 item 70: its content and its own size, which is stretched to the rectangle).
+ */
 export interface Underlay extends Rect {
-	href: string;
+	href?: string;
+	svg?: { content: string, width: number, height: number };
 }
 
 export interface DrawingParts {
@@ -91,7 +95,9 @@ export function strokesToSvg(strokes: InkStroke[], parts: DrawingParts = {}): st
 		body.push(`<rect x="${X(sheet.x)}" y="${Y(sheet.y)}" width="${round(sheet.width)}" height="${round(sheet.height)}" fill="#ffffff" stroke="#c8c8c8" stroke-width="1"/>`);
 	}
 	for (const underlay of underlays) {
-		body.push(`<image x="${X(underlay.x)}" y="${Y(underlay.y)}" width="${round(underlay.width)}" height="${round(underlay.height)}" preserveAspectRatio="none" href="${underlay.href}"/>`);
+		const at = `x="${X(underlay.x)}" y="${Y(underlay.y)}" width="${round(underlay.width)}" height="${round(underlay.height)}" preserveAspectRatio="none"`;
+		if (underlay.svg) body.push(`<svg ${at} viewBox="0 0 ${underlay.svg.width} ${underlay.svg.height}">${underlay.svg.content}</svg>`);
+		else body.push(`<image ${at} href="${underlay.href ?? ''}"/>`);
 	}
 	for (const stroke of drawable) {
 		const highlighter = stroke.opacity < MIN_PEN_OPACITY;

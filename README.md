@@ -14,7 +14,7 @@ It reads the original notebook files, either straight from your OneDrive once yo
 
 - text formatting and font colors, highlights (with their colors), web links, math as LaTeX
 - links between notes, rewritten as links inside your vault
-- original images and attachments, unchanged; printouts shown as the original PDF
+- original images and attachments, unchanged; printouts shown as the original PDF, with handwriting on a printout page drawn on that page
 - handwriting, drawn as a picture where it was written, with highlighter strokes drawn into the picture or handwriting they cover
 - page hierarchy, with a contents page for each notebook and section
 - a reading order for free-floating text boxes
@@ -81,6 +81,7 @@ Your OneNote files are only read, never modified: in OneDrive, the plugin only h
 - The OneDrive website downloads the folder that holds your notebooks, not a single notebook.
 - The free layout of a page (fonts, sizes, exact positions) is not reproduced. Text boxes are put in reading order, with an optional comment giving each one's position.
 - OneNote does not record where a picture sits inside a text box, so handwriting and highlighter strokes on one are placed by estimate. When the estimate is not sure, the picture is kept as it is, followed by a folded copy with all of its strokes drawn where they are estimated to be. On a picture inside a table they are not placed yet: handwriting is drawn on its own, near where it was written, and highlighter strokes are not kept. Highlighter strokes on typed text or on empty space are not kept.
+- Handwriting on a printout page inserted with OneNote for Windows is drawn on that page when the page can be drawn from the printout; a page of plain text may not be, and then the handwriting is drawn on a blank sheet of the page's size.
 - Sections are sorted by name, because OneDrive's files do not record their order.
 - A page moved to another section in OneNote ends up twice: in its old section, listed under `Pages no longer in OneNote`, and in the new one.
 - A notebook keeps the language of its contents pages and notices. To change it, move the notebook's folder out of the target folder, then import the notebook again.
@@ -120,7 +121,7 @@ OneNote Ferry（OneNote 摆渡）是一个 Obsidian 社区插件（附命令行�
 
 - 文字格式和字体颜色、高亮（保留颜色）、网页链接，数学公式转成 LaTeX
 - 笔记间链接，改写为仓库内链接
-- 原始图片和附件，不转码；打印页显示为原来的 PDF
+- 原始图片和附件，不转码；打印页显示为原来的 PDF，写在打印页上的手写画在那一页上
 - 手写，画成图片放在原来的位置；荧光笔画进它盖住的图片或手写
 - 页面层级，每个笔记本和分区都有目录页
 - 自由文本框排出阅读顺序
@@ -187,6 +188,7 @@ OneNote Ferry（OneNote 摆渡）是一个 Obsidian 社区插件（附命令行�
 - OneDrive 网页上只能下载装着笔记本的文件夹，不能单独下载一本笔记本。
 - 不还原页面的自由版面（字体、字号、精确位置）。文本框排成阅读顺序，可选在每块前加一行注释写明它的位置。
 - OneNote 不记图片在文本框里的位置，图片上的手写和荧光笔按估算放置。估算没有把握时，图片保持原样，下面跟一个折叠框，里面是按估算位置画上全部笔迹的副本。表格里的图片上的笔迹暂时还不放到图上：手写单独画成一张图，放在写的地方附近；荧光笔不保留。打字文字上和空白处的荧光笔不保留。
+- 用 Windows 版 OneNote 插入的打印页上的手写，能从打印页文件里画出这一页时画在页面上；纯文字的页面可能画不出来，这时手写画在一张和页面一样大的空白纸上。
 - 分区按名称排序，因为 OneDrive 上的文件没有记下分区的顺序。
 - 在 OneNote 里把页面挪到别的分区后，仓库里会有两份：旧分区里那份（列在“OneNote 中已移除的页面”下）和新分区里的。
 - 笔记本的目录和提示的语言不能改。要换语言，把这本的文件夹移出目标文件夹，再重新导入。
@@ -217,7 +219,7 @@ OneNote Ferry は、Obsidian コミュニティプラグイン（コマンドラ
 
 - 文字の書式と文字の色、ハイライト（色つき）、Web リンク、数式（LaTeX に変換）
 - ノート間リンク（保管庫内のリンクに書き換え）
-- 元の画像と添付ファイル（変換なし）、印刷イメージは元の PDF として表示
+- 元の画像と添付ファイル（変換なし）、印刷イメージは元の PDF として表示し、印刷イメージ上の手書きはそのページに描く
 - 手書き（書かれた位置に画像として配置）、蛍光ペン（重なっている画像や手書きに描き込む）
 - ページの階層、ノートブックとセクションごとの目次ページ
 - 自由配置のテキストボックスを読む順に並べる
@@ -284,6 +286,7 @@ OneNote のファイルは読み込むだけで、変更しません。OneDrive 
 - OneDrive の Web サイトでダウンロードできるのはノートブックが入っているフォルダーで、ノートブックを 1 冊ずつダウンロードすることはできません。
 - ページの自由なレイアウト（フォント、文字サイズ、正確な位置）は再現しません。テキストボックスは読む順に並べ、オプションで各ブロックの位置を記したコメントを付けます。
 - OneNote はテキストボックス内の画像の位置を記録しないため、その上の手書きと蛍光ペンは推定で配置します。推定に確信が持てない場合は、画像をそのまま残し、その下に推定位置にすべての書き込みを描いたコピーを折りたたんで置きます。表の中の画像の上の書き込みは、まだ画像に重ねません。手書きは書いた場所の近くに単独の画像として置き、蛍光ペンは残りません。入力した文字の上や空白部分の蛍光ペンは残りません。
+- Windows 版 OneNote で挿入した印刷イメージ上の手書きは、印刷イメージのファイルからそのページを描ける場合はページの上に描きます。文字だけのページは描けないことがあり、その場合はページと同じ大きさの白紙に描きます。
 - OneDrive のファイルにはセクションの順序が記録されていないため、セクションは名前順に並びます。
 - OneNote でページをほかのセクションに移すと、保管庫には 2 つ残ります。元のセクションのもの（「OneNote にはもうないページ」の下に表示）と、新しいセクションのものです。
 - ノートブックの目次と注記の言語は変えられません。変えるには、そのノートブックのフォルダーを保存先のフォルダーの外へ移してから、もう一度インポートします。
@@ -314,7 +317,7 @@ OneNote Ferry는 Obsidian 커뮤니티 플러그인(명령줄 버전 포함)입�
 
 - 글자 서식과 글자 색, 하이라이트(색상 유지), 웹 링크, 수식(LaTeX로 변환)
 - 노트 간 링크(보관함 안의 링크로 변환)
-- 원본 이미지와 첨부 파일(변환 없음), 인쇄 페이지는 원래 PDF로 표시
+- 원본 이미지와 첨부 파일(변환 없음), 인쇄 페이지는 원래 PDF로 표시하고, 인쇄 페이지 위의 손글씨는 그 페이지에 그림
 - 손글씨(쓴 자리에 그림으로 배치), 형광펜(덮고 있는 그림이나 손글씨에 그려 넣음)
 - 페이지 계층, 전자 필기장과 섹션마다 목차 페이지
 - 자유 배치 텍스트 상자를 읽는 순서대로 정렬
@@ -381,6 +384,7 @@ OneNote 파일은 읽기만 하고 수정하지 않습니다. OneDrive에서 플
 - OneDrive 웹사이트에서는 전자 필기장이 든 폴더를 다운로드할 수 있을 뿐, 전자 필기장을 하나씩 다운로드할 수는 없습니다.
 - 페이지의 자유로운 레이아웃(글꼴, 글자 크기, 정확한 위치)은 재현하지 않습니다. 텍스트 상자는 읽는 순서대로 정렬하고, 선택에 따라 각 블록 앞에 위치를 적은 주석을 붙입니다.
 - OneNote는 텍스트 상자 안 그림의 위치를 기록하지 않으므로, 그 위의 손글씨와 형광펜은 추정으로 배치합니다. 추정이 확실하지 않으면 그림은 그대로 두고, 그 아래에 추정한 위치에 모든 필기를 그려 넣은 사본을 접어서 둡니다. 표 안 그림 위의 필기는 아직 그림에 겹치지 않습니다. 손글씨는 쓴 곳 근처에 따로 그림으로 두고, 형광펜은 남지 않습니다. 입력한 글자 위나 빈 곳의 형광펜은 남지 않습니다.
+- Windows용 OneNote로 넣은 인쇄 페이지 위의 손글씨는 인쇄 페이지 파일에서 그 페이지를 그릴 수 있으면 페이지 위에 그립니다. 글자만 있는 페이지는 그리지 못할 수 있으며, 그때는 페이지와 같은 크기의 빈 종이에 그립니다.
 - OneDrive의 파일에는 섹션 순서가 기록되지 않으므로 섹션은 이름순으로 정렬됩니다.
 - OneNote에서 페이지를 다른 섹션으로 옮기면 보관함에 두 개가 남습니다. 원래 섹션에 있는 것("OneNote에 더 이상 없는 페이지" 아래에 표시)과 새 섹션에 있는 것입니다.
 - 전자 필기장의 목차와 안내 문구의 언어는 바꿀 수 없습니다. 바꾸려면 그 전자 필기장의 폴더를 대상 폴더 밖으로 옮긴 뒤 다시 가져옵니다.

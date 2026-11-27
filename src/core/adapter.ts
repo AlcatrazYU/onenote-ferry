@@ -141,6 +141,47 @@ function inkStrokes(ink: Json, unit: number, dx = 0, dy = 0): InkStroke[] {
 
 const isPen = (stroke: InkStroke) => stroke.opacity >= MIN_PEN_OPACITY;
 
+/**
+ * Ink inside a line of text, in page positions (half inches). Its points are mostly in page positions
+ * already, but some come from the corner of their text box (seen for a second piece of ink in one
+ * line, and for highlighter alone in a text box): whichever reading puts the ink nearer its text box.
+ */
+function inPage(json: Json, box: Json | undefined): InkStroke[] {
+	const strokes = inkStrokes(json, HIMETRIC_PER_HALF_INCH);
+	const x = box?.x, y = box?.y;
+	if (typeof x !== 'number' || typeof y !== 'number') return strokes;
+	const points = strokes.flatMap(stroke => stroke.points);
+	if (!points.length) return strokes;
+	const left = Math.min(...points.map(p => p.x)), right = Math.max(...points.map(p => p.x));
+	const top = Math.min(...points.map(p => p.y)), bottom = Math.max(...points.map(p => p.y));
+	const w = box?.w ?? 0, h = Math.max(box?.h ?? 0, 0.6);
+	const away = (dx: number, dy: number) => Math.max(0, x - (right + dx), left + dx - (x + w), y - (bottom + dy), top + dy - (y + h));
+	return away(x, y) < away(0, 0) ? inkStrokes(json, HIMETRIC_PER_HALF_INCH, x, y) : strokes;
+}
+
+/**
+ * The handwriting of a text box that holds nothing else (no text, no picture, no file, no table),
+ * or undefined. Ink inside a line of text stands in the text as an object replacement character.
+ */
+function inkOnly(outline: Json): Json[] | undefined {
+	const inks: Json[] = [];
+	const visit = (items: Json[] | undefined): boolean => {
+		for (const item of items ?? []) {
+			if (item.type === 'element') {
+				if (!visit(item.contents) || !visit(item.children)) return false;
+			}
+			else if (item.type === 'rich') {
+				const text = ((item.runs ?? []) as Json[]).map(r => r.text ?? '').join('');
+				if (text.replace(/[\uFFFC\s]/g, '') !== '') return false;
+				inks.push(...((item.inks ?? []) as Json[]));
+			}
+			else return false;
+		}
+		return true;
+	};
+	return visit(outline.items) && inks.length ? inks : undefined;
+}
+
 function colorOf(value: string | null | undefined, ignore: string[]): string | undefined {
 	if (!value) return undefined;
 	const v = value.toLowerCase();
@@ -197,6 +238,8 @@ export class Adapter {
 	private readonly strings: Strings;
 	/** The page being read: highlighter ink found inside its text boxes is kept on it. */
 	private current?: Page;
+	/** The text box being read (its place, for ink inside its lines). */
+	private box?: Json;
 
 	constructor(strings: Strings) {
 		this.strings = strings;
@@ -221,7 +264,14 @@ export class Adapter {
 		this.current = page;
 		for (const c of p.contents as Json[]) {
 			if (c.type === 'outline') {
-				const outline: Outline = { kind: 'outline', children: this.items(c.items) };
+				// A text box with nothing in it but handwriting (OneNote makes one where a pen taps or
+				// writes in an empty spot): its ink is the page's own, where it was written (§11.5 item 71).
+				const inks = inkOnly(c);
+				this.box = c;
+				// It keeps its place in the reading order, empty (the columns of the page stay as they were).
+				const outline: Outline = { kind: 'outline', children: inks ? [] : this.items(c.items) };
+				this.box = undefined;
+				if (inks) for (const ink of inks) this.looseInk(page, ink, c);
 				const place = placeOf(c);
 				if (place) outline.place = place;
 				// Its stored height says what its content took only when the user sized it (§11.5 item 67).
@@ -335,6 +385,21 @@ export class Adapter {
 		}
 	}
 
+	/** Handwriting of a text box with nothing else in it, as ink on the page (§11.5 item 71). */
+	private looseInk(page: Page, json: Json, box: Json): void {
+		this.stats.ink++;
+		const strokes = inPage(json, box);
+		const all = strokes.flatMap(stroke => stroke.points);
+		if (!all.length) return;
+		const left = Math.min(...all.map(p => p.x)), right = Math.max(...all.map(p => p.x));
+		const ink: Ink = { kind: 'ink', strokes, place: { x: left, y: Math.min(...all.map(p => p.y)), width: right - left } };
+		if (!strokes.some(isPen)) {
+			this.stats.highlighterOnly++;
+			(page.highlighterInk ??= []).push(ink);
+		}
+		else page.directContent.push(ink);
+	}
+
 	private paragraph(c: Json): Paragraph {
 		// An equation arrives as one run per piece of it: joined, then translated to LaTeX once.
 		const runs: RawRun[] = [];
@@ -378,7 +443,7 @@ export class Adapter {
 				// Highlighter alone, kept in a paragraph of a text box: its strokes are where they were
 				// drawn on the page (OneNote puts them there when they are drawn over a text box).
 				// Kept with the page's highlighter ink, to go onto what it was drawn over (§11.5 item 67).
-				if (this.current) (this.current.highlighterInk ??= []).push({ kind: 'ink', strokes: inkStrokes(ink, HIMETRIC_PER_HALF_INCH) });
+				if (this.current) (this.current.highlighterInk ??= []).push({ kind: 'ink', strokes: inPage(ink, this.box) });
 				continue;
 			}
 			// Highlighter strokes on this handwriting are drawn with it (§11.5 item 67).

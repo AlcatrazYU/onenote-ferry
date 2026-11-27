@@ -9,9 +9,11 @@ import type { Strings } from '../strings.ts';
 import { renderRuns } from './inline.ts';
 import type { InlineOptions } from './inline.ts';
 import { strokesToSvg } from './ink-svg.ts';
-import type { DrawingParts } from './ink-svg.ts';
+import type { DrawingParts, Underlay } from './ink-svg.ts';
 import { assignToPictures, clusters, drawingUnder, insertionPoint, isHighlighter, strokeBox, unionBox } from './ink-layout.ts';
 import { placeOnPictures, readProfile } from './flow-highlights.ts';
+import { openXps } from './xps.ts';
+import type { XpsDocument, XpsPage } from './xps.ts';
 import type { Box, ColumnSpan } from './ink-layout.ts';
 import { base64, pictureInfo } from './picture.ts';
 import type { PictureInfo } from './picture.ts';
@@ -98,6 +100,19 @@ interface PlacedPicture {
 	box: Box;
 	bytes?: Uint8Array;
 	info?: PictureInfo;
+	/** A Windows printout page, drawn from its document (§11.5 item 70). */
+	page?: XpsPage;
+}
+
+/** What goes under the writing on a picture: the picture itself, or the printout page drawn; none when neither can be had. */
+function underlayOf(picture: PlacedPicture): Underlay | undefined {
+	if (picture.page) {
+		const { left, top, right } = picture.box;
+		const rect = pixelRect({ left, top, right, bottom: top + (right - left) * picture.page.height / picture.page.width });
+		return { ...rect, svg: picture.page };
+	}
+	if (picture.bytes && picture.info) return { ...pixelRect(picture.box), href: `data:${picture.info.mime};base64,${base64(picture.bytes)}` };
+	return undefined;
 }
 
 /** A text box or paragraph with nothing in it at all (no text, no picture, no file, no table, no ink). */
@@ -218,12 +233,21 @@ class PageWriter {
 	private depth = 0;
 	/** The PDF whose embed was written last, so the following printout pages of it are not embedded again. */
 	private lastPrintout?: { file: EmbeddedFile, index: number };
+	/**
+	 * Writing on pages of a PDF shown by one embed, held until the run of its pages ends, so that the
+	 * embed stays one (§11.5 item 72): notes drawn on a page as they are written, and the copies
+	 * whose place is estimated, which go into one folded box.
+	 */
+	private held?: { blocks: Block[], folded: string[], indent: string };
+	/** Where blocks go while the writing on a printout page is held. */
+	private capturing?: Block[];
 
 	constructor(options: PageRenderOptions) {
 		this.options = options;
 	}
 
 	get markdown(): string {
+		this.release();
 		const lines: string[] = [];
 		for (const [index, block] of this.blocks.entries()) {
 			const previous = this.blocks[index - 1];
@@ -234,26 +258,81 @@ class PageWriter {
 	}
 
 	/** How many blocks are written so far (see addMarkers). */
-	get blockCount(): number {
-		return this.blocks.length;
+	/** Where the first block written since beginItem went (after anything held then let go), if any. */
+	private itemStart?: number;
+
+	/** Starts counting what one item of the page writes (for its position comment, see addMarkers). */
+	beginItem(): void {
+		this.itemStart = undefined;
 	}
 
-	/** Puts position comments in at the given places (block indexes, as blockCount told them), once the page is written. */
+	/** Where the item begun last starts in the page, or undefined when it wrote nothing. */
+	get itemAt(): number | undefined {
+		return this.itemStart;
+	}
+
+	/** Puts position comments in at the given places (block indexes, as itemAt told them), once the page is written. */
 	addMarkers(markers: { at: number, text: string }[]): void {
 		for (const { at, text } of [...markers].sort((a, b) => b.at - a.at)) this.blocks.splice(at, 0, { text, listItem: false, marker: true });
 	}
 
 	private push(text: string, listItem = false): void {
 		const indent = '\t'.repeat(this.depth);
-		this.blocks.push({ text: indent ? text.split('\n').map(line => line ? indent + line : line).join('\n') : text, listItem });
+		this.add({ text: indent ? text.split('\n').map(line => line ? indent + line : line).join('\n') : text, listItem });
 	}
 
 	/** For text that already carries its own indentation. */
 	private pushRaw(text: string, listItem: boolean): void {
-		this.blocks.push({ text, listItem });
+		this.add({ text, listItem });
+	}
+
+	/** Adds a block: to what is held when the writing on a printout page is, else to the page (after anything held). */
+	private add(block: Block): void {
+		if (this.capturing) {
+			this.capturing.push(block);
+			return;
+		}
+		this.release();
+		this.itemStart ??= this.blocks.length;
+		this.blocks.push(block);
+	}
+
+	/** Writes what is held for a run of printout pages, once something else comes (§11.5 item 72). */
+	private release(): void {
+		const held = this.held;
+		if (!held || this.capturing) return;
+		this.held = undefined;
+		this.blocks.push(...held.blocks);
+		if (held.folded.length) {
+			const body = held.folded.map(entry => entry.split('\n').map(line => `> ${line}`).join('\n')).join('\n>\n');
+			const text = `> [!info]- ${this.options.strings.inkEstimated}\n${body}`;
+			this.blocks.push({ text: held.indent ? text.split('\n').map(line => held.indent + line).join('\n') : text, listItem: false });
+		}
+	}
+
+	/** Holds the writing on a page of a PDF shown by one embed, until the run of its pages ends. */
+	private async hold(image: Image, notes: InkPiece[] | undefined): Promise<void> {
+		const held = this.held ??= { blocks: [], folded: [], indent: '\t'.repeat(this.depth) };
+		if (notes) {
+			this.capturing = held.blocks;
+			try {
+				await this.writeNotesBesidePage(image, notes);
+			}
+			finally {
+				this.capturing = undefined;
+			}
+		}
+		const folded = this.folded.get(image);
+		const underlay = folded && underlayOf(folded.picture);
+		if (!folded || !underlay) return;
+		const link = await this.drawingLink(folded.pieces, { underlays: [underlay] }, { role: 'ink' });
+		const document = image.printoutName ?? image.fileName;
+		const label = document && image.printoutPage ? renderRuns([{ text: this.options.strings.printoutPage(document, image.printoutPage), italic: true }], this.options) : undefined;
+		if (link) held.folded.push(label ? `${label}\n${link}` : link);
 	}
 
 	private pushCallout(callout: Callout, body: string): void {
+		this.release();
 		const quoted = body.split('\n').map(line => `> ${line}`).join('\n');
 		const previous = this.blocks[this.blocks.length - 1];
 		const opening = `> [!${callout.type}]${callout.title ? ` ${callout.title}` : ''}`;
@@ -261,6 +340,7 @@ class PageWriter {
 			previous.text += `\n>\n${quoted}`;
 			return;
 		}
+		this.itemStart ??= this.blocks.length;
 		this.blocks.push({ text: `${opening}\n${quoted}`, listItem: false, callout: opening });
 	}
 
@@ -294,7 +374,7 @@ class PageWriter {
 				if (printout && !pageByPage) {
 					// Obsidian embeds the whole PDF as a scrollable viewer, so one embed stands for a run of printout pages.
 					if (this.lastPrintout?.file === printout && this.blocks.slice(this.lastPrintout.index + 1).every(block => block.marker)) {
-						if (notes) await this.writeNotesBesidePage(element, notes);
+						await this.hold(element, notes);
 						break;
 					}
 					// Show that page of the original PDF instead of an XPS Obsidian cannot display.
@@ -302,7 +382,7 @@ class PageWriter {
 					if (link) {
 						this.push(link.replace(/>\)$/, `#page=${element.printoutPage}>)`));
 						this.lastPrintout = { file: printout, index: this.blocks.length - 1 };
-						if (notes) await this.writeNotesBesidePage(element, notes);
+						await this.hold(element, notes);
 						break;
 					}
 				}
@@ -317,8 +397,7 @@ class PageWriter {
 				}
 				await this.writeAsset(element.data, imageHint(element), '', true);
 				if (notes) await this.writeNotesBesidePage(element, notes);
-				const folded = this.folded.get(element);
-				if (folded) await this.writeFoldedHighlights(folded.pieces, folded.picture);
+				await this.writeFolded(element);
 				if (this.options.imageAltText && element.alt) this.pushAltText(element.alt);
 				break;
 			}
@@ -434,11 +513,8 @@ class PageWriter {
 	/** A picture with the handwriting on it drawn over it, as one drawing. False when the picture cannot be drawn. */
 	private async writeAnnotatedPicture(image: Image, notes: InkPiece[]): Promise<boolean> {
 		const picture = this.pictures.get(image);
-		if (!picture?.bytes || !picture.info) return false;
-		const underlay = {
-			...pixelRect(picture.box),
-			href: `data:${picture.info.mime};base64,${base64(picture.bytes)}`,
-		};
+		const underlay = picture?.bytes && picture.info ? underlayOf(picture) : undefined;
+		if (!underlay) return false;
 		const link = await this.drawingLink(notes, { underlays: [underlay] }, { role: 'image', extension: 'svg' });
 		if (!link) return false;
 		this.push(link);
@@ -452,8 +528,8 @@ class PageWriter {
 	 * The copy is named as a drawing, so the pictures after it on the page keep their numbers.
 	 */
 	private async writeFoldedHighlights(pieces: InkPiece[], picture: PlacedPicture): Promise<void> {
-		if (!picture.bytes || !picture.info) return;
-		const underlay = { ...pixelRect(picture.box), href: `data:${picture.info.mime};base64,${base64(picture.bytes)}` };
+		const underlay = underlayOf(picture);
+		if (!underlay) return;
 		const link = await this.drawingLink(pieces, { underlays: [underlay] }, { role: 'ink' });
 		if (link) this.push(`> [!info]- ${this.options.strings.inkEstimated}\n> ${link}`);
 	}
@@ -471,7 +547,32 @@ class PageWriter {
 		if (picture && document && image.printoutPage) {
 			this.push(renderRuns([{ text: this.options.strings.printoutNotes(document, image.printoutPage), italic: true }], this.options));
 		}
-		await this.writeDrawing(pieces, picture ? { sheets: [pixelRect(picture.box)] } : {});
+		// On the page itself when it can be drawn from its document (§11.5 item 70), else on a blank sheet of its size.
+		const page = picture && (picture.page ?? await this.printoutPage(image));
+		const underlay = picture && page ? underlayOf({ ...picture, page }) : undefined;
+		await this.writeDrawing(pieces, underlay ? { underlays: [underlay] } : picture ? { sheets: [pixelRect(picture.box)] } : {});
+	}
+
+	/** Each Windows printout document read once per page written (§11.5 item 70). */
+	private readonly documents = new Map<string, Promise<XpsDocument | undefined>>();
+
+	/** The page a Windows printout picture shows, drawn from its XPS document; undefined when it cannot be. */
+	async printoutPage(image: Image): Promise<XpsPage | undefined> {
+		if (!isWholeDocument(image) || image.data?.kind !== 'stored' || !image.printoutPage || !/^xps$/i.test(image.extension ?? '')) return undefined;
+		const data = image.data;
+		if (!this.documents.has(data.key)) {
+			this.documents.set(data.key, (async () => {
+				const bytes = await this.options.readAsset?.(data).catch(() => undefined);
+				return bytes ? openXps(bytes) : undefined;
+			})());
+		}
+		return (await this.documents.get(data.key))?.page(image.printoutPage);
+	}
+
+	/** The copy of a picture with the writing on it drawn where it was estimated to be, when there is one. */
+	private async writeFolded(image: Image): Promise<void> {
+		const folded = this.folded.get(image);
+		if (folded) await this.writeFoldedHighlights(folded.pieces, folded.picture);
 	}
 
 	/** Loose handwriting that falls between two blocks of the page. */
@@ -487,6 +588,7 @@ class PageWriter {
 
 	/** A notice in place of a picture without data; pictures in a row (pages of one printout in order) share one. */
 	private pushMissing(image: Image): void {
+		this.release();
 		const run = missingRunOf(image);
 		const previous = this.blocks[this.blocks.length - 1];
 		const last = previous?.missing;
@@ -504,6 +606,7 @@ class PageWriter {
 				return;
 			}
 		}
+		this.itemStart ??= this.blocks.length;
 		this.blocks.push({ text: indent + this.notice(run), listItem: false, missing: run, depth: this.depth });
 	}
 
@@ -680,17 +783,26 @@ export async function renderPage(page: Page, options: PageRenderOptions): Promis
 			});
 			const taken = new Set<number>();
 			for (const { image, box, strokes, sure } of placed) {
-				const bytes = image.data ? await options.readAsset?.(image.data) : undefined;
-				const info = bytes ? pictureInfo(bytes) : undefined;
+				// The picture, or the Windows printout page drawn from its document (§11.5 item 70).
+				let picture: PlacedPicture | undefined;
+				if (isWholeDocument(image)) {
+					const page = await writer.printoutPage(image);
+					if (page) picture = { box, page };
+				}
+				else {
+					const bytes = image.data ? await options.readAsset?.(image.data) : undefined;
+					const info = bytes ? pictureInfo(bytes) : undefined;
+					if (bytes && info) picture = { box, bytes, info };
+				}
 				// A picture that cannot be drawn on: its handwriting stays a drawing of its own, as before.
-				if (!bytes || !info) continue;
+				if (!picture) continue;
 				const notes = strokes.map(i => free[i]!.piece);
 				for (const i of strokes) taken.add(i);
 				if (sure) {
 					writer.annotations.set(image, notes);
-					writer.pictures.set(image, { box, bytes, info });
+					writer.pictures.set(image, picture);
 				}
-				else writer.folded.set(image, { pieces: notes, picture: { box, bytes, info } });
+				else writer.folded.set(image, { pieces: notes, picture });
 				// A Mac printout page marked so is shown page by page, as with handwriting on it: the
 				// strokes go onto its picture, or onto the copy folded under it.
 				if (image.printoutOf && !isWholeDocument(image)) writer.annotatedDocuments.add(image.printoutOf);
@@ -730,9 +842,10 @@ export async function renderPage(page: Page, options: PageRenderOptions): Promis
 			await writer.writeLooseInk(pending);
 			pending = [];
 		}
-		const at = writer.blockCount;
+		writer.beginItem();
 		await writer.writeElements([item.element]);
-		if (writer.blockCount > at) written.push({ at, item });
+		const at = writer.itemAt;
+		if (at !== undefined) written.push({ at, item });
 	}
 	await writer.writeLooseInk([...pending, ...slots.get(items.length) ?? []]);
 	// Only before blocks that wrote something, counted over those: an empty text box, or a later
