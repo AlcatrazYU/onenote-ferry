@@ -9,6 +9,7 @@ import type { Sink } from './io.ts';
 import type { LinkStats } from './links.ts';
 import { composedText, joinPath } from './names.ts';
 import { isLanguage, LANGUAGES, STRINGS } from './strings.ts';
+import { importStatusOf, oneDriveTagOf } from './write.ts';
 import type { Language, Strings } from './strings.ts';
 
 export const REPORT_FORMAT = 1;
@@ -131,9 +132,10 @@ function earlierEntries(previous: unknown): ReportNotebook[] {
 /**
  * The report after an import. `previous` is what the report file held (anything; a report in
  * another form starts afresh); `folders` are the folders now under the output root, so notebooks
- * that were removed drop out.
+ * that were removed drop out. `tagged`: of those folders, the one that holds each OneDrive notebook
+ * (§11.5 item 66), so that the entry of one the user renamed is kept, with its folder.
  */
-export function updateReport(previous: unknown, result: ImportResult, meta: ReportMeta, folders: string[]): ImportReport {
+export function updateReport(previous: unknown, result: ImportResult, meta: ReportMeta, folders: string[], tagged?: ReadonlyMap<string, string>): ImportReport {
 	const at = meta.at.toISOString();
 	const fresh = new Map(result.notebooks.map(notebook => [key(notebook.dir), {
 		notebook: notebook.notebook, ...(notebook.originalName !== undefined ? { originalName: notebook.originalName } : {}), dir: notebook.dir, language: notebook.language,
@@ -142,7 +144,8 @@ export function updateReport(previous: unknown, result: ImportResult, meta: Repo
 	} satisfies ReportNotebook]));
 	const present = new Set(folders.map(key));
 	const notebooks: ReportNotebook[] = [];
-	for (const earlier of earlierEntries(previous)) {
+	const entries = earlierEntries(previous);
+	for (const earlier of entries) {
 		// The same notebook: in the same folder, or (renamed with OneNote, §11.5 item 66) the same OneDrive notebook.
 		const now = fresh.get(key(earlier.dir)) ?? (earlier.oneDrive !== undefined && !present.has(key(earlier.dir)) ? [...fresh.values()].find(one => one.oneDrive === earlier.oneDrive) : undefined);
 		if (now) {
@@ -153,6 +156,12 @@ export function updateReport(previous: unknown, result: ImportResult, meta: Repo
 			fresh.delete(key(now.dir));
 		}
 		else if (present.has(key(earlier.dir))) notebooks.push(earlier);
+		else {
+			// Its folder renamed by the user, found by its OneDrive notebook (§11.5 items 66 and 79): kept, there.
+			const folder = earlier.oneDrive !== undefined ? tagged?.get(earlier.oneDrive) : undefined;
+			const taken = folder !== undefined && (fresh.has(key(folder)) || entries.some(other => key(other.dir) === key(folder)) || notebooks.some(other => key(other.dir) === key(folder)));
+			if (folder !== undefined && !taken && ![...fresh.values()].some(one => one.oneDrive === earlier.oneDrive)) notebooks.push(movedEntry(earlier, folder));
+		}
 	}
 	notebooks.push(...fresh.values());
 	// An update that follows the same run's import: the last import is the whole run.
@@ -323,6 +332,28 @@ export function movedEntry(entry: ReportNotebook, dir: string): ReportNotebook {
 }
 
 /**
+ * For the OneDrive notebooks the report recorded in folders no longer there: the folder that now
+ * holds each, told by the OneDrive notebook its contents page carries (§11.5 item 66).
+ */
+async function taggedFolders(sink: Sink, previous: unknown, folders: string[]): Promise<Map<string, string>> {
+	const present = new Set(folders.map(key));
+	const wanted = new Set(earlierEntries(previous).filter(entry => entry.oneDrive !== undefined && !present.has(key(entry.dir))).map(entry => entry.oneDrive!));
+	const found = new Map<string, string>();
+	if (!wanted.size) return found;
+	const tocNames = [...new Set(LANGUAGES.map(language => STRINGS[language].tocFileName))];
+	for (const folder of folders) {
+		for (const name of tocNames) {
+			const text = await sink.readText(joinPath(folder, `${name}.md`));
+			if (!importStatusOf(text)) continue;
+			const tag = oneDriveTagOf(text);
+			if (tag !== undefined && wanted.has(tag) && !found.has(tag)) found.set(tag, folder);
+			break;
+		}
+	}
+	return found;
+}
+
+/**
  * The notebooks the output root's report lists, as far as they can be read (none when there is no
  * report). `strings` are the reader's, as for writeReport: with reports in two languages in the
  * folder, both read the same one.
@@ -341,7 +372,7 @@ export async function writeReport(sink: Sink, strings: Strings, result: ImportRe
 	// a cut-off works from the same report even when the first try was cut off while writing it).
 	const found = earlier ?? await readReport(sink, strings);
 	const name = found?.name ?? strings.reportName;
-	const report = updateReport(found?.previous, result, meta, folders);
+	const report = updateReport(found?.previous, result, meta, folders, await taggedFolders(sink, found?.previous, folders));
 	// Both are made before either is written, so a failure leaves the earlier pair as it was.
 	const json = JSON.stringify(report, null, 2) + '\n';
 	const markdown = reportMarkdown(report, strings);

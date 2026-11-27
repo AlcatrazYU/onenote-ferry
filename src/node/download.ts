@@ -285,10 +285,16 @@ export async function openDownload(input: string, tmp: string, inPlace: boolean,
 		const out = new Map<string, Uint8Array>();
 		for (const path of paths) {
 			const entry = entries.get(path);
-			if (!entry || (entry.method !== 0 && entry.method !== 8)) continue;
+			if (!entry || (entry.method !== 0 && entry.method !== 8) || entry.compressedSize > TABLE_LIMIT) continue;
 			const offset = await entryDataOffset(zip, entry);
 			const stored = await zip.read(offset, entry.compressedSize);
-			out.set(path, entry.method === 0 ? stored : new Uint8Array(inflateRawSync(stored)));
+			// Inflated no further than the limit: a table that says it is small but is not (§11.5 item 79) is left out.
+			try {
+				out.set(path, entry.method === 0 ? stored : new Uint8Array(inflateRawSync(stored, { maxOutputLength: TABLE_LIMIT })));
+			}
+			catch {
+				continue;
+			}
 		}
 		return out;
 	}, tocNames);

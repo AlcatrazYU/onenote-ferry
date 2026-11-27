@@ -187,7 +187,7 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 			// Finished while the wizard was hidden: a notice that leads to the result.
 			const update = session.running === 'update';
 			const stopped = !!session.outcome?.result.cancelled || !!session.updateResult?.cancelled || (update && session.stopRequested && !session.updateResult);
-			const outcome = session.error ? update ? this.ui.updateFailed : this.ui.failed
+			const outcome = session.error || session.nothingDownloaded ? update ? this.ui.updateFailed : this.ui.failed
 				: stopped ? update ? this.ui.updateStopped : this.ui.stopped
 				: update ? this.ui.updateFinished : this.ui.finished;
 			const notice = new Notice(this.ui.finishedNotice(outcome), 0);

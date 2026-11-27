@@ -243,6 +243,24 @@ test('one window at a time; a lock left long ago is taken over', async () => {
 	}
 });
 
+test('a fresh lock of a process that is gone (Obsidian quit during a download), or of this one that holds none, is taken over; a live one is not (§11.5 item 79)', async () => {
+	const s = await setup();
+	try {
+		mkdirSync(join(s.root, 'N'), { recursive: true });
+		// A process number no process has (macOS and Linux stay far below it).
+		writeFileSync(join(s.root, 'N', 'lock'), JSON.stringify({ pid: 99_999_999, at: new Date().toISOString() }));
+		assert.equal((await updateCopy(s.options())).downloaded, 3);
+		writeFileSync(join(s.root, 'N', 'lock'), JSON.stringify({ pid: process.pid, at: new Date().toISOString() }));
+		assert.equal((await updateCopy(s.options())).downloaded, 0);
+		// The test runner that started this process is alive.
+		writeFileSync(join(s.root, 'N', 'lock'), JSON.stringify({ pid: process.ppid, at: new Date().toISOString() }));
+		await assert.rejects(updateCopy(s.options()), CopyBusy);
+	}
+	finally {
+		await s.done();
+	}
+});
+
 test('not enough disk space: nothing is fetched, and it says how much is needed', async () => {
 	const s = await setup();
 	try {

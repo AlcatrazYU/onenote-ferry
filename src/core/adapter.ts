@@ -178,14 +178,25 @@ const isPen = (stroke: InkStroke) => stroke.opacity >= MIN_PEN_OPACITY;
  * already, but some come from the corner of their text box (seen for a second piece of ink in one
  * line, and for highlighter alone in a text box): whichever reading puts the ink nearer its text box.
  */
+/** The box around points, counted one by one (a spread into Math.min fails on hundreds of thousands, §11.5 item 79). */
+function bounds(points: { x: number, y: number }[]): { left: number, right: number, top: number, bottom: number } {
+	let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
+	for (const p of points) {
+		if (p.x < left) left = p.x;
+		if (p.x > right) right = p.x;
+		if (p.y < top) top = p.y;
+		if (p.y > bottom) bottom = p.y;
+	}
+	return { left, right, top, bottom };
+}
+
 function inPage(json: Json, box: Json | undefined): InkStroke[] {
 	const strokes = inkStrokes(json, HIMETRIC_PER_HALF_INCH);
 	const x = box?.x, y = box?.y;
 	if (typeof x !== 'number' || typeof y !== 'number') return strokes;
 	const points = strokes.flatMap(stroke => stroke.points);
 	if (!points.length) return strokes;
-	const left = Math.min(...points.map(p => p.x)), right = Math.max(...points.map(p => p.x));
-	const top = Math.min(...points.map(p => p.y)), bottom = Math.max(...points.map(p => p.y));
+	const { left, right, top, bottom } = bounds(points);
 	const w = box?.w ?? 0, h = Math.max(box?.h ?? 0, 0.6);
 	const away = (dx: number, dy: number) => Math.max(0, x - (right + dx), left + dx - (x + w), y - (bottom + dy), top + dy - (y + h));
 	return away(x, y) < away(0, 0) ? inkStrokes(json, HIMETRIC_PER_HALF_INCH, x, y) : strokes;
@@ -404,8 +415,8 @@ export class Adapter {
 				// Where it sits on the page: the strokes are in page positions already.
 				const points = ink.strokes.flatMap(stroke => stroke.points);
 				if (page && points.length) {
-					const left = Math.min(...points.map(p => p.x)), right = Math.max(...points.map(p => p.x));
-					ink.place = { x: left, y: Math.min(...points.map(p => p.y)), width: right - left };
+					const { left, right, top } = bounds(points);
+					ink.place = { x: left, y: top, width: right - left };
 				}
 				if (!ink.strokes.some(isPen)) {
 					// Only highlighter: draws nothing today, so it takes no place in the reading order,
@@ -427,8 +438,8 @@ export class Adapter {
 		const strokes = inPage(json, box);
 		const all = strokes.flatMap(stroke => stroke.points);
 		if (!all.length) return;
-		const left = Math.min(...all.map(p => p.x)), right = Math.max(...all.map(p => p.x));
-		const ink: Ink = { kind: 'ink', strokes, place: { x: left, y: Math.min(...all.map(p => p.y)), width: right - left } };
+		const { left, right, top } = bounds(all);
+		const ink: Ink = { kind: 'ink', strokes, place: { x: left, y: top, width: right - left } };
 		if (!strokes.some(isPen)) {
 			this.stats.highlighterOnly++;
 			(page.highlighterInk ??= []).push(ink);

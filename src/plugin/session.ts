@@ -150,22 +150,23 @@ const driveOf = (tag: string) => tag.slice(0, tag.indexOf('/'));
  * protected), incomplete (cut off in the download), blocked (its notebook's folder holds what is not
  * ours). A notebook imported before, compared with the vault: checking (being read), different
  * (the vault's notebook of that name is another one), duplicate (another download chosen has a newer
- * copy of the same notebook: that one updates it), same, restorable (only pages the user deleted
- * differ), changed, older (the download is older than the vault), new, unfinished, skipped (left
+ * copy of the same notebook: that one updates it), same (OneNote changed nothing; pages the user
+ * deleted in Obsidian stay deleted unless each is chosen, §11.5 item 79), changed, older (the download is older than the vault), new, unfinished, skipped (left
  * unticked when imported), missing (imported before, not in the vault now), unreadable, locked,
  * incomplete, occupied (its folder holds what is not ours).
  */
 export type SectionState = 'free' | 'locked' | 'incomplete' | 'blocked' | 'occupied' | 'unreadable'
-	| 'checking' | 'different' | 'duplicate' | 'same' | 'restorable' | 'changed' | 'older' | 'new' | 'unfinished' | 'skipped' | 'missing';
+	| 'checking' | 'different' | 'duplicate' | 'same' | 'changed' | 'older' | 'new' | 'unfinished' | 'skipped' | 'missing';
 
-/** The states a section can be ticked in. */
-export const TICKABLE: ReadonlySet<SectionState> = new Set(['free', 'restorable', 'changed', 'older', 'new', 'unfinished', 'skipped', 'missing']);
+/** The states a section with something to do can be ticked in. */
+export const TICKABLE: ReadonlySet<SectionState> = new Set(['free', 'changed', 'older', 'new', 'unfinished', 'skipped', 'missing']);
+
 /** The states of a notebook imported before that are ticked unless the user unticks them (§11.5 item 49; Internal-9 §3.4). */
 const TICKED_FOR_UPDATE: ReadonlySet<SectionState> = new Set(['changed', 'new', 'unfinished']);
 /** Sections whose pages in the vault an update replaces (the versions before go aside). */
 const REPLACING: ReadonlySet<SectionState> = new Set(['changed', 'older', 'unfinished']);
 /** Sections of a notebook imported before written with the settings chosen now: for the first time, or converted again (§11.5 item 65). */
-const FIRST_WRITE: ReadonlySet<SectionState> = new Set(['new', 'skipped', 'missing', 'unfinished', 'same']);
+const FIRST_WRITE: ReadonlySet<SectionState> = new Set(['new', 'skipped', 'missing', 'unfinished']);
 
 export type Phase = 'setup' | 'running' | 'finished';
 
@@ -243,6 +244,17 @@ export class ImportSession {
 	downloading?: CopyProgress;
 	/** Sections chosen from OneDrive that could not be downloaded when the import started (left out). */
 	notDownloaded = 0;
+	/** Why (each reason once, as the copy said it). */
+	readonly notDownloadedWhy = new Set<string>();
+	/**
+	 * Nothing was imported because none of the sections chosen from OneDrive could be downloaded
+	 * (the disk full, say): the import failed, though nothing went wrong in it (§11.5 item 79).
+	 */
+	get nothingDownloaded(): boolean {
+		const result = this.outcome?.result;
+		return this.running !== 'update' && this.notDownloaded > 0 && !this.stopRequested
+			&& (!result || result.notebooks.every(notebook => notebook.sections.every(section => section.earlier || section.skipped)));
+	}
 	/**
 	 * The import was stopped before the sections chosen from OneDrive were all downloaded: what came
 	 * down stays in the local copy, a file cut off part way included, and the next import goes on from there.
@@ -577,8 +589,10 @@ export class ImportSession {
 			sections += one.sections.length;
 			bytes += one.files.filter(file => one.only.has(file.id)).reduce((m, file) => m + file.size, 0);
 			for (const section of one.sections) {
-				if (!one.source.failed.has(section.path)) continue;
+				const why = one.source.failed.get(section.path);
+				if (why === undefined) continue;
 				this.notDownloaded++;
+				this.notDownloadedWhy.add(why);
 				going.delete(section);
 			}
 		}
@@ -995,7 +1009,7 @@ export class ImportSession {
 				case undefined: return 'checking';
 				case 'error': return section.incomplete ? 'incomplete' : choice.download.locked?.has(section.path) ? 'locked' : 'unreadable';
 				case 'occupied': return 'occupied';
-				case 'same': return item.added.some(page => page.userDeleted) ? 'restorable' : 'same';
+				case 'same': return 'same';
 				case 'changed': return item.older ? 'older' : 'changed';
 				case 'new': case 'unfinished': case 'skipped': case 'missing': return item.status;
 				default: return 'same';
@@ -1024,25 +1038,30 @@ export class ImportSession {
 	/** The section goes into the import or the update. */
 	isChosen(choice: NotebookChoice, section: DownloadSection): boolean {
 		const state = this.sectionState(choice, section);
-		if (state === 'restorable') return (choice.restore.get(section.path)?.size ?? 0) > 0;
-		// Without changes: chosen only when the user clicks it, to convert it again (§11.5 item 65).
-		if (state === 'same') return choice.reconvert.has(section.path);
+		// Without changes: chosen only when the user clicks it, to convert it again (§11.5 item 65), or
+		// ticks a page they deleted in Obsidian, to bring it back (§11.5 item 79).
+		if (state === 'same') return choice.reconvert.has(section.path) || this.restoredCount(choice, section) > 0;
 		if (!TICKABLE.has(state)) return false;
 		return choice.ticks.get(section.path) ?? this.defaultTick(choice, state);
 	}
 
-	/** How a section's box shows: a section with only deleted pages is partly ticked when some of them come back. */
+	/** How a section's box shows: one without changes is partly ticked when only pages deleted in Obsidian come back from it. */
 	ticked(choice: NotebookChoice, section: DownloadSection): boolean | 'some' {
-		if (this.sectionState(choice, section) !== 'restorable') return this.isChosen(choice, section);
-		const all = this.deletedPages(choice, section).length;
-		const chosen = choice.restore.get(section.path)?.size ?? 0;
-		return chosen === 0 ? false : chosen >= all ? true : 'some';
+		if (this.sectionState(choice, section) === 'same' && !choice.reconvert.has(section.path) && this.restoredCount(choice, section) > 0) return 'some';
+		return this.isChosen(choice, section);
+	}
+
+	/** How many pages the user deleted in Obsidian come back from a section. */
+	restoredCount(choice: NotebookChoice, section: DownloadSection): number {
+		const chosen = choice.restore.get(section.path);
+		return chosen?.size ? this.deletedPages(choice, section).filter(page => chosen.has(page.id)).length : 0;
 	}
 
 	/** Ticks or unticks some sections of a notebook (a section with only deleted pages: all of them). */
 	setSections(choice: NotebookChoice, sections: DownloadSection[], value: boolean): void {
 		if (!this.open) return;
 		for (const section of sections) {
+			// Without changes: the click converts it again, or stops doing so; pages coming back are their own rows' (§11.5 item 79).
 			if (this.sectionState(choice, section) === 'same') {
 				if (value) choice.reconvert.add(section.path);
 				else choice.reconvert.delete(section.path);
@@ -1050,7 +1069,6 @@ export class ImportSession {
 			}
 			choice.ticks.set(section.path, value);
 			if (!value) choice.restore.delete(section.path);
-			else if (this.sectionState(choice, section) === 'restorable') choice.restore.set(section.path, new Set(this.deletedPages(choice, section).map(page => page.id)));
 		}
 		if (this.wanted(choice) !== this.named.has(choice)) this.renameAll();
 		this.changed();
@@ -1069,7 +1087,7 @@ export class ImportSession {
 		else pages.delete(id);
 		if (pages.size) choice.restore.set(section.path, pages);
 		else choice.restore.delete(section.path);
-		if (value && this.sectionState(choice, section) !== 'restorable') choice.ticks.set(section.path, true);
+		if (value && this.sectionState(choice, section) !== 'same') choice.ticks.set(section.path, true);
 		if (this.wanted(choice) !== this.named.has(choice)) this.renameAll();
 		this.changed();
 	}
@@ -1077,6 +1095,11 @@ export class ImportSession {
 	/** Sections without changes, which a click converts again (§11.5 item 65). */
 	private unchanged(choice: NotebookChoice): DownloadSection[] {
 		return choice.notebook.sections.filter(section => this.sectionState(choice, section) === 'same');
+	}
+
+	/** The section is converted again with the settings chosen now (§11.5 items 65 and 79). */
+	reconverts(choice: NotebookChoice, section: DownloadSection): boolean {
+		return this.sectionState(choice, section) === 'same' && choice.reconvert.has(section.path);
 	}
 
 	/** Some section has something to do (new, changed, left out before): select all takes those. */
@@ -1091,7 +1114,7 @@ export class ImportSession {
 
 	/** Everything select all takes is chosen. */
 	get allChosen(): boolean {
-		if (!this.anythingToDo) return this.selectable && this.choices.every(choice => this.unchanged(choice).every(section => this.isChosen(choice, section)));
+		if (!this.anythingToDo) return this.selectable && this.choices.every(choice => this.unchanged(choice).every(section => this.reconverts(choice, section)));
 		return this.choices.every(choice => this.choosable(choice).every(section => this.ticked(choice, section) === true));
 	}
 
@@ -1104,14 +1127,13 @@ export class ImportSession {
 		const toDo = this.anythingToDo;
 		for (const choice of this.choices) {
 			for (const section of choice.notebook.sections) {
+				if (!value) choice.restore.delete(section.path);
 				if (this.sectionState(choice, section) === 'same') {
 					if (!value) choice.reconvert.delete(section.path);
 					else if (!toDo) choice.reconvert.add(section.path);
 					continue;
 				}
 				choice.ticks.set(section.path, value);
-				if (!value) choice.restore.delete(section.path);
-				else if (this.sectionState(choice, section) === 'restorable') choice.restore.set(section.path, new Set(this.deletedPages(choice, section).map(page => page.id)));
 			}
 		}
 		this.renameAll();
@@ -1168,7 +1190,7 @@ export class ImportSession {
 	 * target folder, or a section of one imported before written now for the first time or converted again.
 	 */
 	get settingsUsed(): boolean {
-		return this.included().some(choice => !choice.earlier || choice.notebook.sections.some(section => this.isChosen(choice, section) && FIRST_WRITE.has(this.sectionState(choice, section))));
+		return this.included().some(choice => !choice.earlier || choice.notebook.sections.some(section => this.isChosen(choice, section) && (FIRST_WRITE.has(this.sectionState(choice, section)) || this.reconverts(choice, section))));
 	}
 
 	/** Whether the language shown is used: only a notebook new to the target folder takes it (a notebook keeps one language). */
@@ -1178,7 +1200,7 @@ export class ImportSession {
 
 	/** Whether something chosen keeps its own settings: sections updated because OneNote changed them. */
 	get ownSettingsKept(): boolean {
-		return this.included().some(choice => choice.earlier && choice.notebook.sections.some(section => this.isChosen(choice, section) && !FIRST_WRITE.has(this.sectionState(choice, section))));
+		return this.included().some(choice => choice.earlier && choice.notebook.sections.some(section => this.isChosen(choice, section) && REPLACING.has(this.sectionState(choice, section)) && this.sectionState(choice, section) !== 'unfinished'));
 	}
 
 	/** What the update of notebooks imported before will do. */
@@ -1188,12 +1210,12 @@ export class ImportSession {
 			for (const section of choice.notebook.sections.filter(section => this.isChosen(choice, section))) {
 				const state = this.sectionState(choice, section);
 				const item = this.itemOf(choice, section);
-				if (state === 'same') counts.reconverted++;
+				if (this.reconverts(choice, section)) counts.reconverted++;
 				else if (REPLACING.has(state)) {
 					counts.updated++;
 					counts.bothEdited += item?.modified.filter(page => page.userEdited).length ?? 0;
 				}
-				else if (state !== 'restorable') counts.added++;
+				else if (state !== 'same') counts.added++;
 				const deleted = new Set(this.deletedPages(choice, section).map(page => page.id));
 				counts.restored += [...choice.restore.get(section.path) ?? []].filter(id => deleted.has(id)).length;
 			}
@@ -1264,7 +1286,7 @@ export class ImportSession {
 					scanned: this.scanned(choice, STRINGS[choice.earlier!.language]),
 					chosen: new Set(chosen.map(section => sectionKey(section.groups, section.label))),
 					// Chosen without changes: converted again with the settings chosen now (§11.5 item 65).
-					reconvert: new Set(chosen.filter(section => this.sectionState(choice, section) === 'same').map(section => sectionKey(section.groups, section.label))),
+					reconvert: new Set(chosen.filter(section => this.reconverts(choice, section)).map(section => sectionKey(section.groups, section.label))),
 					partial: !!choice.download.incomplete,
 					restore: new Set(chosen.flatMap(section => [...choice.restore.get(section.path) ?? []].filter(id => deleted(section).has(id)))),
 				},

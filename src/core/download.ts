@@ -118,6 +118,8 @@ export function tableFiles(notebook: DownloadNotebook, files: DownloadFile[]): M
 	for (const section of notebook.sections) for (let level = 1; level <= section.groups.length; level++) add(section.groups.slice(0, level));
 	const tables = new Map<string, string>();
 	for (const file of [...files].sort((a, b) => nameCollator.compare(a.path, b.path))) {
+		// What macOS adds beside files on other disks (`._` files, `__MACOSX`) is no table of contents (§11.5 item 79).
+		if (fileName(file.path).startsWith('._') || file.path.split('/').includes(MAC_EXTRAS)) continue;
 		const at = file.path.lastIndexOf('/');
 		const key = folders.get(at < 0 ? '' : file.path.slice(0, at));
 		if (key !== undefined && isNotebookFile(file) && !tables.has(key)) tables.set(key, file.path);

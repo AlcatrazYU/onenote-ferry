@@ -34,6 +34,9 @@ const FILES: DownloadFile[] = [
 test('each folder of a notebook has its table of contents found', () => {
 	const [notebook] = findNotebooks(FILES, 'Download');
 	assert.deepEqual(Object.fromEntries(tableFiles(notebook!, FILES)), { '': 'Tides/Open Notebook.onetoc2', 'Archive': 'Tides/Archive/Open Notebook.onetoc2' });
+	// What macOS writes beside files on other disks sorts first, but is no table of contents (§11.5 item 79).
+	const withExtras = [{ path: 'Tides/._Open Notebook.onetoc2', size: 1 }, { path: '__MACOSX/Tides/._Open Notebook.onetoc2', size: 1 }, ...FILES];
+	assert.equal(tableFiles(notebook!, withExtras).get(''), 'Tides/Open Notebook.onetoc2');
 });
 
 test('sections follow their tables; sections before groups; what a table leaves out after it, by name, groups kept apart', () => {

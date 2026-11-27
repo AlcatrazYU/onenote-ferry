@@ -11,7 +11,7 @@
 // is ever touched (§11.5 items 49, 51): a section is listed as gone, a page as removed, and both
 // stay where they are.
 
-import { pageFingerprint } from './fingerprint.ts';
+import { comparable, pageFingerprint } from './fingerprint.ts';
 import type { Sink } from './io.ts';
 import { composedText, joinPath, numberedName, safeName } from './names.ts';
 import { LANGUAGES, STRINGS } from './strings.ts';
@@ -162,11 +162,11 @@ const parentOf = (path: string) => (path.includes('/') ? path.slice(0, path.last
 
 /**
  * Whether OneNote changed a page since it was written: its content, told by the fingerprints when
- * both sides have one (OneNote leaves a page's time as it was when its text is edited), else its
- * time (§11.5 item 59). A changed title is told apart by the callers.
+ * both sides have one made the same way (OneNote leaves a page's time as it was when its text is
+ * edited), else its time (§11.5 items 59 and 79). A changed title is told apart by the callers.
  */
 export function editedInOneNote(before: { modified: string | null, fingerprint?: string }, now: { modified: string | null, fingerprint?: string }): boolean {
-	return before.fingerprint !== undefined && now.fingerprint !== undefined ? before.fingerprint !== now.fingerprint : before.modified !== now.modified;
+	return before.fingerprint !== undefined && now.fingerprint !== undefined && comparable(before.fingerprint, now.fingerprint) ? before.fingerprint !== now.fingerprint : before.modified !== now.modified;
 }
 
 /** Whether a page was edited in Obsidian since it was written: its file's time is not the page's any more. */

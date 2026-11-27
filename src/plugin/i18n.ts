@@ -83,6 +83,7 @@ export interface UiStrings {
 	/** A section without changes the user clicked: it is converted again with the settings chosen now. */
 	reconvertMark: string;
 	reconvertTip: string;
+	reconvertKeepsDeleted(count: number): string;
 	sectionsReconverting(count: number): string;
 	/** A section, or a notebook, being read. */
 	checkingRow: string;
@@ -100,8 +101,7 @@ export interface UiStrings {
 	gone: string;
 	/** Hover text: what is in the vault is left as it is. */
 	keptAsIs: string;
-	restorable(count: number): string;
-	restorableTip: string;
+	bringingBack(count: number): string;
 	unreadable: string;
 	different: string;
 	differentTip: string;
@@ -319,6 +319,7 @@ const en: UiStrings = {
 	ownSettingsKept: 'Sections updated because OneNote changed them keep their own settings.',
 	reconvertMark: 'Convert again',
 	reconvertTip: 'Click to convert again with the settings chosen now',
+	reconvertKeepsDeleted: count => `Click to convert again with the settings chosen now; ${count === 1 ? 'the page' : `the ${count} pages`} deleted in Obsidian ${count === 1 ? 'is' : 'are'} not brought back`,
 	sectionsReconverting: count => `${plural(count, 'section', 'sections')} to convert again`,
 	checkingRow: 'Checking...',
 	unchanged: 'No changes',
@@ -333,8 +334,7 @@ const en: UiStrings = {
 	olderTip: folder => `The download's pages are older than the vault's; if ticked, the download's version replaces the vault's, and the current one goes to "${folder}"`,
 	gone: 'Not in the download',
 	keptAsIs: 'What is in the vault stays as it is',
-	restorable: count => `${plural(count, 'page', 'pages')} to bring back`,
-	restorableTip: 'Pages deleted in Obsidian; tick to bring them back from the download',
+	bringingBack: count => `Bring back ${plural(count, 'page', 'pages')}`,
 	unreadable: 'Cannot be read',
 	different: 'Another notebook of this name',
 	differentTip: 'It has no page in common with the notebook of this name in the vault, which stays as it is; to import this one, choose another target folder',
@@ -531,6 +531,7 @@ const zh: UiStrings = {
 	ownSettingsKept: '有更新的分区沿用原来的设置。',
 	reconvertMark: '重新转换',
 	reconvertTip: '点击后按现在的设置重新转换',
+	reconvertKeepsDeleted: count => `点击后按现在的设置重新转换，Obsidian 中删除的 ${n(count)} 页不会补回`,
 	sectionsReconverting: count => `${n(count)} 个分区重新转换`,
 	checkingRow: '正在检查...',
 	unchanged: '无变化',
@@ -545,8 +546,7 @@ const zh: UiStrings = {
 	olderTip: folder => `下载中的页面比仓库中的旧，勾选后换成下载中的内容，现有版本放进“${folder}”`,
 	gone: '下载中没有',
 	keptAsIs: '仓库中的保持原样',
-	restorable: count => `可补回 ${n(count)} 页`,
-	restorableTip: '这些页面在 Obsidian 中删除过，勾选后从下载中补回',
+	bringingBack: count => `补回 ${n(count)} 页`,
 	unreadable: '无法读取',
 	different: '同名的另一本笔记本',
 	differentTip: '与仓库中的同名笔记本没有相同页面，不会改动；要导入这一本，请换一个目标文件夹',
@@ -745,6 +745,7 @@ const ja: UiStrings = {
 	ownSettingsKept: '更新のあるセクションは元の設定のままです。',
 	reconvertMark: '変換し直す',
 	reconvertTip: 'クリックすると、現在の設定で変換し直します',
+	reconvertKeepsDeleted: count => `クリックすると、現在の設定で変換し直します。Obsidian で削除した ${n(count)} ページは戻しません`,
 	sectionsReconverting: count => `セクション ${n(count)} 個を変換し直し`,
 	checkingRow: '確認中...',
 	unchanged: '変更なし',
@@ -759,8 +760,7 @@ const ja: UiStrings = {
 	olderTip: folder => `ダウンロードのページは保管庫のものより古く、チェックするとダウンロードの内容に置き換え、今の版は「${folder}」に移します`,
 	gone: 'ダウンロードにありません',
 	keptAsIs: '保管庫のものはそのままです',
-	restorable: count => `${n(count)} ページを戻せます`,
-	restorableTip: 'Obsidian で削除したページで、チェックするとダウンロードから戻します',
+	bringingBack: count => `${n(count)} ページを戻す`,
 	unreadable: '読み込めません',
 	different: '同じ名前の別のノートブック',
 	differentTip: '保管庫にある同じ名前のノートブックと共通のページがないため変更せず、別のインポート先を選ぶとインポートできます',
@@ -958,6 +958,7 @@ const ko: UiStrings = {
 	ownSettingsKept: '업데이트가 있는 섹션은 원래 설정을 그대로 씁니다.',
 	reconvertMark: '다시 변환',
 	reconvertTip: '클릭하면 현재 설정으로 다시 변환합니다',
+	reconvertKeepsDeleted: count => `클릭하면 현재 설정으로 다시 변환합니다. Obsidian에서 삭제한 ${n(count)}페이지는 복원하지 않습니다`,
 	sectionsReconverting: count => `섹션 ${n(count)}개 다시 변환`,
 	checkingRow: '확인 중...',
 	unchanged: '변경 없음',
@@ -972,8 +973,7 @@ const ko: UiStrings = {
 	olderTip: folder => `다운로드의 페이지가 보관함의 페이지보다 오래되었으며, 선택하면 다운로드의 내용으로 바꾸고 지금 버전은 "${folder}"(으)로 옮깁니다`,
 	gone: '다운로드에 없음',
 	keptAsIs: '보관함의 내용은 그대로 둡니다',
-	restorable: count => `${n(count)}페이지 복원 가능`,
-	restorableTip: 'Obsidian에서 삭제한 페이지로, 선택하면 다운로드에서 복원합니다',
+	bringingBack: count => `${n(count)}페이지 복원`,
 	unreadable: '읽을 수 없음',
 	different: '이름만 같은 다른 전자 필기장',
 	differentTip: '보관함에 있는 같은 이름의 전자 필기장과 공통된 페이지가 없어 바꾸지 않으며, 다른 대상 폴더를 선택하면 가져올 수 있습니다',

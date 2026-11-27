@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { frontMatter, planNotebook, readArchive, scannedPages } from '../src/core/sync.ts';
+import { editedInOneNote, frontMatter, planNotebook, readArchive, scannedPages } from '../src/core/sync.ts';
 import type { Archive, PlanItem, ScannedPage, ScannedSection } from '../src/core/sync.ts';
 import { zhHans } from '../src/core/strings.ts';
 import { memorySink } from './helpers.ts';
@@ -269,7 +269,7 @@ test('page info from the parser JSON: in order, ids upper case, times as ISO str
 	const [a, b, c, d] = await scannedPages({ pages: [
 		{ id: '{a}', contents: box('one', 1, 13.86) }, { id: '{b}', contents: box('one', 1, 12.01) }, { id: '{c}', contents: box('two', 1, 13.86) }, { id: '{d}', contents: box('one', 5, 13.86) },
 	] });
-	assert.match(a!.fingerprint!, /^[0-9a-f]{20}$/);
+	assert.match(a!.fingerprint!, /^v2:[0-9a-f]{20}$/);
 	assert.equal(b!.fingerprint, a!.fingerprint);
 	assert.notEqual(c!.fingerprint, a!.fingerprint);
 	assert.notEqual(d!.fingerprint, a!.fingerprint);
@@ -277,6 +277,16 @@ test('page info from the parser JSON: in order, ids upper case, times as ISO str
 	const pictured = (ocr: string | null) => [{ type: 'outline', x: 1, y: 1, w: 9, items: [{ contents: [{ type: 'image', asset: 'aa.png', alt: ocr, ocr }] }] }];
 	const [e, f] = await scannedPages({ pages: [{ id: '{e}', contents: pictured(null) }, { id: '{f}', contents: pictured('text read from the picture') }] });
 	assert.equal(f!.fingerprint, e!.fingerprint);
+});
+
+test('fingerprints made another way (an earlier version, or none) are not compared: the page\'s time tells, as before fingerprints (§11.5 item 79)', () => {
+	const at = (modified: string | null, fingerprint?: string) => ({ modified, ...(fingerprint ? { fingerprint } : {}) });
+	assert.equal(editedInOneNote(at(T1, 'v2:aaaa'), at(T1, 'v2:bbbb')), true);
+	assert.equal(editedInOneNote(at(T1, 'v2:aaaa'), at(T1, 'v2:aaaa')), false);
+	// Recorded before versions (the parser's content has gained keys since): the same time, not changed.
+	assert.equal(editedInOneNote(at(T1, '0123456789abcdef0123'), at(T1, 'v2:bbbb')), false);
+	assert.equal(editedInOneNote(at(T1, 'v1:aaaa'), at(T1, 'v2:bbbb')), false);
+	assert.equal(editedInOneNote(at(T1, 'v1:aaaa'), at('2025-01-01T00:00:00.000Z', 'v2:bbbb')), true);
 });
 
 test('front matter: JSON strings, single quotes, CRLF lines, line separators inside a value', () => {

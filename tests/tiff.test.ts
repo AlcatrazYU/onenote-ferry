@@ -7,13 +7,14 @@ import { inflateSync } from 'node:zlib';
 import { tiffToPng } from '../src/core/render/tiff.ts';
 
 /** A one-page, uncompressed TIF (little-endian), in strips of `rowsPerStrip` rows. */
-function tiff(width: number, height: number, samples: number, pixels: number[], options: { extra?: number, compression?: number, rowsPerStrip?: number, nextPage?: boolean } = {}): Uint8Array {
+function tiff(width: number, height: number, samples: number, pixels: number[], options: { extra?: number, compression?: number, rowsPerStrip?: number, nextPage?: boolean, orientation?: number } = {}): Uint8Array {
 	const rowsPerStrip = options.rowsPerStrip ?? height;
 	const strips = Math.ceil(height / rowsPerStrip);
 	const tags: [number, number, number[]][] = [
 		[256, 3, [width]], [257, 3, [height]], [258, 3, Array(samples).fill(8)], [259, 3, [options.compression ?? 1]],
 		[262, 3, [samples === 1 ? 1 : 2]], [273, 4, Array(strips).fill(0)], [277, 3, [samples]], [278, 3, [rowsPerStrip]],
 		[279, 4, Array.from({ length: strips }, (_, i) => width * samples * Math.min(rowsPerStrip, height - i * rowsPerStrip))], [284, 3, [1]],
+		...(options.orientation !== undefined ? [[274, 3, [options.orientation]] as [number, number, number[]]] : []),
 		...(options.extra !== undefined ? [[338, 3, [options.extra]] as [number, number, number[]]] : []),
 	];
 	const ifd = 8, extraAt = ifd + 2 + tags.length * 12 + 4;
@@ -84,11 +85,16 @@ test('an alpha channel opaque everywhere is dropped; a see-through one is kept, 
 	assert.deepEqual(pixelsOf((await tiffToPng(tiff(2, 3, 4, rgba(255), { extra: 1 })))!), { width: 2, height: 3, channels: 3, data: RGB });
 	assert.deepEqual(pixelsOf((await tiffToPng(tiff(2, 3, 4, rgba(128), { extra: 2 })))!).data, rgba(128));
 	assert.equal(await tiffToPng(tiff(2, 3, 4, rgba(128), { extra: 1 })), undefined);
+	// A fourth sample of no stated use (padding) is not transparency: left out, the picture stays visible (§11.5 item 79).
+	assert.deepEqual(pixelsOf((await tiffToPng(tiff(2, 3, 4, rgba(0), { extra: 0 })))!), { width: 2, height: 3, channels: 3, data: RGB });
 });
 
 test('a TIF of another kind (compressed, several pages), or not a TIF, is left as it was', async () => {
 	assert.equal(await tiffToPng(tiff(2, 3, 3, RGB, { compression: 5 })), undefined);
 	assert.equal(await tiffToPng(tiff(2, 3, 3, RGB, { nextPage: true })), undefined);
+	// Turned or mirrored: left as it was, not written another way round.
+	assert.equal(await tiffToPng(tiff(2, 3, 3, RGB, { orientation: 6 })), undefined);
+	assert.ok(await tiffToPng(tiff(2, 3, 3, RGB, { orientation: 1 })));
 	assert.equal(await tiffToPng(new TextEncoder().encode('not a picture')), undefined);
 	assert.equal(await tiffToPng(tiff(2, 3, 3, RGB).subarray(0, 60)), undefined);
 });

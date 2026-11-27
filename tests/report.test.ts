@@ -100,6 +100,25 @@ test('writing it: both files under the reader\'s name; another import keeps the 
 	assert.deepEqual(third.notebooks.map(n => n.dir), ['Tides']);
 });
 
+test('a OneDrive notebook whose folder the user renamed keeps its entry, in that folder, when another notebook is imported (§11.5 item 79)', async () => {
+	const sink = memorySink();
+	const first = await imported(sink, () => 'zh-Hans');
+	await writeReport(sink, zhHans, first, { at: AT, sources: ['Notes.zip'], options: OPTIONS }, folders(sink));
+	// Tides came from OneDrive: its entry and its contents page carry the notebook.
+	const report = JSON.parse(sink.files.get('_转换报告.json') as string);
+	report.notebooks.find((n: { dir: string }) => n.dir === 'Tides').oneDrive = 'drive-1/T';
+	sink.files.set('_转换报告.json', JSON.stringify(report));
+	for (const path of [...sink.files.keys()].filter(path => path.startsWith('Tides/'))) {
+		const text = sink.files.get(path)!;
+		sink.files.set(`My tides/${path.slice('Tides/'.length)}`, path === 'Tides/_目录.md' ? (text as string).replace('---\n', '---\nonedrive-notebook: "drive-1/T"\n') : text);
+		sink.files.delete(path);
+	}
+	const again: ImportResult = { notebooks: first.notebooks.filter(n => n.notebook === 'Ferry log'), cancelled: false, notStarted: [] };
+	const { report: after } = await writeReport(sink, zhHans, again, { at: AT, sources: ['Ferry.zip'], options: OPTIONS }, folders(sink));
+	assert.deepEqual(after.notebooks.map(n => [n.dir, n.oneDrive ?? null]), [['Ferry log', null], ['My tides', 'drive-1/T']]);
+	assert.ok(after.notebooks[1]!.sections.every(section => section.dir === undefined || section.dir.startsWith('My tides/')));
+});
+
 test('a report file in another form, or not JSON at all, is started afresh', async () => {
 	const sink = memorySink();
 	const result = await imported(sink, () => 'en');

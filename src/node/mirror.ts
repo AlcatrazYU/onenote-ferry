@@ -113,6 +113,35 @@ export class CopyBusy extends Error {
 	}
 }
 
+/** The locks this process holds now. */
+const heldHere = new Set<string>();
+
+/**
+ * Whether a copy's lock is held by a window that is still updating it: not when it is older than
+ * STALE_LOCK_MS, nor when the process it names is gone (Obsidian quit or crashed during a download)
+ * or is this one but holds no such lock now (§11.5 item 79).
+ */
+async function lockHeld(path: string): Promise<boolean> {
+	const age = Date.now() - ((await stat(path).catch(() => undefined))?.mtimeMs ?? 0);
+	if (!(age < STALE_LOCK_MS)) return false;
+	let pid: unknown;
+	try {
+		pid = (JSON.parse(await readFile(path, 'utf8')) as { pid?: unknown }).pid;
+	}
+	catch {
+		return true;
+	}
+	if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return true;
+	if (pid === process.pid) return heldHere.has(path);
+	try {
+		process.kill(pid, 0);
+		return true;
+	}
+	catch (error) {
+		return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+	}
+}
+
 async function lock(dir: string): Promise<() => Promise<void>> {
 	const path = join(dir, 'lock');
 	for (let attempt = 0; attempt < 2; attempt++) {
@@ -120,17 +149,18 @@ async function lock(dir: string): Promise<() => Promise<void>> {
 			const handle = await open(path, 'wx');
 			await handle.writeFile(JSON.stringify({ pid: process.pid, at: new Date().toISOString() }));
 			await handle.close();
+			heldHere.add(path);
 			// Kept fresh while the copy is updated, so a long download does not look abandoned.
 			const touch = setInterval(() => void writeFile(path, JSON.stringify({ pid: process.pid, at: new Date().toISOString() })).catch(() => undefined), STALE_LOCK_MS / 4);
 			return async () => {
 				clearInterval(touch);
+				heldHere.delete(path);
 				await rm(path, { force: true });
 			};
 		}
 		catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-			const age = Date.now() - (await stat(path).catch(() => undefined))?.mtimeMs!;
-			if (!(age > STALE_LOCK_MS)) throw new CopyBusy();
+			if (await lockHeld(path)) throw new CopyBusy();
 			await rm(path, { force: true });
 		}
 	}
@@ -379,8 +409,7 @@ export function allCopies(folder: string): { dir: string, name: string, bytes: n
 export async function removeCopies(dirs: string[]): Promise<{ removed: number, busy: number }> {
 	let removed = 0, busy = 0;
 	for (const dir of dirs) {
-		const lockAge = Date.now() - ((await stat(join(dir, 'lock')).catch(() => undefined))?.mtimeMs ?? 0);
-		if (lockAge < STALE_LOCK_MS) {
+		if (await lockHeld(join(dir, 'lock'))) {
 			busy++;
 			continue;
 		}

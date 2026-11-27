@@ -50,6 +50,8 @@ function readTiff(b: Uint8Array): Pixels | undefined {
 	const offsets = tags.get(273), counts = tags.get(279);
 	const rowsPerStrip = Math.min(one(278, height ?? 0)!, height ?? 0);
 	if (!width || !height || compression !== 1 || planar !== 1 || !offsets || !counts || offsets.length !== counts.length) return undefined;
+	// Turned or mirrored (Orientation other than 1): left as TIF, rather than written another way round (§11.5 item 79).
+	if (one(274, 1) !== 1) return undefined;
 	if (bits.length !== samples || bits.some(bit => bit !== 8)) return undefined;
 	let channels: 1 | 3 | 4;
 	if (samples === 1 && (photometric === 0 || photometric === 1)) channels = 1;
@@ -67,11 +69,13 @@ function readTiff(b: Uint8Array): Pixels | undefined {
 		at += length;
 	}
 	if (channels === 1 && photometric === 0) for (let i = 0; i < data.length; i++) data[i] = 255 - data[i]!;
-	// An alpha channel that is opaque everywhere adds nothing.
+	// A fourth sample of no stated use (extra sample 0, often padding) is not transparency, and an
+	// alpha channel that is opaque everywhere adds nothing: both left out.
 	if (channels === 4) {
+		const unspecified = tags.get(338)?.[0] === 0;
 		let opaque = true;
-		for (let i = 3; i < data.length && opaque; i += 4) opaque = data[i] === 255;
-		if (opaque) {
+		if (!unspecified) for (let i = 3; i < data.length && opaque; i += 4) opaque = data[i] === 255;
+		if (unspecified || opaque) {
 			const rgb = new Uint8Array(width * height * 3);
 			for (let p = 0, q = 0; p < data.length; p += 4, q += 3) {
 				rgb[q] = data[p]!;

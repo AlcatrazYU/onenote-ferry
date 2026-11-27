@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openXps } from '../src/core/render/xps.ts';
-import { xpsDocument } from './samples-xps.ts';
+import { pngHeader, xpsDocument } from './samples-xps.ts';
 import { makeZip, bytes } from './zip-writer.ts';
 import { buildFont } from './font-writer.ts';
 
@@ -15,8 +15,10 @@ test('a page of image strips and filled shapes is drawn as SVG; a page of text w
 	const page = await doc.page(1);
 	assert.ok(page);
 	assert.deepEqual([page.width, page.height], [96, 192]);
-	assert.match(page.content, /^<rect width="96" height="192" fill="#ffffff"\/>/);
-	assert.match(page.content, /<g transform="matrix\(1 0 0 1 8 4\)"><image x="0" y="0" width="80" height="40" preserveAspectRatio="none" href="data:image\/png;base64,/);
+	// The picture strip's Clip (its own shape here) as a clip path, once.
+	assert.match(page.content, /^<defs><clipPath id="(cp\w+)" clipPathUnits="userSpaceOnUse"><path d="M 0,0 L 80,0 80,40 0,40 z" clip-rule="evenodd"\/><\/clipPath><\/defs><rect width="96" height="192" fill="#ffffff"\/>/);
+	// Its Viewbox (160 by 80 at 96 dpi: the whole picture) stretched over its Viewport.
+	assert.match(page.content, /<g transform="matrix\(1 0 0 1 8 4\)"><g clip-path="url\(#cp\w+\)"><svg x="0" y="0" width="80" height="40" viewBox="0 0 160 80" preserveAspectRatio="none"><image width="160" height="80" preserveAspectRatio="none" href="data:image\/png;base64,[^"]*"\/><\/svg><\/g>/);
 	assert.match(page.content, /<g transform="matrix\(1 0 0 1 20 60\)"><path d="M 0,0 L 10,0 10,10 z" fill-rule="nonzero" fill="#ff0000"\/><\/g>/);
 	assert.match(page.content, /<path d="M 0,0 C 1,1 2,2 3,3 z" fill-rule="nonzero" fill="#000000" fill-opacity="0.502"\/>/);
 	assert.equal(await doc.page(2), undefined, 'text whose font is not in the document is not drawn');
@@ -92,6 +94,55 @@ test('a page\'s text: runs that go on from one another joined, along a line or d
 	assert.deepEqual(await doc!.text(1), { text: 'ABAB\nBA\nB\nAAAB', given: 'AB\nA\n\nBA\nB\nAAA\nB' });
 	assert.ok(await doc!.page(1));
 	assert.equal(await doc!.text(2), undefined);
+});
+
+test('on a page without vertical writing, runs of one character a line apart are not joined: bullets, a column of a table (§11.5 item 79)', async () => {
+	const font = 'FontUri="/Resources/0123ABCD-4567-89EF-0123-456789ABCDEF.odttf" Fill="#ff000000"';
+	// Lines 24 apart at em 20: one bullet (A) or one digit-like cell (B) before each item, set apart by a tab.
+	const runs = [0, 1, 2].flatMap(k => [
+		`<Glyphs OriginX="10" OriginY="${40 + 24 * k}" FontRenderingEmSize="20" ${font} UnicodeString="A" />`,
+		`<Glyphs OriginX="40" OriginY="${40 + 24 * k}" FontRenderingEmSize="20" ${font} UnicodeString="BAB" />`,
+	]);
+	const doc = await openXps(onePage(`<FixedPage Width="100" Height="200">${runs.join('')}</FixedPage>`, TEXT_FONT));
+	assert.equal((await doc!.text(1))!.text, 'A\nBAB\nA\nBAB\nA\nBAB');
+});
+
+/** A one-page document with a picture `1.png` (`png`) in it. */
+function pagePicture(page: string, png: Uint8Array): Uint8Array {
+	const files = [
+		{ name: '_rels/.rels', data: bytes('<Relationships><Relationship Type="x/fixedrepresentation" Target="/S.fdseq" /></Relationships>') },
+		{ name: 'S.fdseq', data: bytes('<FixedDocumentSequence><DocumentReference Source="/D.fdoc" /></FixedDocumentSequence>') },
+		{ name: 'D.fdoc', data: bytes('<FixedDocument><PageContent Source="/1.fpage" /></FixedDocument>') },
+		{ name: '1.fpage', data: bytes(page) },
+		{ name: '1.png', data: png },
+	];
+	return makeZip(files);
+}
+
+test('clips, picture crops, brush opacity and dashes are drawn as XPS means them; what cannot be is not drawn (§11.5 item 79)', async () => {
+	const drawn = async (body: string, png = pngHeader(200, 100)) => (await openXps(pagePicture(`<FixedPage Width="300" Height="300">${body}</FixedPage>`, png)))!.explain(1);
+	const square = 'Data="M 0,0 L 300,0 300,300 0,300 z"';
+	// A canvas clipped to a small square: the clip path goes on its group, in its own coordinates.
+	const clipped = await drawn(`<Canvas Clip="M 0,0 L 10,0 10,10 0,10 z"><Path ${square} Fill="#FF000000" /></Canvas>`);
+	assert.match(clipped.page!.content, /<clipPath id="(cp\w+)" clipPathUnits="userSpaceOnUse"><path d="M 0,0 L 10,0 10,10 0,10 z" clip-rule="evenodd"\/><\/clipPath>/);
+	assert.match(clipped.page!.content, /<g clip-path="url\(#cp\w+\)"><path d="M 0,0 L 300,0 300,300 0,300 z"/);
+	// A clip given as an element is not drawn here.
+	assert.equal((await drawn(`<Canvas><Canvas.Clip><PathGeometry Figures="M 0,0 L 10,0 10,10 z" /></Canvas.Clip><Path ${square} Fill="#FF000000" /></Canvas>`)).reason, 'Canvas.Clip');
+	// A brush's opacity counts; a dashed stroke is dashed, in stroke widths.
+	const brush = await drawn(`<Path ${square}><Path.Fill><SolidColorBrush Color="#FF000000" Opacity="0.1" /></Path.Fill></Path><Path Data="M 0,0 L 100,0" Stroke="#FF000000" StrokeThickness="2" StrokeDashArray="3 1" />`);
+	assert.match(brush.page!.content, /fill="#000000" fill-opacity="0\.100"/);
+	assert.match(brush.page!.content, /stroke="#000000" stroke-width="2" stroke-miterlimit="10" stroke-dasharray="6 2"/);
+	// Triangle caps, a transform on a picture brush or on a shape: not drawn.
+	assert.equal((await drawn('<Path Data="M 0,0 L 100,0" Stroke="#FF000000" StrokeStartLineCap="Triangle" StrokeEndLineCap="Triangle" />')).reason, 'line caps');
+	const picture = (extra: string, box = '0,0,200,100') => `<Path ${square}><Path.Fill><ImageBrush ImageSource="/1.png" Viewbox="${box}" ViewboxUnits="Absolute" Viewport="0,0,300,150" ViewportUnits="Absolute" TileMode="None"${extra} /></Path.Fill></Path>`;
+	assert.equal((await drawn(picture(' Transform="-1,0,0,1,200,0"'))).reason, 'image brush transform');
+	// A picture of which a part is shown: that part (its Viewbox) over the viewport.
+	assert.match((await drawn(picture('', '0,0,100,50'))).page!.content, /<svg x="0" y="0" width="300" height="150" viewBox="0 0 100 50" preserveAspectRatio="none"><image width="200" height="100"/);
+	// At 192 dpi (7559 pixels a metre in a PNG's pHYs), the same picture is half as large in the Viewbox's units.
+	const hiRes = new Uint8Array([...pngHeader(200, 100).slice(0, 8), ...[0, 0, 0, 13], ...bytes('IHDR'), ...new Uint8Array(17), ...[0, 0, 0, 9], ...bytes('pHYs'), ...[0, 0, 0x1d, 0x87, 0, 0, 0x1d, 0x87, 1], ...new Uint8Array(4)]);
+	new DataView(hiRes.buffer).setUint32(16, 200);
+	new DataView(hiRes.buffer).setUint32(20, 100);
+	assert.match((await drawn(picture('', '0,0,100,50'), hiRes)).page!.content, /<image width="100.001" height="50"/);
 });
 
 test('a shape filled with a linear gradient is drawn with an SVG gradient', async () => {

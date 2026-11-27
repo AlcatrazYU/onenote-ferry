@@ -8,7 +8,7 @@ import { placeOnPictures, readProfile } from '../src/core/render/flow-highlights
 import type { RowProfile } from '../src/core/render/flow-highlights.ts';
 import { renderPage } from '../src/core/render/page.ts';
 import { zhHans } from '../src/core/strings.ts';
-import type { EmbeddedFile, Image, InkStroke, Outline, Page, Paragraph } from '../src/core/model.ts';
+import type { EmbeddedFile, Image, InkStroke, Outline, Page, Paragraph, Table } from '../src/core/model.ts';
 
 /** A profile as the parser gives it: 600 px wide, `rows` rows, a line of text every `pitch` rows from `first`. */
 function raw(rows: number, pitch: number, first: number): Float32Array {
@@ -50,6 +50,21 @@ test('a picture under a line of text: placed where its rows meet the strokes on 
 	assert.deepEqual(placed.strokes, [0, 1, 2]);
 	assert.equal(placed.sure, true);
 	assert.ok(Math.abs(placed.box.top - top) < 0.02, String(placed.box.top - top));
+});
+
+test('a picture below what the layout cannot measure (a file\'s icon, handwriting, a table with more in a cell, a picture of no size), or below text near a wrap: never sure (§11.5 item 79)', async () => {
+	const strokes = (top: number) => [across(top + 12 / 60), across(top + 52 / 60)];
+	const file: EmbeddedFile = { kind: 'embedded-file', fileName: 'notes.pdf', data: { kind: 'stored', key: 'notes.pdf', size: 1 } };
+	const sized: Image = { kind: 'image', extension: 'png', data: { kind: 'stored', key: 'ink.png', size: 1 } };
+	const table: Table = { kind: 'table', rows: [{ cells: [{ children: [text('one'), text('two'), text('three')] }] }] };
+	for (const above of [file, sized, table] as Outline['children']) {
+		const [placed] = await placeOnPictures([box([above, shot], { x: 2, y: 2, width: 13 })], strokes(2.5), profileOf);
+		assert.equal(placed?.sure, false, above.kind);
+	}
+	// About 90 Latin letters: two lines at the average width counted, perhaps one in the font OneNote uses.
+	const long = 'A sentence about the ferry timetable that runs close to the edge of the text box in width.';
+	const [nearWrap] = await placeOnPictures([box([text(long), shot], { x: 2, y: 2, width: 13 })], strokes(2.9), profileOf);
+	assert.equal(nearWrap?.sure, false);
 });
 
 test('a picture under eight lines of text whose line height is not known: not sure; with a stored height that gives it: sure', async () => {

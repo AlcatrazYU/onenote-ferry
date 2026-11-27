@@ -122,6 +122,10 @@ interface FlowPicture {
 	emAbove: number;
 	/** Its box's line height comes from the box's stored height. */
 	pinned: boolean;
+	/** Above it in its box: what the layout cannot tell the height of (a file's icon, handwriting, a table with more than a line in a cell, a picture of no known size). Its place is then never sure (§11.5 item 79). */
+	unknownAbove: boolean;
+	/** Above it: paragraphs of proportional text whose length is near where a line wraps, each a line it may have one more or one fewer of (points). */
+	wrapRisk: number;
 }
 
 const isWide = (ch: string) => /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]|[\u{20000}-\u{3FFFD}]/u.test(ch);
@@ -189,26 +193,40 @@ function layOut(outlines: Outline[], factor: number, pins: Map<Outline, number |
 		const own = pins.get(outline);
 		const lineFactor = own ?? factor;
 		const boxWidth = place.width ?? 13;
-		let y = place.y, emAbove = 0;
+		let y = place.y, emAbove = 0, unknownAbove = false, wrapRisk = 0;
 		walk(outline.children, 1, (element, level) => {
 			const x = place.x! + (level - 1) * INDENT;
 			if (element.kind === 'paragraph') {
 				const size = element.layout?.fontSize ?? DEFAULT_FONT_SIZE;
-				const lines = lineCount(element.runs.map(run => run.text).join(''), size, (boxWidth - (level - 1) * INDENT) * PT);
+				const text = element.runs.map(run => run.text).join('');
+				const width = (boxWidth - (level - 1) * INDENT) * PT;
+				const lines = lineCount(text, size, width);
 				const lineHeight = element.layout?.lineSpacing ?? size * lineFactor;
 				y += ((element.layout?.spaceBefore ?? 0) + lines * lineHeight + (element.layout?.spaceAfter ?? 0)) / PT;
 				emAbove += lines * size;
+				// Latin letters are counted at an average width: near a wrap, a line more or fewer.
+				if (/[A-Za-z]/.test(text)) {
+					let used = 0;
+					for (const ch of text) used += widthOf(ch, size);
+					const fill = used / width, part = fill - Math.floor(fill);
+					if (fill >= 0.8 && (part <= 0.2 || part >= 0.8)) wrapRisk += lineHeight;
+				}
 			}
 			else if (element.kind === 'image' && !element.place) {
 				const size = pictureSize(element, aspects);
-				if (!size) return;
-				pictures.push({ image: element, box: { left: x, top: y, right: x + size.width, bottom: y + size.height }, emAbove, pinned: own !== undefined });
+				if (!size) {
+					unknownAbove = true;
+					return;
+				}
+				pictures.push({ image: element, box: { left: x, top: y, right: x + size.width, bottom: y + size.height }, emAbove, pinned: own !== undefined, unknownAbove, wrapRisk });
 				y += size.height;
 			}
 			else if (element.kind === 'table') {
 				y += element.rows.length * DEFAULT_FONT_SIZE * lineFactor / PT;
 				emAbove += element.rows.length * DEFAULT_FONT_SIZE;
+				if (element.rows.some(row => row.cells.some(cell => cell.children.length > 1 || cell.children.some(child => child.kind !== 'paragraph')))) unknownAbove = true;
 			}
+			else if (element.kind === 'embedded-file' || element.kind === 'ink') unknownAbove = true;
 		});
 	}
 	return pictures;
@@ -332,8 +350,10 @@ export async function placeOnPictures(outlines: Outline[], strokes: InkStroke[],
 		placed.push(result);
 		if (!read?.pitch || read.periodic < PERIODIC || !read.bands.length || !along.length) continue;
 		const scale = read.height / (picture.box.bottom - picture.box.top);
-		// What the text above it can still add up to, against half a line of its own text.
-		const uncertain = picture.emAbove * (picture.pinned ? PINNED_SPREAD : FREE_SPREAD) / PT * scale;
+		// What the text above it can still add up to, against half a line of its own text; never sure
+		// below what the layout cannot measure.
+		if (picture.unknownAbove) continue;
+		const uncertain = (picture.emAbove * (picture.pinned ? PINNED_SPREAD : FREE_SPREAD) + picture.wrapRisk) / PT * scale;
 		if (uncertain >= read.pitch / 2) continue;
 		let shift = 0, cost = Infinity;
 		for (let s = -read.pitch / 2; s <= read.pitch / 2; s += 0.5) {

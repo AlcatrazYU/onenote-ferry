@@ -120,9 +120,9 @@ const STRONG: ReadonlySet<RowState> = new Set(['changed', 'new', 'unfinished']);
 /** States a group row names when all its sections share one. */
 const GROUP_WORDS: ReadonlySet<RowState> = new Set(['same', 'gone', 'checking', 'locked', 'incomplete', 'occupied', 'unreadable']);
 /** States that leave a notebook imported before at "no changes": nothing differs that needs a look. */
-const QUIET: ReadonlySet<RowState> = new Set(['same', 'gone', 'skipped', 'locked', 'restorable']);
+const QUIET: ReadonlySet<RowState> = new Set(['same', 'gone', 'skipped', 'locked']);
 /** Of those, the states of sections that are in the vault (imported before). */
-const IMPORTED: ReadonlySet<RowState> = new Set(['same', 'gone', 'restorable']);
+const IMPORTED: ReadonlySet<RowState> = new Set(['same', 'gone']);
 
 const fold = (path: string) => path.normalize('NFC').toLowerCase();
 
@@ -705,7 +705,7 @@ export class ImportWizard extends Modal {
 			if (todo.length) session.setSections(choice, todo, !todo.every(one => session.ticked(choice, one) === true));
 			else {
 				const same = unchanged();
-				session.setSections(choice, same, !same.every(one => session.isChosen(choice, one)));
+				session.setSections(choice, same, !same.every(one => session.reconverts(choice, one)));
 			}
 		};
 		box.addEventListener('click', event => event.stopPropagation());
@@ -715,8 +715,15 @@ export class ImportWizard extends Modal {
 			if (kind !== 'section') toggleOpen();
 			else if (!box.disabled) click();
 		});
-		// A section's row converts again on a click anywhere: said where the pointer rests on it.
-		if (kind === 'section') this.restTip(self, () => (self.hasClass('onenote-ferry-kept') ? this.ui.reconvertTip : undefined));
+		// A section's row converts again on a click anywhere: said where the pointer rests on it, and
+		// that pages deleted in Obsidian are not brought back by it (§11.5 item 79).
+		if (kind === 'section') {
+			this.restTip(self, () => {
+				if (!self.hasClass('onenote-ferry-kept')) return undefined;
+				const deleted = node.sections[0] ? session.deletedPages(choice, node.sections[0]).length : 0;
+				return deleted ? this.ui.reconvertKeepsDeleted(deleted) : this.ui.reconvertTip;
+			});
+		}
 
 		rows.push(() => {
 			const states = node.sections.map(stateOf);
@@ -732,11 +739,13 @@ export class ImportWizard extends Modal {
 				box.indeterminate = !every && ticks.some(tick => tick !== false);
 			}
 			else if (same.length) {
-				const chosen = same.filter(one => session.isChosen(choice, one)).length;
+				// Converted again, or only some pages deleted in Obsidian coming back from it (a partial tick).
+				const chosen = same.filter(one => session.reconverts(choice, one)).length;
+				const partly = same.some(one => session.ticked(choice, one) === 'some');
 				box.disabled = false;
 				box.checked = true;
-				box.indeterminate = chosen > 0 && chosen < same.length;
-				kept = chosen === 0;
+				box.indeterminate = (chosen > 0 && chosen < same.length) || (chosen === 0 && partly);
+				kept = chosen === 0 && !partly;
 			}
 			else {
 				box.disabled = true;
@@ -770,7 +779,8 @@ export class ImportWizard extends Modal {
 		const ui = this.ui;
 		const session = this.session;
 		const state = session.sectionState(choice, section);
-		if (state !== 'changed' && state !== 'older' && state !== 'unfinished' && state !== 'restorable') return [];
+		// A section without changes lists only the pages the user deleted in Obsidian, each of which can come back.
+		if (state !== 'changed' && state !== 'older' && state !== 'unfinished' && !(state === 'same' && session.deletedPages(choice, section).length)) return [];
 		const untitled = STRINGS[session.readerLanguage].untitledPage;
 		const folder = session.oldVersionsFolder;
 		const out: ((parent: HTMLElement, rows: (() => void)[]) => void)[] = [];
@@ -803,7 +813,9 @@ export class ImportWizard extends Modal {
 				const box = inner.createEl('input', { type: 'checkbox', cls: 'file-tree-item-checkbox' });
 				setIcon(inner.createDiv('file-tree-item-icon'), 'lucide-file-text');
 				inner.createDiv({ cls: 'file-tree-item-title', text: page.title || untitled });
-				ImportWizard.showFlair(self.createDiv('tree-item-flair-outer').createSpan('tree-item-flair'), { text: ui.pageDeleted, tip: ui.pageDeletedTip });
+				ImportWizard.showFlair(self.createDiv('tree-item-flair-outer').createSpan('tree-item-flair'), { text: ui.pageDeleted });
+				// What a click does, where the pointer rests anywhere on the row, as on a section's row.
+				this.restTip(self, () => (session.isRestored(choice, section, page.id) ? undefined : ui.pageDeletedTip));
 				box.addEventListener('click', event => event.stopPropagation());
 				box.addEventListener('change', () => session.setRestored(choice, section, page.id, box.checked));
 				self.addEventListener('click', () => session.setRestored(choice, section, page.id, !box.checked));
@@ -858,7 +870,7 @@ export class ImportWizard extends Modal {
 			const both = node.sections.some((section, i) => states[i] === 'changed' && session.itemOf(choice, section)?.modified.some(page => page.userEdited));
 			return { text: ui.sectionsChanged(changed), tone: both ? 'warn' : 'strong' };
 		}
-		const reconverting = node.sections.filter((section, i) => states[i] === 'same' && session.isChosen(choice, section)).length;
+		const reconverting = node.sections.filter(section => session.reconverts(choice, section)).length;
 		if (reconverting) return { text: ui.sectionsReconverting(reconverting), tone: 'strong' };
 		if (!states.every(state => QUIET.has(state))) return { text: '' };
 		// Imported in part, the rest left unticked then: "no changes" would read as all of it being there.
@@ -889,12 +901,13 @@ export class ImportWizard extends Modal {
 			}
 			case 'checking': return { text: ui.checkingRow };
 			case 'same': {
-				// Clicked: converted again with the settings chosen now (§11.5 item 65).
-				const chosen = node.sections.filter(one => session.isChosen(choice, one)).length;
-				return chosen && chosen === node.sections.length ? { text: ui.reconvertMark, tone: 'strong' } : { text: ui.unchanged };
+				// Clicked: converted again with the settings chosen now (§11.5 item 65); else what comes back of the pages deleted in Obsidian (§11.5 item 79).
+				const chosen = node.sections.filter(one => session.reconverts(choice, one)).length;
+				if (chosen && chosen === node.sections.length) return { text: ui.reconvertMark, tone: 'strong' };
+				const back = node.sections.reduce((n, one) => n + session.restoredCount(choice, one), 0);
+				return back ? { text: ui.bringingBack(back), tone: 'strong' } : { text: ui.unchanged };
 			}
 			case 'gone': return { text: ui.gone, tip: ui.keptAsIs };
-			case 'restorable': return { text: ui.restorable(session.deletedPages(choice, section).length), tip: ui.restorableTip };
 			case 'changed': {
 				const both = session.itemOf(choice, section)?.modified.filter(page => page.userEdited).length ?? 0;
 				return both ? { text: ui.changed, tone: 'warn', tip: ui.bothEditedIn(both) } : { text: ui.changed, tone: 'strong' };
@@ -969,7 +982,7 @@ export class ImportWizard extends Modal {
 		const box = this.contentEl.createDiv('onenote-ferry-result');
 		const heading = box.createDiv('onenote-ferry-result-heading');
 		// An update with nothing left to do when it started (a cut-off one finished first) did not fail.
-		const failed = !!session.error || (!update && (!outcome || !result));
+		const failed = !!session.error || (!update && (!outcome || !result)) || session.nothingDownloaded;
 		const stopped = !failed && (!!result?.cancelled || !!session.updateResult?.cancelled || (update && session.stopRequested && !session.updateResult));
 		setIcon(heading.createSpan('onenote-ferry-result-icon'), failed ? 'lucide-circle-x' : stopped ? 'lucide-circle-pause' : 'lucide-circle-check');
 		heading.createSpan({ text: update
@@ -977,7 +990,9 @@ export class ImportWizard extends Modal {
 			: failed ? ui.failed : stopped ? ui.stopped : ui.finished });
 		const footer = this.footer();
 		if (failed) {
-			box.createDiv({ cls: 'onenote-ferry-result-line onenote-ferry-warning', text: session.alreadyThere ? ui.alreadyInFolder(session.alreadyThere) : session.error ?? '' });
+			// Nothing could be downloaded from OneDrive: how many, and why.
+			const lines = session.nothingDownloaded && !session.error ? [ui.leftOutNotDownloaded(session.notDownloaded), ...session.notDownloadedWhy] : [session.alreadyThere ? ui.alreadyInFolder(session.alreadyThere) : session.error ?? ''];
+			for (const text of lines) box.createDiv({ cls: 'onenote-ferry-result-line onenote-ferry-warning', text });
 			new ButtonComponent(footer).setButtonText(ui.close).setCta().onClick(() => this.close());
 			return;
 		}
@@ -1020,8 +1035,8 @@ export class ImportWizard extends Modal {
 				if (mine(notebook).some(section => section.cancelled) && mine(notebook).some(section => !section.cancelled)) notes.push(ui.partial(notebook.notebook));
 			}
 		}
-		// Sections chosen from OneDrive that could not be downloaded (password-protected ones are counted with those not converted).
-		if (session.notDownloaded) notes.push(ui.leftOutNotDownloaded(session.notDownloaded));
+		// Sections chosen from OneDrive that could not be downloaded, and why (password-protected ones are counted with those not converted).
+		if (session.notDownloaded) notes.push(ui.leftOutNotDownloaded(session.notDownloaded), ...session.notDownloadedWhy);
 		// Stopped while downloading from OneDrive: nothing of it is lost.
 		if (session.downloadsCut) notes.push(ui.downloadsKept);
 		if (notes.length) {

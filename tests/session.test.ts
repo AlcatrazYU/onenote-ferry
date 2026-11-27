@@ -480,7 +480,7 @@ function importedTides() {
 test('a notebook imported before is read and compared: each section says what changed; changed, new and unfinished are ticked, the rest not', async () => {
 	const { files, tides, pages, mtimes } = importedTides();
 	const { s } = await session(files, { a: [tides] }, { pages, mtimes });
-	assert.deepEqual(states(s), ['changed', 'changed', 'restorable', 'older', 'new', 'skipped', 'missing']);
+	assert.deepEqual(states(s), ['changed', 'changed', 'same', 'older', 'new', 'skipped', 'missing']);
 	const [choice] = s.choices as [typeof s.choices[0]];
 	assert.deepEqual(choice.notebook.sections.map(section => s.isChosen(choice, section)), [true, true, false, false, true, false, false]);
 	assert.deepEqual(s.gone(choice).map(item => item.label), ['Winter']);
@@ -493,23 +493,34 @@ test('a notebook imported before is read and compared: each section says what ch
 	assert.deepEqual(s.itemOf(choice, choice.notebook.sections[1]!)!.modified.map(page => page.userEdited), [true]);
 });
 
-test('a page the user deleted comes back only when ticked; unticking its section takes it back out', async () => {
+test('a page the user deleted never comes back by itself: only its own row brings it back; clicking its section (no changes) converts the section again, the page staying deleted (§11.5 item 79)', async () => {
 	const { files, tides, pages, mtimes } = importedTides();
 	const { s } = await session(files, { a: [tides] }, { pages, mtimes });
 	const [choice] = s.choices as [typeof s.choices[0]];
 	const [spring, , autumn] = choice.notebook.sections as [DownloadSection, DownloadSection, DownloadSection];
+	// A section with a page deleted in Obsidian is one without changes, like any other.
+	assert.equal(s.sectionState(choice, autumn), 'same');
 	assert.deepEqual(s.deletedPages(choice, autumn).map(page => page.id), ['{0D}']);
 	assert.equal(s.ticked(choice, autumn), false);
+	// The page's own row: only it comes back, with its section's own settings; the section is partly ticked.
 	s.setRestored(choice, autumn, '{0D}', true);
 	assert.equal(s.isChosen(choice, autumn), true);
-	assert.equal(s.ticked(choice, autumn), true);
-	assert.equal(s.updateCounts().restored, 1);
-	s.setSections(choice, [autumn], false);
-	assert.equal(s.isRestored(choice, autumn, '{0D}'), false);
-	assert.equal(s.updateCounts().restored, 0);
-	// Ticking the section brings back all its deleted pages.
+	assert.equal(s.ticked(choice, autumn), 'some');
+	assert.deepEqual([s.updateCounts().reconverted, s.updateCounts().restored], [0, 1]);
+	s.setRestored(choice, autumn, '{0D}', false);
+	assert.equal(s.isChosen(choice, autumn), false);
+	// Clicking the section converts it again with the settings chosen now; its deleted page stays deleted.
 	s.setSections(choice, [autumn], true);
-	assert.equal(s.isRestored(choice, autumn, '{0D}'), true);
+	assert.equal(s.ticked(choice, autumn), true);
+	assert.equal(s.isRestored(choice, autumn, '{0D}'), false);
+	assert.deepEqual([s.updateCounts().reconverted, s.updateCounts().restored], [1, 0]);
+	assert.equal(s.settingsUsed, true);
+	// Its page too, by its own row; clicking the section again stops converting it, the page still coming back.
+	s.setRestored(choice, autumn, '{0D}', true);
+	assert.deepEqual([s.updateCounts().reconverted, s.updateCounts().restored], [1, 1]);
+	s.setSections(choice, [autumn], false);
+	assert.equal(s.ticked(choice, autumn), 'some');
+	assert.deepEqual([s.updateCounts().reconverted, s.updateCounts().restored], [0, 1]);
 	// Unticking a changed section: it is not updated.
 	s.setSections(choice, [spring], false);
 	assert.equal(s.updateCounts().updated, 1);
@@ -522,7 +533,8 @@ test('select all takes everything that can be ticked, including what is left unt
 	s.selectAll(true);
 	await settled(s);
 	assert.equal(s.allChosen, true);
-	assert.deepEqual(s.updateCounts(), { updated: 3, added: 3, restored: 1, bothEdited: 1, reconverted: 0 });
+	// A section with only pages deleted in Obsidian has nothing to do: not taken (§11.5 item 79).
+	assert.deepEqual(s.updateCounts(), { updated: 3, added: 3, restored: 0, bothEdited: 1, reconverted: 0 });
 	s.selectAll(false);
 	await settled(s);
 	assert.deepEqual(s.included(), []);
@@ -666,7 +678,7 @@ test('OneDrive: a notebook imported before is brought up to date whole before it
 	const [choice] = s.choices as [typeof s.choices[0]];
 	const byLabel = Object.fromEntries(choice.notebook.sections.map(section => [section.label, [s.sectionState(choice, section), s.isChosen(choice, section)]]));
 	assert.deepEqual(byLabel, {
-		Spring: ['changed', true], Summer: ['unreadable', false], Autumn: ['restorable', false], Older: ['older', false],
+		Spring: ['changed', true], Summer: ['unreadable', false], Autumn: ['same', false], Older: ['older', false],
 		Fresh: ['new', true], Skipped: ['skipped', false], Lost: ['missing', false],
 	});
 	assert.equal(client.scanned, 6, 'the section not downloaded is not read');
@@ -692,6 +704,20 @@ test('OneDrive: stopped while downloading, the result says what came down is kep
 	assert.equal(s.downloadsCut, true);
 	assert.equal(s.downloading, undefined);
 	assert.equal(s.notDownloaded, 0);
+});
+
+test('OneDrive: when none of the chosen sections can be downloaded, the import has failed, and says why (§11.5 item 79)', async () => {
+	const drive = fakeOneDrive([{ id: 'n1', name: 'Atlas', files: ['A.one', 'B.one'] }]);
+	const { s } = await oneDriveSession({}, drive);
+	(drive.access as any).copy = async () => {
+		throw new Error('Not enough disk space to download: 2.1 GB needed.');
+	};
+	const going = new Set(s.choices.flatMap(choice => choice.notebook.sections));
+	await (s as any).fetchChosen(s.choices, going);
+	assert.equal(s.notDownloaded, 2);
+	assert.deepEqual([...s.notDownloadedWhy], ['Not enough disk space to download: 2.1 GB needed.']);
+	assert.equal(going.size, 0);
+	assert.equal(s.nothingDownloaded, true);
 });
 
 test('OneDrive: an import downloads the chosen sections and every table of contents, nothing else', () => {

@@ -341,6 +341,64 @@ function fontId(bytes: Uint8Array): string {
 	return hash.toString(36);
 }
 
+/**
+ * A picture's resolution in dots per inch, as a brush's Viewbox counts it: from a PNG's pHYs chunk
+ * or a JPEG's JFIF header, else 96 ([MS-XPS] / ECMA-388: a picture without one is taken at 96).
+ */
+export function resolution(b: Uint8Array): { x: number, y: number } {
+	const view = new DataView(b.buffer, b.byteOffset, b.byteLength);
+	const ascii = (at: number, length: number) => String.fromCharCode(...b.subarray(at, at + length));
+	if (b.length >= 8 && b[0] === 0x89 && ascii(1, 3) === 'PNG') {
+		for (let at = 8; at + 12 <= b.length;) {
+			const length = view.getUint32(at), type = ascii(at + 4, 4);
+			if (type === 'pHYs' && length >= 9 && at + 17 <= b.length) {
+				const x = view.getUint32(at + 8) * 0.0254, y = view.getUint32(at + 12) * 0.0254;
+				if (b[at + 16] === 1 && x > 0 && y > 0) return { x, y };
+				break;
+			}
+			if (type === 'IDAT' || type === 'IEND') break;
+			at += 12 + length;
+		}
+	}
+	else if (b.length >= 18 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff && b[3] === 0xe0 && ascii(6, 5) === 'JFIF\0') {
+		const units = b[13], x = view.getUint16(14), y = view.getUint16(16);
+		if (x > 0 && y > 0 && units === 1) return { x, y };
+		if (x > 0 && y > 0 && units === 2) return { x: x * 2.54, y: y * 2.54 };
+	}
+	return { x: 96, y: 96 };
+}
+
+const LINE_CAPS: Record<string, string> = { Flat: 'butt', Square: 'square', Round: 'round' };
+const LINE_JOINS: Record<string, string> = { Miter: 'miter', Bevel: 'bevel', Round: 'round' };
+
+/**
+ * How a path's stroke is drawn, as SVG attributes: caps, joins (XPS mitres up to 10, SVG to 4 unless
+ * told) and dashes, which XPS counts in stroke widths (§11.5 item 79). Throws on what SVG cannot
+ * draw the same way: triangle caps, or different caps at the two ends or on the dashes.
+ */
+function strokeStyle(attrs: Map<string, string>, thickness: number): string {
+	const start = attrs.get('StrokeStartLineCap') ?? 'Flat', end = attrs.get('StrokeEndLineCap') ?? 'Flat', dashCap = attrs.get('StrokeDashCap') ?? 'Flat';
+	const dashes = attrs.get('StrokeDashArray');
+	if (!LINE_CAPS[start] || start !== end || (dashes !== undefined && dashCap !== start)) throw new Error('line caps');
+	const join = attrs.get('StrokeLineJoin') ?? 'Miter';
+	if (!LINE_JOINS[join]) throw new Error('line join');
+	let out = start !== 'Flat' ? ` stroke-linecap="${LINE_CAPS[start]}"` : '';
+	if (join !== 'Miter') out += ` stroke-linejoin="${LINE_JOINS[join]}"`;
+	else {
+		const limit = Number(attrs.get('StrokeMiterLimit') ?? '10');
+		if (!(limit >= 1)) throw new Error('miter limit');
+		out += ` stroke-miterlimit="${limit}"`;
+	}
+	if (dashes !== undefined) {
+		const values = dashes.trim().split(/[\s,]+/).map(Number);
+		const offset = Number(attrs.get('StrokeDashOffset') ?? '0');
+		if (!values.length || values.some(value => !(value >= 0)) || values.every(value => value === 0) || !Number.isFinite(offset)) throw new Error('dashes');
+		const scaled = (value: number) => Math.round(value * thickness * 1000) / 1000;
+		out += ` stroke-dasharray="${values.map(scaled).join(' ')}"${offset ? ` stroke-dashoffset="${scaled(offset)}"` : ''}`;
+	}
+	return out;
+}
+
 /** A font of the document, read once (`fonts` holds them by part name); undefined when it cannot be read here. */
 function readFont(pkg: Package, fonts: Map<string, Promise<Font | undefined>>, at: string): Promise<Font | undefined> {
 	if (!fonts.has(at)) {
@@ -361,7 +419,7 @@ async function pageSvg(pkg: Package, path: string, fonts: Map<string, Promise<Fo
 	const xml = await pkg.text(path);
 	if (xml === undefined) return undefined;
 	// What is not drawn here: other brushes, transforms and data given as elements, visuals.
-	const unsupported = xml.match(/<(RadialGradientBrush|VisualBrush|[\w]+\.RenderTransform|[\w]+\.OpacityMask|Path\.Data|ImageBrush\.Transform|LinearGradientBrush\.Transform)\b/);
+	const unsupported = xml.match(/<(RadialGradientBrush|VisualBrush|[\w]+\.RenderTransform|[\w]+\.OpacityMask|[\w]+\.Clip|Path\.Data|ImageBrush\.Transform|LinearGradientBrush\.Transform)\b/);
 	if (unsupported) throw new Error(unsupported[1]!);
 	if (/\sOpacityMask\s*=/.test(xml)) throw new Error('opacity mask');
 	// Fonts the page's text uses, read once per document; glyph outlines go into the page's defs once.
@@ -394,24 +452,58 @@ async function pageSvg(pkg: Package, path: string, fonts: Map<string, Promise<Fo
 	};
 	const fontAt = (at: string) => readFont(pkg, fonts, at);
 	// Shapes kept in resource dictionaries (the page's own, and those it names).
-	const shapes = new Map<string, { figures: string, rule: string }>();
+	const shapes = new Map<string, { figures: string, rule: string, transformed: boolean }>();
 	const dictionaries = [xml];
 	for (const source of sources(xml, 'ResourceDictionary')) dictionaries.push(await pkg.text(resolve(path, source)) ?? '');
 	for (const dictionary of dictionaries) {
 		for (const match of dictionary.matchAll(/<PathGeometry\b([^>]*?)\/?>/g)) {
 			const attrs = attributes(match[1]!);
 			const key = attrs.get('x:Key'), figures = attrs.get('Figures');
-			if (key && figures) shapes.set(key, { figures, rule: attrs.get('FillRule') === 'NonZero' ? 'F1 ' : 'F0 ' });
+			if (key && figures) shapes.set(key, { figures, rule: attrs.get('FillRule') === 'NonZero' ? 'F1 ' : 'F0 ', transformed: attrs.has('Transform') });
 		}
 	}
+	/** A shape given as path data or as a resource (`{StaticResource key}`), as SVG path data and fill rule. */
+	const shapeOf = (data: string) => {
+		const resource = data.match(/^\{StaticResource\s+([^}\s]+)\s*\}$/);
+		const shape = resource ? shapes.get(resource[1]!) : undefined;
+		if (resource && !shape) throw new Error('missing resource');
+		if (shape?.transformed) throw new Error('shape transform');
+		const geo = geometry(shape ? shape.rule + shape.figures : data);
+		if (!geo) throw new Error('path data');
+		return geo;
+	};
+	/** Clip regions, as SVG clip paths in the defs, by their id. */
+	const clips = new Map<string, string>();
+	/** A clip path for a shape: in the coordinates of the element that uses it, after its own transform, as in XPS. */
+	const clipPath = (geo: { d: string, rule: string }) => {
+		const body = `<path d="${geo.d}" clip-rule="${geo.rule}"/>`;
+		const id = `cp${fontId(new TextEncoder().encode(body))}`;
+		clips.set(id, `<clipPath id="${id}" clipPathUnits="userSpaceOnUse">${body}</clipPath>`);
+		return `url(#${id})`;
+	};
+	/** An element's Clip ([MS-XPS] / ECMA-388 14.3) as a clip-path attribute, or nothing (§11.5 item 79). */
+	const clipOf = (attrs: Map<string, string>) => {
+		const value = attrs.get('Clip');
+		return value === undefined ? '' : ` clip-path="${clipPath(shapeOf(value))}"`;
+	};
+	/** A solid colour brush (or a colour given as an attribute) as SVG paint, the brush's opacity included. */
+	const solid = (brush: Map<string, string> | undefined, attribute: string | undefined) => {
+		const paint = colour(brush?.get('Color') ?? attribute);
+		if (!paint || !brush?.has('Opacity')) return paint;
+		const opacity = Number(brush.get('Opacity'));
+		if (!(opacity >= 0 && opacity <= 1)) throw new Error('brush opacity');
+		return { paint: paint.paint, opacity: paint.opacity * opacity };
+	};
 
 	const images = new Map<string, { href: string, width: number, height: number } | undefined>();
+	/** A picture, with its size in the units of a brush's Viewbox: 1/96 inch at its own resolution. */
 	const image = async (source: string) => {
 		const at = resolve(path, source);
 		if (!images.has(at)) {
 			const bytes = await pkg.read(at);
 			const info = bytes && pictureInfo(bytes);
-			images.set(at, bytes && info && /^image\/(png|jpeg|gif)$/.test(info.mime) ? { href: `data:${info.mime};base64,${base64(bytes)}`, width: info.width, height: info.height } : undefined);
+			const dpi = bytes && resolution(bytes);
+			images.set(at, bytes && info && dpi && /^image\/(png|jpeg|gif)$/.test(info.mime) ? { href: `data:${info.mime};base64,${base64(bytes)}`, width: Math.round(info.width * 96 / dpi.x * 1000) / 1000, height: Math.round(info.height * 96 / dpi.y * 1000) / 1000 } : undefined);
 		}
 		return images.get(at);
 	};
@@ -421,35 +513,40 @@ async function pageSvg(pkg: Package, path: string, fonts: Map<string, Promise<Fo
 	// The path being read (its fill or stroke may come as an element inside it).
 	let current: { attrs: Map<string, string>, fill?: Map<string, string>, image?: Map<string, string>, stroke?: Map<string, string>, within?: 'fill' | 'stroke', gradient?: { brush: Map<string, string>, stops: Map<string, string>[], within: 'fill' | 'stroke' }, fillGradient?: string, strokeGradient?: string } | undefined;
 	const emitPath = async (attrs: Map<string, string>, fill?: Map<string, string>, imageBrush?: Map<string, string>, stroke?: Map<string, string>, gradientFill?: string, gradientStroke?: string) => {
-		const data = attrs.get('Data') ?? '';
-		const resource = data.match(/^\{StaticResource\s+([^}\s]+)\s*\}$/);
-		const shape = resource ? shapes.get(resource[1]!) : undefined;
-		if (resource && !shape) throw new Error('missing resource');
-		const geo = geometry(shape ? shape.rule + shape.figures : data);
-		if (!geo) throw new Error('path data');
+		const geo = shapeOf(attrs.get('Data') ?? '');
 		const parts: string[] = [];
 		const transform = attrs.get('RenderTransform');
 		const opacity = attrs.has('Opacity') ? Number(attrs.get('Opacity')) : 1;
 		if (!(opacity >= 0 && opacity <= 1)) throw new Error('opacity');
-		const open = [transform !== undefined ? ` transform="${matrix(transform) ?? ''}"` : '', opacity !== 1 ? ` opacity="${opacity}"` : ''].join('');
 		if (transform !== undefined && !matrix(transform)) throw new Error('transform');
+		const open = [transform !== undefined ? ` transform="${matrix(transform)}"` : '', opacity !== 1 ? ` opacity="${opacity}"` : '', clipOf(attrs)].join('');
+		const line = gradientStroke ? { paint: gradientStroke, opacity: 1 } : solid(stroke, attrs.get('Stroke'));
+		if ((stroke || attrs.has('Stroke')) && !line) throw new Error('stroke');
+		const thickness = Number(attrs.get('StrokeThickness') ?? '1');
+		if (line && !(thickness >= 0)) throw new Error('stroke thickness');
+		const strokeAttrs = line ? ` stroke="${line.paint}" stroke-width="${thickness}"${line.opacity < 1 ? ` stroke-opacity="${line.opacity.toFixed(3)}"` : ''}${strokeStyle(attrs, thickness)}` : '';
 		if (imageBrush) {
 			const tile = imageBrush.get('TileMode') ?? 'None';
 			const port = numbers(imageBrush.get('Viewport'), 4), box = numbers(imageBrush.get('Viewbox'), 4);
 			const picture = await image(imageBrush.get('ImageSource') ?? '');
-			if (tile !== 'None' || !port || !box || !picture || imageBrush.get('ViewportUnits') !== 'Absolute') throw new Error('image brush');
-			// The whole picture into the viewport (as MXDC writes them): a part of it is not drawn here.
-			if (box[0] !== 0 || box[1] !== 0 || Math.abs(box[2]! / box[3]! - picture.width / picture.height) > 0.02 * (picture.width / picture.height)) throw new Error('viewbox');
-			parts.push(`<image x="${port[0]}" y="${port[1]}" width="${port[2]}" height="${port[3]}" preserveAspectRatio="none" href="${picture.href}"/>`);
+			if (tile !== 'None' || !port || !box || !picture || imageBrush.get('ViewportUnits') !== 'Absolute' || (imageBrush.get('ViewboxUnits') ?? 'Absolute') !== 'Absolute') throw new Error('image brush');
+			if (imageBrush.has('Transform')) throw new Error('image brush transform');
+			if (!(box[2]! > 0 && box[3]! > 0 && port[2]! > 0 && port[3]! > 0)) throw new Error('viewbox');
+			const brushOpacity = imageBrush.has('Opacity') ? Number(imageBrush.get('Opacity')) : 1;
+			if (!(brushOpacity >= 0 && brushOpacity <= 1)) throw new Error('brush opacity');
+			// The brush's Viewbox (in 1/96 inch of the picture at its own resolution) stretched over its
+			// Viewport, painted only inside the path's own shape (§11.5 item 79).
+			const picturePart = `<svg x="${port[0]}" y="${port[1]}" width="${port[2]}" height="${port[3]}" viewBox="${box.join(' ')}" preserveAspectRatio="none"><image width="${picture.width}" height="${picture.height}" preserveAspectRatio="none"${brushOpacity !== 1 ? ` opacity="${brushOpacity}"` : ''} href="${picture.href}"/></svg>`;
+			// The path's Clip is often its own shape (as MXDC writes picture strips): clipped once.
+			const own = clipPath(geo);
+			parts.push(open.includes(own) ? picturePart : `<g clip-path="${own}">${picturePart}</g>`);
+			if (line) parts.push(`<path d="${geo.d}" fill="none"${strokeAttrs}/>`);
 		}
 		else {
-			const paint = gradientFill ? { paint: gradientFill, opacity: 1 } : colour(fill?.get('Color') ?? attrs.get('Fill'));
-			const line = gradientStroke ? { paint: gradientStroke, opacity: 1 } : colour(stroke?.get('Color') ?? attrs.get('Stroke'));
+			const paint = gradientFill ? { paint: gradientFill, opacity: 1 } : solid(fill, attrs.get('Fill'));
 			if ((fill || attrs.has('Fill')) && !paint) throw new Error('fill');
-			if ((stroke || attrs.has('Stroke')) && !line) throw new Error('stroke');
 			if (!paint && !line) return;
-			const thickness = Number(attrs.get('StrokeThickness') ?? '1');
-			parts.push(`<path d="${geo.d}" fill-rule="${geo.rule}" fill="${paint ? paint.paint : 'none'}"${paint && paint.opacity < 1 ? ` fill-opacity="${paint.opacity.toFixed(3)}"` : ''}${line ? ` stroke="${line.paint}" stroke-width="${thickness}"${line.opacity < 1 ? ` stroke-opacity="${line.opacity.toFixed(3)}"` : ''}` : ''}/>`);
+			parts.push(`<path d="${geo.d}" fill-rule="${geo.rule}" fill="${paint ? paint.paint : 'none'}"${paint && paint.opacity < 1 ? ` fill-opacity="${paint.opacity.toFixed(3)}"` : ''}${strokeAttrs}/>`);
 		}
 		out.push(open ? `<g${open}>${parts.join('')}</g>` : parts.join(''));
 	};
@@ -460,7 +557,7 @@ async function pageSvg(pkg: Package, path: string, fonts: Map<string, Promise<Fo
 		if (!uri || uri.includes('#')) throw new Error('font reference');
 		const font = await fontAt(resolve(path, uri));
 		if (!font) throw new Error('font not read');
-		const paint = colour(fill?.get('Color') ?? attrs.get('Fill'));
+		const paint = solid(fill, attrs.get('Fill'));
 		if (!paint) throw new Error('glyph fill');
 		if (Number(attrs.get('BidiLevel') ?? '0') % 2 === 1) throw new Error('right to left text');
 		if (attrs.get('IsSideways') === 'true') throw new Error('sideways text');
@@ -488,7 +585,7 @@ async function pageSvg(pkg: Package, path: string, fonts: Map<string, Promise<Fo
 		}
 		if (!uses.length) return;
 		const bold = /Bold/.test(simulation) ? ` stroke="${paint.paint}" stroke-width="${Math.round(font.unitsPerEm * 0.02)}"${paint.opacity < 1 ? ` stroke-opacity="${paint.opacity.toFixed(3)}"` : ''}` : '';
-		out.push(`<g${transform !== undefined ? ` transform="${matrix(transform)}"` : ''}${opacity !== 1 ? ` opacity="${opacity}"` : ''} fill="${paint.paint}"${paint.opacity < 1 ? ` fill-opacity="${paint.opacity.toFixed(3)}"` : ''}${bold}>${uses.join('')}</g>`);
+		out.push(`<g${transform !== undefined ? ` transform="${matrix(transform)}"` : ''}${opacity !== 1 ? ` opacity="${opacity}"` : ''}${clipOf(attrs)} fill="${paint.paint}"${paint.opacity < 1 ? ` fill-opacity="${paint.opacity.toFixed(3)}"` : ''}${bold}>${uses.join('')}</g>`);
 	};
 	let glyphs: { attrs: Map<string, string>, fill?: Map<string, string>, within?: boolean } | undefined;
 
@@ -511,7 +608,7 @@ async function pageSvg(pkg: Package, path: string, fonts: Map<string, Promise<Fo
 				const value = attrs.has('Opacity') ? Number(attrs.get('Opacity')) : 1;
 				if (!(value >= 0 && value <= 1)) return undefined;
 				const opacity = value !== 1 ? ` opacity="${value}"` : '';
-				out.push(`<g${transform !== undefined ? ` transform="${matrix(transform)}"` : ''}${opacity}>`);
+				out.push(`<g${transform !== undefined ? ` transform="${matrix(transform)}"` : ''}${opacity}${clipOf(attrs)}>`);
 			}
 		}
 		else if (name === 'Path') {
@@ -557,7 +654,7 @@ async function pageSvg(pkg: Package, path: string, fonts: Map<string, Promise<Fo
 	const comments = xml.replace(/<!--[\s\S]*?-->|<\?[\s\S]*?\?>/g, '');
 	if (tags !== (comments.match(/<[A-Za-z/]/g) ?? []).length) return undefined;
 	if (!(width > 0) || !(height > 0)) return undefined;
-	const glyphDefs = defs.size || gradients.size ? `<defs>${[...gradients.values()].join('')}${[...defs].map(([ref, d]) => `<path id="${ref}" d="${d}"/>`).join('')}</defs>` : '';
+	const glyphDefs = defs.size || gradients.size || clips.size ? `<defs>${[...gradients.values()].join('')}${[...clips.values()].join('')}${[...defs].map(([ref, d]) => `<path id="${ref}" d="${d}"/>`).join('')}</defs>` : '';
 	return { width, height, content: `${glyphDefs}<rect width="${width}" height="${height}" fill="#ffffff"/>${out.join('')}` };
 }
 
@@ -594,6 +691,10 @@ interface TextRun {
 	given: string;
 	first?: Point;
 	next: Point[];
+	/** One em below its last glyph: where a column of vertical writing goes on. */
+	below?: Point;
+	/** Its glyphs go down the page (vertical writing): more than one, set one below the other. */
+	vertical: boolean;
 	/** The em size on the page. */
 	em: number;
 }
@@ -646,28 +747,32 @@ export function textRun(attrs: Map<string, string>, font: Font | undefined, m: M
 		place(font?.glyphOf(character.codePointAt(0)!), undefined, 0, 0);
 	}
 	if (!text) return undefined;
-	if (!placed || !origins.length) return { text, given, next: [], em: 0 };
+	if (!placed || !origins.length) return { text, given, next: [], vertical: false, em: 0 };
 	const transform = compose(m, transformOf(attrs.get('RenderTransform')));
 	const scale = Math.sqrt(Math.abs(transform[0] * transform[3] - transform[1] * transform[2]));
 	const at0 = (point: Point) => apply(transform, ox + point.x, oy + point.y);
 	const first = at0(origins[0]!), last = at0(origins[origins.length - 1]!);
 	const pageEm = em * scale;
-	// Where the next glyph would go: along the run's advance, one more step as its glyphs go (down a
-	// column, where they are placed by offsets and advance nothing), or one em down (a column of one).
-	const next: Point[] = [{ x: last.x, y: last.y + pageEm }];
+	// Where the next glyph would go: along the run's advance, or one more step as its glyphs go (down
+	// a column, where they are placed by offsets and advance nothing).
+	const next: Point[] = [];
 	if (ends) next.push(apply(transform, ox + x, oy + v));
+	let vertical = false;
 	if (origins.length > 1) {
 		const before = at0(origins[origins.length - 2]!);
 		next.push({ x: 2 * last.x - before.x, y: 2 * last.y - before.y });
+		vertical = Math.abs(last.y - before.y) > Math.abs(last.x - before.x);
 	}
-	return { text, given, first, next, em: pageEm };
+	return { text, given, first, next, below: { x: last.x, y: last.y + pageEm }, vertical, em: pageEm };
 }
 
 /**
  * The text of one page (§11.5 item 78), whether it can be drawn here or not. Runs are taken in the
  * document's order; a run that starts where an earlier one would go on (within half an em) is
  * joined to it, so a line split into several runs, or a column of vertical text with its ruby set
- * apart, reads as one piece; everything else starts a new line.
+ * apart, reads as one piece; everything else starts a new line. Going on one em below counts only
+ * on a page with vertical writing, and there only after a run of it or of one glyph: on other pages
+ * a bullet or a table cell of one character would be joined to the line below (§11.5 item 79).
  */
 async function pageText(pkg: Package, path: string, fonts: Map<string, Promise<Font | undefined>>): Promise<PageText | undefined> {
 	const xml = await pkg.text(path);
@@ -691,16 +796,18 @@ async function pageText(pkg: Package, path: string, fonts: Map<string, Promise<F
 		const run = textRun(attrs, font, top);
 		if (run) runs.push(run);
 	}
+	const verticalPage = runs.some(run => run.vertical);
+	const goesOn = (run: TextRun) => (verticalPage && run.below && (run.vertical || [...run.text].length === 1) ? [...run.next, run.below] : run.next);
 	const lines: { text: string, next: Point[], em: number }[] = [];
 	for (const run of runs) {
 		const first = run.first;
 		const line = first && lines.slice(-64).reverse().find(earlier => earlier.next.some(point => Math.hypot(point.x - first.x, point.y - first.y) <= 0.5 * Math.max(earlier.em, run.em)));
 		if (line) {
 			line.text += run.text;
-			line.next = run.next;
+			line.next = goesOn(run);
 			line.em = run.em;
 		}
-		else lines.push({ text: run.text, next: run.next, em: run.em });
+		else lines.push({ text: run.text, next: goesOn(run), em: run.em });
 	}
 	const text = lines.map(line => line.text.trim()).filter(Boolean).join('\n');
 	return text ? { text, given: runs.map(run => run.given).join('\n') } : undefined;

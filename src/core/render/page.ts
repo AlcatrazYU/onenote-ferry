@@ -803,6 +803,8 @@ class PageWriter {
 		}
 		this.attachments.push(attachment);
 		const target = `<${attachment.path}>`;
+		// A TIF that could not be written as PNG (compressed, several pages, §11.5 item 79): Obsidian cannot show it, so linked and said so.
+		if (embed && /\.tiff?$/i.test(attachment.path)) return `[${this.options.strings.unshownPicture('TIF')}](${target})`;
 		return embed ? `![${label}](${target})` : `[${label}](${target})`;
 	}
 

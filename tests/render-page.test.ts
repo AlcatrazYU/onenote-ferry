@@ -294,6 +294,11 @@ test('pictures without data keep the text OneNote recognized in them: after thei
 	].join('\n\n'));
 });
 
+test('a TIF that stayed a TIF (it could not be written as PNG) is linked with a label saying Obsidian cannot show it', async () => {
+	const tif: Image = { kind: 'image', data: stored('t.tif'), extension: 'tif' };
+	assert.equal(await md(page([box([tif])])), '[TIF 图片（Obsidian 无法显示这种格式）](<_附件/img1.tif>)');
+});
+
 test('a picture Obsidian cannot show (EMF) is linked with a label saying so, not embedded', async () => {
 	const emf: Image = { kind: 'image', data: stored('e.emf'), extension: 'emf' };
 	const out = await md(page([box([emf])]));
