@@ -8,7 +8,7 @@
 // changed in a word or two (why, on hover), a section that changed opens to its pages, and the
 // bottom says what the update will do. Only what needs a decision stands out.
 
-import { ButtonComponent, Modal, Notice, ProgressBarComponent, Setting, SettingGroup, setIcon, setTooltip } from 'obsidian';
+import { ButtonComponent, Modal, Notice, ProgressBarComponent, Setting, SettingGroup, setIcon } from 'obsidian';
 import type { App } from 'obsidian';
 import type { DownloadNotebook, DownloadSection } from '../core/download.ts';
 import type { RemoteNotebook } from '../core/onedrive.ts';
@@ -47,6 +47,16 @@ const BOTH_IN_ONE_DIALOG = process.platform === 'darwin';
 /** How long the OneDrive row's line keeps a way of showing (progress, sliding, none) before it changes to another. */
 const LINE_HOLD_MS = 400;
 
+
+/**
+ * Hover text, as the plain tooltip by the pointer (the `title`), or none. One kind for all that
+ * explains (§11.5 item 82): it does not cover the window or reach out of it, and screen readers read
+ * it out. Obsidian's dark tooltip is left to the icon buttons and the status bar, as in Obsidian.
+ */
+function showTip(el: HTMLElement, tip: string | undefined): void {
+	if (tip) el.setAttr('title', tip);
+	else el.removeAttribute('title');
+}
 
 /** An icon at the start of a setting row, the way Obsidian's own rows have one. */
 function rowIcon(setting: Setting, icon: string): void {
@@ -147,8 +157,6 @@ export class ImportWizard extends Modal {
 	/** How the line shows now, since when; and a look again once it may change. */
 	private lineShown?: LineShown;
 	private lineTimer?: number;
-	/** The tip shown where the pointer rests on a section's row (see restTip). */
-	private rowTip?: HTMLElement;
 	/** Microsoft's sign-in page is open in the browser, for adding OneDrive. */
 	private signingIn = false;
 
@@ -174,7 +182,6 @@ export class ImportWizard extends Modal {
 	}
 
 	onClose(): void {
-		this.hideRowTip();
 		this.off?.();
 		window.clearInterval(this.timer);
 		window.clearTimeout(this.lineTimer);
@@ -391,10 +398,10 @@ export class ImportWizard extends Modal {
 		// exported by OneNote for Windows.
 		const add = (name: string, desc: string, kind: 'both' | 'zip' | 'folder' | 'onedrive') => {
 			const row = new Setting(listEl).setClass('mod-add-item').setName(name);
-			// What it takes, in a card where the pointer rests, so the rows stay one line each and the
-			// text need not be cut to fit beside the name. Read out by screen readers.
-			this.restTip(row.settingEl, () => desc, true);
-			row.settingEl.setAttr('aria-description', desc);
+			// What it takes, in the plain tooltip by the pointer (as a OneDrive notebook's place is), so
+			// the rows stay one line each and the text need not be cut to fit beside the name. Screen
+			// readers read it out too.
+			showTip(row.settingEl, desc);
 			rowIcon(row, 'lucide-plus');
 			rowAction(row, byKeyboard => void (kind === 'onedrive' ? this.fromOneDrive() : this.choose(kind, byKeyboard)));
 		};
@@ -550,7 +557,6 @@ export class ImportWizard extends Modal {
 	/** Draws the tree; answers what updates each row in place (ticks, names, notes). */
 	private drawTree(listEl: HTMLElement): (() => void)[] {
 		const session = this.session;
-		this.hideRowTip();
 		listEl.empty();
 		const rows: (() => void)[] = [];
 		// Nothing chosen yet: the place says what will come here, so the page keeps its shape.
@@ -581,59 +587,8 @@ export class ImportWizard extends Modal {
 		el.setText(flair.text);
 		el.toggleClass('onenote-ferry-flair-strong', flair.tone === 'strong');
 		el.toggleClass('onenote-ferry-flair-warn', flair.tone === 'warn');
-		// Why, on hover: a quiet card in the window's own colours rather than Obsidian's dark bubble.
-		// Hover text never ends with a full stop (§11.5 item 74).
-		if (flair.tip) setTooltip(el, flair.tip, { placement: 'top', gap: 6, classes: ['onenote-ferry-tip'] });
-		else el.removeAttribute('aria-label');
-	}
-
-	/**
-	 * Shows `text` where the pointer comes to rest on `row`, as a tooltip does, while it gives one: the
-	 * row is as wide as the window, and a tip pinned to its middle is far from the pointer. Gone when
-	 * the pointer leaves the row or clicks. Each line of `text` is a paragraph; `wide` cards are for
-	 * lists that read best a line an item.
-	 */
-	private restTip(row: HTMLElement, text: () => string | undefined, wide = false): void {
-		let timer = 0;
-		let shown = false;
-		const end = () => {
-			row.win.clearTimeout(timer);
-			if (shown) this.hideRowTip();
-			shown = false;
-		};
-		row.addEventListener('mousemove', event => {
-			if (shown) return;
-			row.win.clearTimeout(timer);
-			if (text() === undefined) return;
-			const { clientX: x, clientY: y } = event;
-			timer = row.win.setTimeout(() => {
-				const tip = text();
-				if (tip === undefined || !row.isConnected) return;
-				shown = true;
-				this.showRowTip(row, x, y, tip, wide);
-			}, 500);
-		});
-		row.addEventListener('mouseleave', end);
-		row.addEventListener('click', end);
-	}
-
-	/** Obsidian's tooltip, in our quiet card, centred above the pointer (below it at the window's top). */
-	private showRowTip(row: HTMLElement, x: number, y: number, text: string, wide: boolean): void {
-		this.hideRowTip();
-		const tip = row.doc.body.createDiv({ cls: wide ? 'tooltip onenote-ferry-tip onenote-ferry-tip-wide' : 'tooltip onenote-ferry-tip' });
-		for (const line of text.split('\n')) tip.createDiv({ text: line });
-		const half = tip.offsetWidth / 2;
-		const above = y - tip.offsetHeight - 12;
-		tip.setCssStyles({
-			left: `${Math.min(Math.max(x, half + 8), row.win.innerWidth - half - 8)}px`,
-			top: `${above >= 8 ? above : y + 20}px`,
-		});
-		this.rowTip = tip;
-	}
-
-	private hideRowTip(): void {
-		this.rowTip?.remove();
-		this.rowTip = undefined;
+		// Why, in the plain tooltip by the pointer. Hover text never ends with a full stop (§11.5 item 74).
+		showTip(el, flair.tip);
 	}
 
 	/** One row of the tree, and the rows under it (for a section that changed, its pages). */
@@ -715,16 +670,6 @@ export class ImportWizard extends Modal {
 			if (kind !== 'section') toggleOpen();
 			else if (!box.disabled) click();
 		});
-		// A section's row converts again on a click anywhere: said where the pointer rests on it, and
-		// that pages deleted in Obsidian are not brought back by it (§11.5 item 79).
-		if (kind === 'section') {
-			this.restTip(self, () => {
-				if (!self.hasClass('onenote-ferry-kept')) return undefined;
-				const deleted = node.sections[0] ? session.deletedPages(choice, node.sections[0]).length : 0;
-				return deleted ? this.ui.reconvertKeepsDeleted(deleted) : this.ui.reconvertTip;
-			});
-		}
-
 		rows.push(() => {
 			const states = node.sections.map(stateOf);
 			const todo = pending();
@@ -756,9 +701,11 @@ export class ImportWizard extends Modal {
 			box.setAttr('data-indeterminate', String(box.indeterminate));
 			self.toggleClass('is-disabled', box.disabled);
 			self.toggleClass('onenote-ferry-kept', kept);
-			// On a notebook's or group's row only the box converts again (a click elsewhere opens it).
-			if (kind !== 'section' && kept) setTooltip(box, this.ui.reconvertTip, { placement: 'top', gap: 6, classes: ['onenote-ferry-tip'] });
-			else if (kind !== 'section') box.removeAttribute('aria-label');
+			// What a click on a dimmed tick does, on hover: anywhere on a section's row (a click there
+			// converts it again; pages deleted in Obsidian do not come back by it, §11.5 item 79), and on
+			// a notebook's or group's row only on the box (a click elsewhere opens the row).
+			const deleted = kept && section ? session.deletedPages(choice, section).length : 0;
+			showTip(kind === 'section' ? self : box, !kept ? undefined : deleted ? this.ui.reconvertKeepsDeleted(deleted) : this.ui.reconvertTip);
 			if (kind === 'notebook') title.setText(choice.notebook.name);
 			ImportWizard.showFlair(flair, this.note(kind, choice, node, states));
 		});
@@ -814,13 +761,13 @@ export class ImportWizard extends Modal {
 				setIcon(inner.createDiv('file-tree-item-icon'), 'lucide-file-text');
 				inner.createDiv({ cls: 'file-tree-item-title', text: page.title || untitled });
 				ImportWizard.showFlair(self.createDiv('tree-item-flair-outer').createSpan('tree-item-flair'), { text: ui.pageDeleted });
-				// What a click does, where the pointer rests anywhere on the row, as on a section's row.
-				this.restTip(self, () => (session.isRestored(choice, section, page.id) ? undefined : ui.pageDeletedTip));
 				box.addEventListener('click', event => event.stopPropagation());
 				box.addEventListener('change', () => session.setRestored(choice, section, page.id, box.checked));
 				self.addEventListener('click', () => session.setRestored(choice, section, page.id, !box.checked));
 				rows.push(() => {
 					box.checked = session.isRestored(choice, section, page.id);
+					// What a click does, on hover anywhere on the row, as on a section's row.
+					showTip(self, box.checked ? undefined : ui.pageDeletedTip);
 				});
 			});
 		}
