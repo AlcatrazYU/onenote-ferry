@@ -582,6 +582,7 @@ export class ImportWizard extends Modal {
 		el.toggleClass('onenote-ferry-flair-strong', flair.tone === 'strong');
 		el.toggleClass('onenote-ferry-flair-warn', flair.tone === 'warn');
 		// Why, on hover: a quiet card in the window's own colours rather than Obsidian's dark bubble.
+		// Hover text never ends with a full stop (§11.5 item 74).
 		if (flair.tip) setTooltip(el, flair.tip, { placement: 'top', gap: 6, classes: ['onenote-ferry-tip'] });
 		else el.removeAttribute('aria-label');
 	}
@@ -883,7 +884,8 @@ export class ImportWizard extends Modal {
 			case 'occupied': return { text: ui.folderTaken };
 			case 'unreadable': {
 				const error = node.sections.length === 1 ? session.itemOf(choice, section)?.error : undefined;
-				return { text: ui.unreadable, ...(error ? { tip: error } : {}) };
+				// Hover text ends without a full stop, like every other tip; the message itself is a sentence.
+				return { text: ui.unreadable, ...(error ? { tip: error.replace(/(?<![.。])[.。]$/u, '') } : {}) };
 			}
 			case 'checking': return { text: ui.checkingRow };
 			case 'same': {
