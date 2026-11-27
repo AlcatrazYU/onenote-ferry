@@ -45,11 +45,18 @@ impl FileNodeListFragment {
             ) {
                 maximum_node_count -= 1;
             }
+            let terminator = matches!(file_node.fnd, FileNodeData::ChunkTerminatorFND);
             if !matches!(file_node.fnd, FileNodeData::Null) {
                 file_nodes.push(file_node);
             }
 
             assert_eq!(remaining_0 - reader.remaining(), file_node_size as u64);
+
+            // OneNote Ferry patch: a chunk terminator ends the nodes of this fragment ([MS-ONESTORE]
+            // 2.4.3); what follows it up to the next-fragment reference is padding, not more nodes.
+            if terminator {
+                break;
+            }
         }
 
         context.update_remaining_nodes_in_fragment(&header, maximum_node_count);

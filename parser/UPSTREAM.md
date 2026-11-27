@@ -43,7 +43,14 @@ TypeScript core reads, as a native `dump` binary and as WebAssembly.
    that byte range of `file`. Other paths are read as before. Checked on a 17.5 GB OneDrive
    download: sections read in place give the same JSON and attachment bytes as copies of them.
 
-Changes 4 and 5 are marked in the code with comments that start with "OneNote Ferry patch"; changes 2 and 3
+7. `parser/src/local_onestore/file_structure/file_node_list_fragment.rs` (desktop files only): a
+   file node list fragment stops at its chunk terminator. The bytes after it, up to the reference
+   to the next fragment, are padding, but they were read as more nodes when the transaction log
+   counted more nodes than the fragment holds. A 1.3 GB section exported by OneNote for Windows
+   failed with "unexpected property type: 0x0" (or with nodes of unknown types); it now reads
+   (15 pages, 542 attachments). The public samples give the same JSON as before.
+
+Changes 4, 5 and 7 are marked in the code with comments that start with "OneNote Ferry patch"; changes 2 and 3
 and the table part of change 1 carry comments that explain them, and the outline part of change 1
 only makes `parse_outline_item` visible to the crate. Change 6 carries a comment starting with
 "OneNote Ferry". To see every change, compare this folder with
