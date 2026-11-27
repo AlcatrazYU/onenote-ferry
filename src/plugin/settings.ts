@@ -115,7 +115,7 @@ export class FerrySettingTab extends PluginSettingTab {
 				await this.host.saveSettings();
 			}));
 		toggle(ui.boxMarkers, ui.boxMarkersDesc, 'boxMarkers');
-		toggle(ui.altText, ui.altTextDesc, 'imageAltText');
+		toggle(ui.pictureText, ui.pictureTextDesc, 'imageAltText');
 
 		// Importing from OneDrive (§11.5 item 61): the Microsoft account, and the download cache.
 		new Setting(containerEl).setName(ui.settingsOneDrive).setHeading();

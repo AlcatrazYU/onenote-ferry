@@ -5,6 +5,7 @@ import type { AssetData, Section } from './model.ts';
 import { escapeInline, escapeLineStart } from './markdown.ts';
 import { composedText, joinPath, numberedName, safeName } from './names.ts';
 import { renderPage } from './render/page.ts';
+import { tiffToPng } from './render/tiff.ts';
 import type { AttachmentHint, ResolvedAttachment } from './render/page.ts';
 import { LANGUAGES, STRINGS } from './strings.ts';
 import type { Strings } from './strings.ts';
@@ -17,7 +18,7 @@ export interface SectionWriteOptions {
 	strings: Strings;
 	boxMarkers: boolean;
 	keepHighlighterInk?: boolean;
-	/** Write images' alternative text in a collapsed callout below them (see PageRenderOptions). */
+	/** Write the text pictures carry (alternative and recognized text) in collapsed callouts below them (see PageRenderOptions). */
 	imageAltText?: boolean;
 	isCancelled?: () => boolean;
 	/**
@@ -189,18 +190,30 @@ export async function writeSection(section: Section, source: SectionSource, sink
 				reused++;
 				return { path: `${attachmentsFolder}/${existing}`, name: existing };
 			}
+			// A TIF picture is written as PNG, which Obsidian shows (§11.5 item 77); one that cannot be stays as it was.
+			let converted: Uint8Array | undefined;
+			if (hint.role === 'image' && /^tiff?$/i.test(hint.extension ?? '')) {
+				try {
+					converted = await tiffToPng(data.kind === 'inline' ? data.bytes : await source.readAsset(data.key));
+				}
+				catch {
+					converted = undefined;
+				}
+			}
 			let file: string;
 			switch (hint.role) {
 				case 'ink': file = `${short} - ${strings.inkWord}${pad(++inkNo, 2)}.svg`; break;
-				case 'image': file = `${short} - ${strings.imageWord}${pad(++imageNo, 3)}.${(hint.extension ?? 'bin').toLowerCase()}`; break;
+				case 'image': file = `${short} - ${strings.imageWord}${pad(++imageNo, 3)}.${converted ? 'png' : (hint.extension ?? 'bin').toLowerCase()}`; break;
 				case 'file': file = safeName(hint.fileName, strings.untitledPage, 100); break;
+				case 'page': file = `${short} - ${safeName(hint.document.replace(/\.[^.\s\\/]+$/, ''), strings.untitledPage, 40)} ${hint.page}.svg`; break;
 			}
 			let candidate = file, k = 2;
 			while (usedAttachments.has(fold(candidate))) candidate = file.replace(/(\.[^.]+)?$/, m => ` (${k++})${m}`);
 			usedAttachments.add(fold(candidate));
 
 			let bytes: Uint8Array;
-			if (data.kind === 'inline') bytes = data.bytes;
+			if (converted) bytes = converted;
+			else if (data.kind === 'inline') bytes = data.bytes;
 			else {
 				try {
 					bytes = await source.readAsset(data.key);

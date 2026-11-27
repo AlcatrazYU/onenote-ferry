@@ -109,16 +109,20 @@ export interface Image extends Placed {
 	/** An ink drawing written inside a line of text, rendered to SVG. */
 	inkSvg?: boolean;
 	/**
-	 * The alternative text set in OneNote (its title and description). Kept in the model but not
-	 * written yet: in real notes most of it is clipped or generated text (see the project notes).
+	 * The alternative text set in OneNote (its title and description). Written only when asked
+	 * (§11.5 items 32 and 78): in real notes much of it is clipped or generated text.
 	 */
 	alt?: string;
+	/** The text OneNote recognized in the picture (for a printout, the text of its page; §11.5 item 78). */
+	recognizedText?: string;
 	/** A printout shows one page (1-based) of a whole document. */
 	printoutPage?: number;
 	/** The printed document's file name (`<name>.pdf` on the Mac, where each page image is named `<name>_<page>.pdf`). */
 	printoutName?: string;
-	/** The original PDF on the same page, when there is one. */
+	/** The original PDF, on the same page or (when only one of that name is) elsewhere in the section. */
 	printoutOf?: EmbeddedFile;
+	/** The printed document's own file (a PDF, a Word document) is on the same page, linked there. */
+	originalOnPage?: true;
 	/** How large it is shown, in half inches (also for a picture inside a text box, which has no place). */
 	size?: { width: number, height?: number };
 }

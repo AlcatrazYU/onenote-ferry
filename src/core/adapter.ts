@@ -90,6 +90,41 @@ export function liftHyperlinkFields(runs: TextRun[]): void {
  * show a page of a PDF, so when the original PDF sits on the same page the images point at it.
  */
 export function linkPrintouts(page: Page): void {
+	const { files, images } = printoutsOf(page);
+	for (const image of images) {
+		const file = image.printoutName ? files.get(image.printoutName.normalize('NFC')) : undefined;
+		if (!file) continue;
+		image.originalOnPage = true;
+		if (/\.pdf$/i.test(file.fileName ?? '')) image.printoutOf = file;
+	}
+}
+
+/**
+ * A printout whose original PDF is not on its page but elsewhere in the section points at that one
+ * (§11.5 item 77), when the section holds one PDF of that name only: two different files of one
+ * name could be two documents.
+ */
+export function linkPrintoutsAcross(pages: Page[]): void {
+	const pdfs = new Map<string, EmbeddedFile[]>();
+	const waiting: Image[] = [];
+	for (const page of pages) {
+		const { files, images } = printoutsOf(page);
+		for (const [name, file] of files) {
+			if (!/\.pdf$/i.test(name)) continue;
+			if (!pdfs.has(name)) pdfs.set(name, []);
+			pdfs.get(name)!.push(file);
+		}
+		waiting.push(...images.filter(image => !image.printoutOf && image.printoutName));
+	}
+	const sameData = (a: EmbeddedFile, b: EmbeddedFile) => a.data?.kind === 'stored' && b.data?.kind === 'stored' && a.data.key === b.data.key;
+	for (const image of waiting) {
+		const found = pdfs.get(image.printoutName!.normalize('NFC'));
+		if (found?.length && found.every(file => sameData(file, found[0]!))) image.printoutOf = found[0];
+	}
+}
+
+/** The files on a page by name (the last of each name, as before) and its printout pictures. */
+function printoutsOf(page: Page): { files: Map<string, EmbeddedFile>, images: Image[] } {
 	const files = new Map<string, EmbeddedFile>();
 	const images: Image[] = [];
 	const walk = (x: Json) => {
@@ -98,15 +133,12 @@ export function linkPrintouts(page: Page): void {
 			x.forEach(walk);
 			return;
 		}
-		if (x.kind === 'embedded-file' && x.fileName && /\.pdf$/i.test(x.fileName)) files.set(x.fileName.normalize('NFC'), x);
+		if (x.kind === 'embedded-file' && x.fileName) files.set(x.fileName.normalize('NFC'), x);
 		if (x.kind === 'image' && x.printoutPage) images.push(x);
 		for (const k of ['children', 'outlines', 'directContent', 'rows', 'cells']) if (x[k]) walk(x[k]);
 	};
 	walk(page);
-	for (const image of images) {
-		const file = image.printoutName ? files.get(image.printoutName.normalize('NFC')) : undefined;
-		if (file) image.printoutOf = file;
-	}
+	return { files, images };
 }
 
 function inkColor(value: number | null | undefined): string {
@@ -247,7 +279,9 @@ export class Adapter {
 	}
 
 	section(json: Json): Section {
-		return { name: composedText(json.name ?? ''), pages: (json.pages as Json[]).map(p => this.page(p)) };
+		const pages = (json.pages as Json[]).map(p => this.page(p));
+		linkPrintoutsAcross(pages);
+		return { name: composedText(json.name ?? ''), pages };
 	}
 
 	page(p: Json): Page {
@@ -328,6 +362,7 @@ export class Adapter {
 				const fileName: string | undefined = c.fileName ? composedText(c.fileName) : undefined;
 				const image: Image = { kind: 'image', fileName, extension, data: stored(c.asset) };
 				if (typeof c.alt === 'string' && c.alt.trim() !== '') image.alt = composedText(c.alt);
+				if (typeof c.ocr === 'string' && c.ocr.trim() !== '') image.recognizedText = composedText(c.ocr);
 				if (typeof c.page === 'number' && /^(xps|pdf)$/i.test(extension ?? '')) {
 					// Windows: a printout keeps the whole document (XPS or PDF) and shows one page of it (0-based).
 					image.printoutPage = c.page + 1;

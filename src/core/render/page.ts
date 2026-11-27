@@ -13,7 +13,7 @@ import type { DrawingParts, Underlay } from './ink-svg.ts';
 import { assignToPictures, clusters, drawingUnder, insertionPoint, isHighlighter, strokeBox, unionBox } from './ink-layout.ts';
 import { placeOnPictures, readProfile } from './flow-highlights.ts';
 import { openXps } from './xps.ts';
-import type { XpsDocument, XpsPage } from './xps.ts';
+import type { PageText, XpsDocument, XpsPage } from './xps.ts';
 import type { Box, ColumnSpan } from './ink-layout.ts';
 import { base64, pictureInfo } from './picture.ts';
 import type { PictureInfo } from './picture.ts';
@@ -27,7 +27,9 @@ const CM_PER_POSITION_UNIT = 1.27;
 export type AttachmentHint =
 	| { role: 'image'; extension?: string }
 	| { role: 'ink' }
-	| { role: 'file'; fileName: string };
+	| { role: 'file'; fileName: string }
+	/** A page of a Windows printout drawn from its document (§11.5 item 77), named after it. */
+	| { role: 'page'; document: string; page: number };
 
 export interface ResolvedAttachment {
 	/** Link target relative to the page, e.g. `_附件/x.png`. */
@@ -41,8 +43,9 @@ export interface PageRenderOptions extends InlineOptions {
 	/** Also draw highlighter strokes (semi-transparent ink). Off by default: they only make sense laid over the text. */
 	keepHighlighterInk?: boolean;
 	/**
-	 * Write an image's alternative text in a collapsed callout below it. Off by default: in real notes
-	 * most alternative text is clipped or generated (see the project notes).
+	 * Write the text a picture carries, its alternative text and the text OneNote recognized in it,
+	 * in collapsed callouts below it (§11.5 items 32 and 78). Off by default: in real notes much of it
+	 * is clipped or generated, or misread. A printout page's text is written either way.
 	 */
 	imageAltText?: boolean;
 	strings: Strings;
@@ -52,7 +55,7 @@ export interface PageRenderOptions extends InlineOptions {
 	readAsset?: (data: AssetData) => Promise<Uint8Array | undefined>;
 	/** How dark each pixel row of a picture is (the parser's row profile), to line highlighter strokes up with its text (§11.5 item 67). */
 	rowProfile?: (data: AssetData) => Promise<Float32Array | undefined>;
-	onSkipped?: (description: string, reason: 'no-data') => void;
+	onSkipped?: (description: string, reason: 'no-data' | 'not-drawn') => void;
 	isCancelled?: () => boolean;
 }
 
@@ -81,11 +84,15 @@ function imageHint(image: Image): AttachmentHint {
 	return { role: 'image', extension: image.extension ?? extensionFromName(image.fileName) };
 }
 
+/** Picture formats Obsidian cannot show: linked, with a label saying so, instead of embedded (§11.5 item 77). */
+const UNSHOWN = /^(emf|wmf)$/i;
+
 function describe(hint: AttachmentHint): string {
 	switch (hint.role) {
 		case 'file': return hint.fileName;
 		case 'image': return `image${hint.extension ? '.' + hint.extension : ''}`;
 		case 'ink': return 'ink.svg';
+		case 'page': return `${hint.document} p${hint.page}.svg`;
 	}
 }
 
@@ -200,7 +207,7 @@ interface Block {
 	depth?: number;
 }
 
-type MissingRun = { kind: 'images', count: number, names: string[] } | { kind: 'printout', document: string, first: number, last: number };
+type MissingRun = ({ kind: 'images', count: number, names: string[] } | { kind: 'printout', document: string, first: number, last: number }) & { texts?: LabelledTexts[] };
 
 /** The notice for pictures without data (one, or a run of them). */
 function missingNotice(run: MissingRun, strings: Strings): string {
@@ -211,6 +218,51 @@ function missingRunOf(image: Image): MissingRun {
 	return image.printoutName && image.printoutPage
 		? { kind: 'printout', document: image.printoutName, first: image.printoutPage, last: image.printoutPage }
 		: { kind: 'images', count: 1, names: image.fileName ? [image.fileName] : [] };
+}
+
+/** The text a picture carries that is written under it (§11.5 item 78); a part is left out when another part already says the same. */
+interface PictureTexts {
+	/** The text of a printout page as its document writes it. */
+	printout?: string;
+	alt?: string;
+	recognized?: string;
+}
+
+/** A picture's texts in boxes shared by several (pages of a printout shown by one embed, pictures without data), each part named by `label`. */
+type LabelledTexts = PictureTexts & { label?: string };
+
+const squash = (text: string | undefined) => (text ?? '').replace(/\s+/g, '');
+
+/** The lines of a text for a folded box: each one escaped, runs of blank lines as one. */
+function boxLines(text: string): string[] {
+	const lines = text.replace(/\r\n?/g, '\n').trim().split('\n').map(line => escapeLineStart(escapeInline(line.trim())));
+	return lines.filter((line, index) => line !== '' || lines[index - 1] !== '');
+}
+
+/** A callout that starts collapsed. */
+function foldedBox(title: string, lines: string[]): string {
+	return [`> [!info]- ${title}`, ...lines.map(line => (line === '' ? '>' : `> ${line}`))].join('\n');
+}
+
+/**
+ * The folded boxes for the texts of one picture, or of several (each part then headed by its
+ * label): the printout's text, the alternative text, the recognized text, each in its own box.
+ */
+function textBoxes(entries: LabelledTexts[], strings: Strings, options: InlineOptions): string[] {
+	const boxes: string[] = [];
+	const parts: [keyof PictureTexts, string][] = [['printout', strings.printoutTextTitle], ['alt', strings.altTextTitle], ['recognized', strings.recognizedTextTitle]];
+	for (const [part, title] of parts) {
+		const lines: string[] = [];
+		for (const entry of entries) {
+			const text = entry[part];
+			if (!text) continue;
+			if (lines.length) lines.push('');
+			if (entry.label) lines.push(renderRuns([{ text: entry.label, italic: true }], options));
+			lines.push(...boxLines(text));
+		}
+		if (lines.length) boxes.push(foldedBox(title, lines));
+	}
+	return boxes;
 }
 
 function containsTable(elements: Element[]): boolean {
@@ -231,6 +283,8 @@ class PageWriter {
 	readonly annotatedDocuments = new Set<EmbeddedFile>();
 	/** How many list items enclose what is being written; each adds one tab. */
 	private depth = 0;
+	/** Printout documents whose own file was linked on this page (§11.5 item 77), by asset key. */
+	private readonly originalsLinked = new Set<string>();
 	/** The PDF whose embed was written last, so the following printout pages of it are not embedded again. */
 	private lastPrintout?: { file: EmbeddedFile, index: number };
 	/**
@@ -238,7 +292,7 @@ class PageWriter {
 	 * embed stays one (§11.5 item 72): notes drawn on a page as they are written, and the copies
 	 * whose place is estimated, which go into one folded box.
 	 */
-	private held?: { blocks: Block[], folded: string[], indent: string };
+	private held?: { blocks: Block[], folded: string[], texts: LabelledTexts[], indent: string };
 	/** Where blocks go while the writing on a printout page is held. */
 	private capturing?: Block[];
 
@@ -302,16 +356,19 @@ class PageWriter {
 		if (!held || this.capturing) return;
 		this.held = undefined;
 		this.blocks.push(...held.blocks);
+		const indented = (text: string) => (held.indent ? text.split('\n').map(line => held.indent + line).join('\n') : text);
 		if (held.folded.length) {
 			const body = held.folded.map(entry => entry.split('\n').map(line => `> ${line}`).join('\n')).join('\n>\n');
-			const text = `> [!info]- ${this.options.strings.inkEstimated}\n${body}`;
-			this.blocks.push({ text: held.indent ? text.split('\n').map(line => held.indent + line).join('\n') : text, listItem: false });
+			this.blocks.push({ text: indented(`> [!info]- ${this.options.strings.inkEstimated}\n${body}`), listItem: false });
 		}
+		for (const box of textBoxes(held.texts, this.options.strings, this.options)) this.blocks.push({ text: indented(box), listItem: false });
 	}
 
 	/** Holds the writing on a page of a PDF shown by one embed, until the run of its pages ends. */
 	private async hold(image: Image, notes: InkPiece[] | undefined): Promise<void> {
-		const held = this.held ??= { blocks: [], folded: [], indent: '\t'.repeat(this.depth) };
+		const held = this.held ??= { blocks: [], folded: [], texts: [], indent: '\t'.repeat(this.depth) };
+		const texts = await this.textsOf(image);
+		if (texts.printout || texts.alt || texts.recognized) held.texts.push({ ...texts, label: this.pageLabel(image) });
 		if (notes) {
 			this.capturing = held.blocks;
 			try {
@@ -325,9 +382,14 @@ class PageWriter {
 		const underlay = folded && underlayOf(folded.picture);
 		if (!folded || !underlay) return;
 		const link = await this.drawingLink(folded.pieces, { underlays: [underlay] }, { role: 'ink' });
+		const label = this.pageLabel(image);
+		if (link) held.folded.push(label ? `${renderRuns([{ text: label, italic: true }], this.options)}\n${link}` : link);
+	}
+
+	/** "<document>, page <n>" for a printout page. */
+	private pageLabel(image: Image): string | undefined {
 		const document = image.printoutName ?? image.fileName;
-		const label = document && image.printoutPage ? renderRuns([{ text: this.options.strings.printoutPage(document, image.printoutPage), italic: true }], this.options) : undefined;
-		if (link) held.folded.push(label ? `${label}\n${link}` : link);
+		return document && image.printoutPage ? this.options.strings.printoutPage(document, image.printoutPage) : undefined;
 	}
 
 	private pushCallout(callout: Callout, body: string): void {
@@ -387,17 +449,23 @@ class PageWriter {
 				}
 				if (!hasData(element.data)) {
 					this.options.onSkipped?.(describe(imageHint(element)), 'no-data');
-					this.pushMissing(element);
+					this.pushMissing(element, await this.textsOf(element));
 					break;
 				}
 				if (notes && !isWholeDocument(element) && await this.writeAnnotatedPicture(element, notes)) {
-					if (this.options.imageAltText && element.alt) this.pushAltText(element.alt);
+					await this.writeTexts(element);
 					break;
 				}
-				await this.writeAsset(element.data, imageHint(element), '', true);
+				// A Windows printout page without its PDF: the page drawn from its document (§11.5 item 77).
+				if (isWholeDocument(element) && await this.writePrintoutPage(element, notes)) {
+					await this.writeFolded(element);
+					await this.writeTexts(element);
+					break;
+				}
+				await this.writeAsset(element.data, imageHint(element), ...this.pictureLabel(element));
 				if (notes) await this.writeNotesBesidePage(element, notes);
 				await this.writeFolded(element);
-				if (this.options.imageAltText && element.alt) this.pushAltText(element.alt);
+				await this.writeTexts(element);
 				break;
 			}
 			case 'embedded-file': {
@@ -552,12 +620,46 @@ class PageWriter {
 		await this.writeDrawing(pieces, underlay ? { underlays: [underlay] } : picture ? { sheets: [pixelRect(picture.box)] } : {});
 	}
 
+	/**
+	 * A Windows printout page drawn from its document, with the writing on it when there is some
+	 * (§11.5 item 77). Before the first page of a document whose own file is not on the page, a link
+	 * to the printout's document, so that nothing of it is out of reach. False when the page cannot
+	 * be drawn here (then it is written as before).
+	 */
+	private async writePrintoutPage(image: Image, notes: InkPiece[] | undefined): Promise<boolean> {
+		const page = await this.printoutPage(image);
+		const document = image.printoutName ?? image.fileName ?? 'printout';
+		if (!page || image.data?.kind !== 'stored') {
+			// Shown as before (its document linked); the report says so (§11.5 item 77).
+			if (image.printoutPage && /^xps$/i.test(image.extension ?? '')) this.options.onSkipped?.(`${document} p${image.printoutPage}`, 'not-drawn');
+			return false;
+		}
+		if (!image.originalOnPage && !this.originalsLinked.has(image.data.key)) {
+			this.originalsLinked.add(image.data.key);
+			const name = withExtension(document.replace(/\.[^.\s\\/]+$/, ''), 'xps');
+			await this.writeAsset(image.data, { role: 'file', fileName: name }, name, false);
+		}
+		if (notes) {
+			await this.writeNotesBesidePage(image, notes);
+			return true;
+		}
+		const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${page.width} ${page.height}" width="${page.width}" height="${page.height}">${page.content}</svg>`;
+		await this.writeAsset({ kind: 'inline', bytes: new TextEncoder().encode(svg) }, { role: 'page', document, page: image.printoutPage! }, '', true);
+		return true;
+	}
+
+	/** How a picture is written: embedded, or (a format Obsidian cannot show) as a link saying so. */
+	private pictureLabel(image: Image): [string, boolean] {
+		const extension = imageHint(image).role === 'image' ? (imageHint(image) as { extension?: string }).extension ?? '' : '';
+		return UNSHOWN.test(extension) ? [this.options.strings.unshownPicture(extension.toUpperCase()), false] : ['', true];
+	}
+
 	/** Each Windows printout document read once per page written (§11.5 item 70). */
 	private readonly documents = new Map<string, Promise<XpsDocument | undefined>>();
 
-	/** The page a Windows printout picture shows, drawn from its XPS document; undefined when it cannot be. */
-	async printoutPage(image: Image): Promise<XpsPage | undefined> {
-		if (!isWholeDocument(image) || image.data?.kind !== 'stored' || !image.printoutPage || !/^xps$/i.test(image.extension ?? '')) return undefined;
+	/** The XPS document of a Windows printout picture, read once per page written; undefined for other pictures. */
+	private async xpsOf(image: Image): Promise<XpsDocument | undefined> {
+		if (!isWholeDocument(image) || image.data?.kind !== 'stored' || !/^xps$/i.test(image.extension ?? '')) return undefined;
 		const data = image.data;
 		if (!this.documents.has(data.key)) {
 			this.documents.set(data.key, (async () => {
@@ -565,7 +667,17 @@ class PageWriter {
 				return bytes ? openXps(bytes) : undefined;
 			})());
 		}
-		return (await this.documents.get(data.key))?.page(image.printoutPage);
+		return this.documents.get(data.key);
+	}
+
+	/** The page a Windows printout picture shows, drawn from its XPS document; undefined when it cannot be. */
+	async printoutPage(image: Image): Promise<XpsPage | undefined> {
+		return image.printoutPage ? (await this.xpsOf(image))?.page(image.printoutPage) : undefined;
+	}
+
+	/** The text of the page a Windows printout picture shows, as its XPS document writes it (§11.5 item 78). */
+	private async printoutText(image: Image): Promise<PageText | undefined> {
+		return image.printoutPage ? (await this.xpsOf(image))?.text(image.printoutPage) : undefined;
 	}
 
 	/** The copy of a picture with the writing on it drawn where it was estimated to be, when there is one. */
@@ -579,38 +691,67 @@ class PageWriter {
 		if (pieces.length) await this.writeDrawing(pieces);
 	}
 
-	/** An image's alternative text as it was in OneNote, in a callout below the image that starts collapsed. */
-	private pushAltText(alt: string): void {
-		const lines = alt.replace(/\r\n?/g, '\n').trim().split('\n').map(line => escapeLineStart(escapeInline(line.trim())));
-		this.push([`> [!info]- ${this.options.strings.altTextTitle}`, ...lines.map(line => (line === '' ? '>' : `> ${line}`))].join('\n'));
+	/**
+	 * The text to write under a picture (§11.5 item 78). A printout page's own: the text its document
+	 * writes (Windows printouts), and what OneNote recognized in it when that says something else (a
+	 * scanned page) or is all there is (Mac printouts); written whether asked or not. Its alternative
+	 * text, and a picture's alternative and recognized text, only when asked. A part that says what
+	 * another part already says (the alternative text OneNote fills in from what it recognized) is
+	 * left out.
+	 */
+	private async textsOf(image: Image): Promise<PictureTexts> {
+		const asked = this.options.imageAltText === true;
+		const printout = image.printoutPage !== undefined;
+		const page = printout ? await this.printoutText(image) : undefined;
+		const recognized = image.recognizedText?.trim() ? image.recognizedText : undefined;
+		const alt = image.alt?.trim() ? image.alt : undefined;
+		const said = (text: string, others: (string | undefined)[]) => others.some(other => other !== undefined && squash(other) === squash(text));
+		const texts: PictureTexts = {};
+		if (page) texts.printout = page.text;
+		if (recognized && (printout || asked) && !said(recognized, [page?.text, page?.given])) texts.recognized = recognized;
+		if (alt && asked && !said(alt, [recognized, page?.text, page?.given])) texts.alt = alt;
+		return texts;
 	}
 
-	/** A notice in place of a picture without data; pictures in a row (pages of one printout in order) share one. */
-	private pushMissing(image: Image): void {
+	/** The text a picture carries, in folded boxes below it (see textsOf). */
+	private async writeTexts(image: Image): Promise<void> {
+		for (const box of textBoxes([await this.textsOf(image)], this.options.strings, this.options)) this.push(box);
+	}
+
+	/**
+	 * A notice in place of a picture without data; pictures in a row (pages of one printout in order)
+	 * share one. The text they carry (often all that is left of them) follows it, each part named.
+	 */
+	private pushMissing(image: Image, texts: PictureTexts): void {
 		this.release();
 		const run = missingRunOf(image);
+		run.texts = texts.printout || texts.alt || texts.recognized ? [{ ...texts, label: this.pageLabel(image) ?? image.fileName }] : [];
 		const previous = this.blocks[this.blocks.length - 1];
 		const last = previous?.missing;
-		const indent = '\t'.repeat(this.depth);
 		if (last && previous.depth === this.depth) {
 			if (last.kind === 'images' && run.kind === 'images') {
 				last.count++;
 				last.names.push(...run.names);
-				previous.text = indent + this.notice(last);
+				last.texts = [...last.texts ?? [], ...run.texts];
+				previous.text = this.missingText(last);
 				return;
 			}
 			if (last.kind === 'printout' && run.kind === 'printout' && last.document === run.document && run.first === last.last + 1) {
 				last.last = run.first;
-				previous.text = indent + this.notice(last);
+				last.texts = [...last.texts ?? [], ...run.texts];
+				previous.text = this.missingText(last);
 				return;
 			}
 		}
 		this.itemStart ??= this.blocks.length;
-		this.blocks.push({ text: indent + this.notice(run), listItem: false, missing: run, depth: this.depth });
+		this.blocks.push({ text: this.missingText(run), listItem: false, missing: run, depth: this.depth });
 	}
 
-	private notice(run: MissingRun): string {
-		return renderRuns([{ text: missingNotice(run, this.options.strings), italic: true }], this.options);
+	/** The notice for pictures without data, and the boxes of the text they carry, at the current depth. */
+	private missingText(run: MissingRun): string {
+		const indent = '\t'.repeat(this.depth);
+		const notice = renderRuns([{ text: missingNotice(run, this.options.strings), italic: true }], this.options);
+		return [notice, ...textBoxes(run.texts ?? [], this.options.strings, this.options)].join('\n\n').split('\n').map(line => (line ? indent + line : line)).join('\n');
 	}
 
 	private async writeAsset(data: AssetData | undefined, hint: AttachmentHint, label: string, embed: boolean): Promise<void> {
@@ -650,9 +791,9 @@ class PageWriter {
 				case 'image':
 					if (!hasData(child.data)) {
 						this.options.onSkipped?.(describe(imageHint(child)), 'no-data');
-						parts.push(this.notice(missingRunOf(child)));
+						parts.push(renderRuns([{ text: missingNotice(missingRunOf(child), this.options.strings), italic: true }], this.options));
 					}
-					else parts.push(await this.renderAsset(child.data, imageHint(child), '', true) ?? '');
+					else parts.push(await this.renderAsset(child.data, imageHint(child), ...this.pictureLabel(child)) ?? '');
 					break;
 				case 'embedded-file': {
 					const hint = fileHint(child);

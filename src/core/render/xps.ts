@@ -1,15 +1,21 @@
-// Pages of a Windows printout drawn as SVG (§11.5 item 70), so that ink written on a printout page
-// can be drawn over the page itself, as on a picture.
+// Pages of a Windows printout drawn as SVG (§11.5 items 70 and 77), so that ink written on a
+// printout page can be drawn over the page itself, as on a picture, and a printout without its PDF
+// can be seen.
 //
 // A Windows printout keeps the whole document as one XPS file (a zip package of XML pages and
 // their images); OneNote shows a page of it. A page printed from a scan is made of image strips
 // and filled shapes, which SVG draws as they are: XPS path data is SVG path data but for a leading
-// fill rule. Anything else (text in glyphs, gradients, brushes of other kinds) is not drawn here:
-// such a page is answered with nothing, and the ink is drawn as before.
+// fill rule. Text (glyphs) is drawn by the glyph numbers the document gives, from the fonts it
+// embeds, each checked against the character it is said to be (see `glyphRun`). Anything else
+// (gradients, brushes of other kinds), or text that cannot be checked, is not drawn here: such a
+// page is answered with nothing, and is shown as before ("better not shown than shown wrong").
+// A page's text is also read out as the document writes it (see `pageText`), drawn or not.
 
 import { entryDataOffset, readZipDirectory } from '../zip.ts';
 import type { ZipEntry } from '../zip.ts';
 import { base64, pictureInfo } from './picture.ts';
+import { readTrueType } from './truetype.ts';
+import type { Font } from './truetype.ts';
 
 /** One page as SVG content (what goes inside an `<svg>`), in the page's own units (1/96 inch). */
 export interface XpsPage {
@@ -18,11 +24,23 @@ export interface XpsPage {
 	content: string;
 }
 
+/** The text of a page as its document writes it (§11.5 item 78). */
+export interface PageText {
+	/** Line by line: runs of text that go on from one another (along a line, or down a column) joined. */
+	text: string;
+	/** Only the characters the document writes out, without those found from the fonts, to compare with what OneNote kept. */
+	given: string;
+}
+
 export interface XpsDocument {
 	/** How many pages it has. */
 	readonly pages: number;
 	/** Page `n` (from 1), or undefined when it cannot be drawn here. */
 	page(n: number): Promise<XpsPage | undefined>;
+	/** Page `n`, or why it cannot be drawn here. */
+	explain(n: number): Promise<{ page?: XpsPage, reason?: string }>;
+	/** The text of page `n`; undefined when it has none, or cannot be read. */
+	text(n: number): Promise<PageText | undefined>;
 }
 
 const decoder = new TextDecoder();
@@ -87,7 +105,13 @@ function resolve(from: string, reference: string): string {
 	return parts.join('/');
 }
 
-const unescape = (value: string) => value.replace(/&(lt|gt|quot|apos|amp);/g, (_, name: string) => ({ lt: '<', gt: '>', quot: '"', apos: '\'', amp: '&' })[name]!);
+const ENTITIES: Record<string, string> = { lt: '<', gt: '>', quot: '"', apos: '\'', amp: '&' };
+/** XML text: named entities and character references (`&#12354;`, `&#x3042;`). */
+const unescape = (value: string) => value.replace(/&(lt|gt|quot|apos|amp|#\d+|#x[0-9a-fA-F]+);/g, (whole, name: string) => {
+	if (!name.startsWith('#')) return ENTITIES[name]!;
+	const code = name[1] === 'x' ? parseInt(name.slice(2), 16) : Number(name.slice(1));
+	return code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+});
 
 function attributes(text: string): Map<string, string> {
 	const found = new Map<string, string>();
@@ -117,17 +141,27 @@ export async function openXps(bytes: Uint8Array): Promise<XpsDocument | undefine
 			for (const page of sources(await pkg.text(path) ?? '', 'PageContent')) pages.push(resolve(path, page));
 		}
 		if (!pages.length) return undefined;
+		const fonts = new Map<string, Promise<Font | undefined>>();
+		const explain = async (n: number) => {
+			const path = pages[n - 1];
+			if (path === undefined) return { reason: 'no such page' };
+			try {
+				const page = await pageSvg(pkg, path, fonts);
+				return page ? { page } : { reason: 'not drawn' };
+			}
+			catch (error) {
+				return { reason: error instanceof Error ? error.message : String(error) };
+			}
+		};
 		return {
 			pages: pages.length,
 			async page(n) {
+				return (await explain(n)).page;
+			},
+			explain,
+			async text(n) {
 				const path = pages[n - 1];
-				if (path === undefined) return undefined;
-				try {
-					return await pageSvg(pkg, path);
-				}
-				catch {
-					return undefined;
-				}
+				return path === undefined ? undefined : pageText(pkg, path, fonts).catch(() => undefined);
 			},
 		};
 	}
@@ -164,13 +198,201 @@ function geometry(data: string): { d: string, rule: string } | undefined {
 	return { d, rule: rule?.[1] === '1' ? 'nonzero' : 'evenodd' };
 }
 
+/** A glyph of a run, where its origin is from the run's origin (page units, y down). */
+interface Placed {
+	glyph: number;
+	x: number;
+	y: number;
+}
+
+/** An entry of a run's `Indices`: `(units:glyphs)glyph,advance,uOffset,vOffset`, every part optional. */
+interface IndexEntry {
+	/** A cluster's first entry: how many UTF-16 units of the text, and how many glyphs (entries), it has. */
+	units?: number;
+	glyphs?: number;
+	glyph?: number;
+	advance?: number;
+	u: number;
+	v: number;
+}
+
+/** The entries of a run's `Indices` ([MS-XPS] 5.1.3 / ECMA-388 12.1.3); advances and offsets in hundredths of the em size. Throws when they cannot be read. */
+function indexEntries(indices: string | undefined): IndexEntry[] {
+	if (!indices?.trim()) return [];
+	return indices.split(';').map(entry => {
+		const match = entry.trim().match(/^(?:\((\d+)(?::(\d+))?\))?([^,]*)(?:,([^,]*))?(?:,([^,]*))?(?:,([^,]*))?(?:,.*)?$/);
+		if (!match) throw new Error('glyph indices');
+		const value = (part: string | undefined) => {
+			if (part === undefined || part.trim() === '') return undefined;
+			const n = Number(part);
+			if (!Number.isFinite(n)) throw new Error('glyph indices');
+			return n;
+		};
+		return { units: match[1] ? Number(match[1]) : undefined, glyphs: match[1] ? Number(match[2] ?? '1') : undefined, glyph: value(match[3]), advance: value(match[4]), u: value(match[5]) ?? 0, v: value(match[6]) ?? 0 };
+	});
+}
+
+/** The characters (code points) of a piece of UTF-16 text. */
+const codePoints = (text: string) => [...text].map(character => character.codePointAt(0)!);
+
+/**
+ * The check for one cluster of a run: the characters it stands for (`codes`, none when the
+ * document gives none) and the glyphs that draw them. Each glyph must be what the font itself
+ * makes of those characters: one character's glyph or a form of it (a half-width comma, say); the
+ * ligature its substitutions make of several; the glyphs they split one into. With no characters
+ * given, each glyph must be the glyph of a character in the font (or a form of one). A glyph that
+ * draws nothing (a space) needs no check. Throws when the check fails.
+ */
+function checkCluster(font: Font, codes: number[], glyphs: number[], hasText: boolean): void {
+	const drawn = (glyph: number) => font.outline(glyph) !== '';
+	if (!glyphs.some(drawn)) return;
+	if (!codes.length) {
+		for (const glyph of glyphs) if (drawn(glyph) && !font.charactersOf(glyph).length) throw new Error(hasText ? 'glyph of no character' : 'glyph of no character, and no characters given');
+		return;
+	}
+	if (codes.length === glyphs.length) {
+		glyphs.forEach((glyph, k) => {
+			if (drawn(glyph) && !font.isFormOf(glyph, font.glyphOf(codes[k]!))) throw new Error('glyph is not its character');
+		});
+		return;
+	}
+	const bases = codes.map(code => font.glyphOf(code));
+	if (glyphs.length === 1) {
+		if (!font.isLigatureOf(glyphs[0]!, bases)) throw new Error('glyph cannot be checked: not the ligature of its characters');
+		return;
+	}
+	if (codes.length === 1) {
+		if (!font.isSplitOf(glyphs, bases[0]!)) throw new Error('glyphs cannot be checked: not what their character splits into');
+		return;
+	}
+	throw new Error('glyph cluster cannot be checked');
+}
+
+/**
+ * The glyphs of a run (an XPS `Glyphs` element) placed along its baseline, each cluster checked by
+ * `checkCluster` against the font's own character map and substitutions. Throws when a check fails.
+ * `indices` is the `Indices` attribute ([MS-XPS] 5.1.3 / ECMA-388 12.1.3): entries
+ * `(units:glyphs)glyph,advance,uOffset,vOffset`, every part optional; advances and offsets are in
+ * hundredths of the em size.
+ */
+export function glyphRun(font: Font, text: string | undefined, indices: string | undefined, em: number): Placed[] {
+	let units = text ?? '';
+	if (units.startsWith('{}')) units = units.slice(2);
+	const hasText = text !== undefined && units.length > 0;
+	const entries = indexEntries(indices);
+	const defaultAdvance = (glyph: number) => font.advance(glyph) * 100 / font.unitsPerEm;
+	const placed: Placed[] = [];
+	let x = 0, at = 0;
+	const place = (glyph: number, advance: number | undefined, u: number, v: number) => {
+		if (!(glyph >= 0 && glyph < font.glyphCount)) throw new Error('glyph number outside the font');
+		if (font.outline(glyph) === undefined) throw new Error('glyph outline');
+		placed.push({ glyph, x: x + u * em / 100, y: -v * em / 100 });
+		x += (advance ?? defaultAdvance(glyph)) * em / 100;
+	};
+	for (let i = 0; i < entries.length;) {
+		const first = entries[i]!;
+		const clusterUnits = first.units ?? 1, clusterGlyphs = first.glyphs ?? 1;
+		if (!(clusterGlyphs >= 1) || i + clusterGlyphs > entries.length) throw new Error('glyph cluster');
+		const cluster = entries.slice(i, i + clusterGlyphs);
+		if (cluster.slice(1).some(entry => entry.units !== undefined)) throw new Error('glyph cluster');
+		const codes = codePoints(units.slice(at, at + clusterUnits));
+		at += clusterUnits;
+		// A glyph not given is its character's own (one character, one glyph).
+		const glyphs = cluster.map(entry => {
+			if (entry.glyph !== undefined) return entry.glyph;
+			if (codes.length !== 1 || cluster.length !== 1) throw new Error('glyph without a character');
+			const glyph = font.glyphOf(codes[0]!);
+			if (glyph === 0) throw new Error('character without a glyph');
+			return glyph;
+		});
+		for (const glyph of glyphs) if (!(glyph >= 0 && glyph < font.glyphCount)) throw new Error('glyph number outside the font');
+		checkCluster(font, codes, glyphs, hasText);
+		cluster.forEach((entry, k) => place(glyphs[k]!, entry.advance, entry.u, entry.v));
+		i += clusterGlyphs;
+	}
+	// Characters past the indices: one glyph each, from the character map.
+	while (at < units.length) {
+		const code = units.codePointAt(at)!;
+		at += code > 0xffff ? 2 : 1;
+		const glyph = font.glyphOf(code);
+		if (glyph === 0) throw new Error('character without a glyph');
+		place(glyph, undefined, 0, 0);
+	}
+	return placed;
+}
+
+/** The key an obfuscated font (`.odttf`) is read with: its part name's GUID, bytes in reverse order ([MS-XPS] / ECMA-388 9.1.7.3). */
+function deobfuscate(name: string, bytes: Uint8Array): Uint8Array | undefined {
+	const guid = name.split('/').pop()!.replace(/\.[^.]*$/, '').replace(/[{}-]/g, '');
+	if (!/^[0-9a-f]{32}$/i.test(guid) || bytes.length < 32) return undefined;
+	const key = Array.from({ length: 16 }, (_, i) => parseInt(guid.slice(30 - 2 * i, 32 - 2 * i), 16));
+	const out = bytes.slice();
+	for (let i = 0; i < 32; i++) out[i] = out[i]! ^ key[i % 16]!;
+	return out;
+}
+
+/** Each font's name for its glyphs in the SVG. */
+const fontIds = new WeakMap<Font, string>();
+
+/** A short, steady name for a font's glyphs in the SVG: FNV-1a of its bytes. */
+function fontId(bytes: Uint8Array): string {
+	let hash = 0x811c9dc5;
+	for (const byte of bytes) hash = Math.imul(hash ^ byte, 0x01000193) >>> 0;
+	return hash.toString(36);
+}
+
+/** A font of the document, read once (`fonts` holds them by part name); undefined when it cannot be read here. */
+function readFont(pkg: Package, fonts: Map<string, Promise<Font | undefined>>, at: string): Promise<Font | undefined> {
+	if (!fonts.has(at)) {
+		fonts.set(at, (async () => {
+			const bytes = await pkg.read(at);
+			if (!bytes) return undefined;
+			const plain = /\.odttf$/i.test(at) ? deobfuscate(at, bytes) : bytes;
+			const font = plain && readTrueType(plain);
+			if (font && plain) fontIds.set(font, fontId(plain));
+			return font;
+		})());
+	}
+	return fonts.get(at)!;
+}
+
 /** Builds the SVG of one page; throws on what it does not draw. */
-async function pageSvg(pkg: Package, path: string): Promise<XpsPage | undefined> {
+async function pageSvg(pkg: Package, path: string, fonts: Map<string, Promise<Font | undefined>>): Promise<XpsPage | undefined> {
 	const xml = await pkg.text(path);
 	if (xml === undefined) return undefined;
-	// What is not drawn here: text, other brushes, transforms and data given as elements, visuals.
-	if (/<(Glyphs|LinearGradientBrush|RadialGradientBrush|VisualBrush|[\w]+\.RenderTransform|[\w]+\.OpacityMask|Path\.Data|ImageBrush\.Transform)\b/.test(xml)) return undefined;
-	if (/\sOpacityMask\s*=/.test(xml)) return undefined;
+	// What is not drawn here: other brushes, transforms and data given as elements, visuals.
+	const unsupported = xml.match(/<(RadialGradientBrush|VisualBrush|[\w]+\.RenderTransform|[\w]+\.OpacityMask|Path\.Data|ImageBrush\.Transform|LinearGradientBrush\.Transform)\b/);
+	if (unsupported) throw new Error(unsupported[1]!);
+	if (/\sOpacityMask\s*=/.test(xml)) throw new Error('opacity mask');
+	// Fonts the page's text uses, read once per document; glyph outlines go into the page's defs once.
+	const defs = new Map<string, string>();
+	/** Linear gradients the page's paths are filled or stroked with, by their id. */
+	const gradients = new Map<string, string>();
+	/**
+	 * A linear gradient brush ([MS-XPS] / ECMA-388 13.4) as an SVG gradient, its reference. Start and
+	 * end points in page units or relative to the shape's bounding box; padded, reflected or repeated;
+	 * colours interpolated in sRGB (the other way, scRGB, is not drawn here).
+	 */
+	const linearGradient = (brush: Map<string, string>, stops: Map<string, string>[]) => {
+		const start = numbers(brush.get('StartPoint'), 2), end = numbers(brush.get('EndPoint'), 2);
+		const mapping = brush.get('MappingMode') ?? 'Absolute', spread = brush.get('SpreadMethod') ?? 'Pad';
+		if (!start || !end || !stops.length || !['Absolute', 'RelativeToBoundingBox'].includes(mapping) || !['Pad', 'Reflect', 'Repeat'].includes(spread)) throw new Error('gradient');
+		if ((brush.get('ColorInterpolationMode') ?? 'SRgbLinearInterpolation') !== 'SRgbLinearInterpolation') throw new Error('gradient colours');
+		const opacity = brush.has('Opacity') ? Number(brush.get('Opacity')) : 1;
+		const transform = brush.get('Transform');
+		if (!(opacity >= 0 && opacity <= 1) || (transform !== undefined && !matrix(transform))) throw new Error('gradient');
+		const stopTags = stops.map(stop => {
+			const paint = colour(stop.get('Color')), offset = Number(stop.get('Offset'));
+			if (!paint || !Number.isFinite(offset)) throw new Error('gradient stop');
+			const alpha = paint.opacity * opacity;
+			return `<stop offset="${offset}" stop-color="${paint.paint}"${alpha < 1 ? ` stop-opacity="${alpha.toFixed(3)}"` : ''}/>`;
+		});
+		const body = `gradientUnits="${mapping === 'Absolute' ? 'userSpaceOnUse' : 'objectBoundingBox'}" x1="${start[0]}" y1="${start[1]}" x2="${end[0]}" y2="${end[1]}"${spread !== 'Pad' ? ` spreadMethod="${spread.toLowerCase()}"` : ''}${transform !== undefined ? ` gradientTransform="${matrix(transform)}"` : ''}>${stopTags.join('')}`;
+		const id = `lg${fontId(new TextEncoder().encode(body))}`;
+		gradients.set(id, `<linearGradient id="${id}" ${body}</linearGradient>`);
+		return `url(#${id})`;
+	};
+	const fontAt = (at: string) => readFont(pkg, fonts, at);
 	// Shapes kept in resource dictionaries (the page's own, and those it names).
 	const shapes = new Map<string, { figures: string, rule: string }>();
 	const dictionaries = [xml];
@@ -197,8 +419,8 @@ async function pageSvg(pkg: Package, path: string): Promise<XpsPage | undefined>
 	let width = 0, height = 0;
 	const out: string[] = [];
 	// The path being read (its fill or stroke may come as an element inside it).
-	let current: { attrs: Map<string, string>, fill?: Map<string, string>, image?: Map<string, string>, stroke?: Map<string, string>, within?: 'fill' | 'stroke' } | undefined;
-	const emitPath = async (attrs: Map<string, string>, fill?: Map<string, string>, imageBrush?: Map<string, string>, stroke?: Map<string, string>) => {
+	let current: { attrs: Map<string, string>, fill?: Map<string, string>, image?: Map<string, string>, stroke?: Map<string, string>, within?: 'fill' | 'stroke', gradient?: { brush: Map<string, string>, stops: Map<string, string>[], within: 'fill' | 'stroke' }, fillGradient?: string, strokeGradient?: string } | undefined;
+	const emitPath = async (attrs: Map<string, string>, fill?: Map<string, string>, imageBrush?: Map<string, string>, stroke?: Map<string, string>, gradientFill?: string, gradientStroke?: string) => {
 		const data = attrs.get('Data') ?? '';
 		const resource = data.match(/^\{StaticResource\s+([^}\s]+)\s*\}$/);
 		const shape = resource ? shapes.get(resource[1]!) : undefined;
@@ -221,8 +443,8 @@ async function pageSvg(pkg: Package, path: string): Promise<XpsPage | undefined>
 			parts.push(`<image x="${port[0]}" y="${port[1]}" width="${port[2]}" height="${port[3]}" preserveAspectRatio="none" href="${picture.href}"/>`);
 		}
 		else {
-			const paint = colour(fill?.get('Color') ?? attrs.get('Fill'));
-			const line = colour(stroke?.get('Color') ?? attrs.get('Stroke'));
+			const paint = gradientFill ? { paint: gradientFill, opacity: 1 } : colour(fill?.get('Color') ?? attrs.get('Fill'));
+			const line = gradientStroke ? { paint: gradientStroke, opacity: 1 } : colour(stroke?.get('Color') ?? attrs.get('Stroke'));
 			if ((fill || attrs.has('Fill')) && !paint) throw new Error('fill');
 			if ((stroke || attrs.has('Stroke')) && !line) throw new Error('stroke');
 			if (!paint && !line) return;
@@ -231,6 +453,44 @@ async function pageSvg(pkg: Package, path: string): Promise<XpsPage | undefined>
 		}
 		out.push(open ? `<g${open}>${parts.join('')}</g>` : parts.join(''));
 	};
+
+	// A run of text: each glyph's outline once in the defs, then placed (§11.5 item 77).
+	const emitGlyphs = async (attrs: Map<string, string>, fill?: Map<string, string>) => {
+		const uri = attrs.get('FontUri');
+		if (!uri || uri.includes('#')) throw new Error('font reference');
+		const font = await fontAt(resolve(path, uri));
+		if (!font) throw new Error('font not read');
+		const paint = colour(fill?.get('Color') ?? attrs.get('Fill'));
+		if (!paint) throw new Error('glyph fill');
+		if (Number(attrs.get('BidiLevel') ?? '0') % 2 === 1) throw new Error('right to left text');
+		if (attrs.get('IsSideways') === 'true') throw new Error('sideways text');
+		const em = Number(attrs.get('FontRenderingEmSize')), ox = Number(attrs.get('OriginX')), oy = Number(attrs.get('OriginY'));
+		if (!(em > 0) || !Number.isFinite(ox) || !Number.isFinite(oy)) throw new Error('glyph position');
+		const simulation = attrs.get('StyleSimulations') ?? 'None';
+		if (!['None', 'ItalicSimulation', 'BoldSimulation', 'BoldItalicSimulation'].includes(simulation)) throw new Error('style simulation');
+		const transform = attrs.get('RenderTransform');
+		if (transform !== undefined && !matrix(transform)) throw new Error('transform');
+		const opacity = attrs.has('Opacity') ? Number(attrs.get('Opacity')) : 1;
+		if (!(opacity >= 0 && opacity <= 1)) throw new Error('opacity');
+		const placed = glyphRun(font, attrs.get('UnicodeString'), attrs.get('Indices'), em);
+		const id = fontIds.get(font)!;
+		const scale = em / font.unitsPerEm;
+		// Italic simulation slants by 20 degrees; bold simulation widens the outline by 1% of the em on each side.
+		const slant = /Italic/.test(simulation) ? Math.tan(Math.PI / 9) : 0;
+		const uses: string[] = [];
+		for (const glyph of placed) {
+			const outline = font.outline(glyph.glyph)!;
+			if (!outline) continue;
+			const ref = `g${id}_${glyph.glyph}`;
+			if (!defs.has(ref)) defs.set(ref, outline);
+			const r = (n: number) => Math.round(n * 1000) / 1000;
+			uses.push(`<use href="#${ref}" transform="matrix(${r(scale)} 0 ${r(scale * slant)} ${r(-scale)} ${r(ox + glyph.x)} ${r(oy + glyph.y)})"/>`);
+		}
+		if (!uses.length) return;
+		const bold = /Bold/.test(simulation) ? ` stroke="${paint.paint}" stroke-width="${Math.round(font.unitsPerEm * 0.02)}"${paint.opacity < 1 ? ` stroke-opacity="${paint.opacity.toFixed(3)}"` : ''}` : '';
+		out.push(`<g${transform !== undefined ? ` transform="${matrix(transform)}"` : ''}${opacity !== 1 ? ` opacity="${opacity}"` : ''} fill="${paint.paint}"${paint.opacity < 1 ? ` fill-opacity="${paint.opacity.toFixed(3)}"` : ''}${bold}>${uses.join('')}</g>`);
+	};
+	let glyphs: { attrs: Map<string, string>, fill?: Map<string, string>, within?: boolean } | undefined;
 
 	// Every tag must be read: one written otherwise (single quotes, say) would leave part of the page out.
 	let tags = 0;
@@ -256,14 +516,38 @@ async function pageSvg(pkg: Package, path: string): Promise<XpsPage | undefined>
 		}
 		else if (name === 'Path') {
 			if (closing) {
-				if (current) await emitPath(current.attrs, current.fill, current.image, current.stroke);
+				if (current) await emitPath(current.attrs, current.fill, current.image, current.stroke, current.fillGradient, current.strokeGradient);
 				current = undefined;
 			}
 			else if (selfClosing) await emitPath(attrs);
 			else current = { attrs };
 		}
+		else if (name === 'Glyphs') {
+			if (closing) {
+				if (glyphs) await emitGlyphs(glyphs.attrs, glyphs.fill);
+				glyphs = undefined;
+			}
+			else if (selfClosing) await emitGlyphs(attrs);
+			else glyphs = { attrs };
+		}
+		else if (glyphs && name === 'Glyphs.Fill') glyphs.within = !closing;
+		else if (glyphs && name === 'SolidColorBrush' && glyphs.within) glyphs.fill = attrs;
+		else if (glyphs && !closing) throw new Error(`${name} inside glyphs`);
 		else if (current && (name === 'Path.Fill' || name === 'Path.Stroke')) current.within = closing ? undefined : name === 'Path.Fill' ? 'fill' : 'stroke';
 		else if (current && name === 'ImageBrush' && current.within === 'fill') current.image = attrs;
+		else if (current && name === 'LinearGradientBrush' && current.within) {
+			if (!closing) current.gradient = { brush: attrs, stops: [], within: current.within };
+			if (closing || selfClosing) {
+				const gradient = current.gradient;
+				if (!gradient) throw new Error('gradient');
+				const reference = linearGradient(gradient.brush, gradient.stops);
+				if (gradient.within === 'fill') current.fillGradient = reference;
+				else current.strokeGradient = reference;
+				current.gradient = undefined;
+			}
+		}
+		else if (current?.gradient && name === 'LinearGradientBrush.GradientStops') { /* the stops follow */ }
+		else if (current?.gradient && name === 'GradientStop' && !closing) current.gradient.stops.push(attrs);
 		else if (current && name === 'SolidColorBrush') {
 			if (current.within === 'fill') current.fill = attrs;
 			else if (current.within === 'stroke') current.stroke = attrs;
@@ -273,5 +557,151 @@ async function pageSvg(pkg: Package, path: string): Promise<XpsPage | undefined>
 	const comments = xml.replace(/<!--[\s\S]*?-->|<\?[\s\S]*?\?>/g, '');
 	if (tags !== (comments.match(/<[A-Za-z/]/g) ?? []).length) return undefined;
 	if (!(width > 0) || !(height > 0)) return undefined;
-	return { width, height, content: `<rect width="${width}" height="${height}" fill="#ffffff"/>${out.join('')}` };
+	const glyphDefs = defs.size || gradients.size ? `<defs>${[...gradients.values()].join('')}${[...defs].map(([ref, d]) => `<path id="${ref}" d="${d}"/>`).join('')}</defs>` : '';
+	return { width, height, content: `${glyphDefs}<rect width="${width}" height="${height}" fill="#ffffff"/>${out.join('')}` };
+}
+
+type Point = { x: number, y: number };
+/** An XPS transform `a,b,c,d,e,f`: (x, y) goes to (ax + cy + e, bx + dy + f). */
+type Matrix = [number, number, number, number, number, number];
+const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
+const apply = (m: Matrix, x: number, y: number): Point => ({ x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] });
+/** `inner`, then `outer`. */
+const compose = (outer: Matrix, inner: Matrix): Matrix => [
+	outer[0] * inner[0] + outer[2] * inner[1], outer[1] * inner[0] + outer[3] * inner[1],
+	outer[0] * inner[2] + outer[2] * inner[3], outer[1] * inner[2] + outer[3] * inner[3],
+	outer[0] * inner[4] + outer[2] * inner[5] + outer[4], outer[1] * inner[4] + outer[3] * inner[5] + outer[5],
+];
+const transformOf = (value: string | undefined): Matrix => (numbers(value, 6) as Matrix | undefined) ?? IDENTITY;
+
+/**
+ * The one character a glyph draws, found from its font (the character map and the forms its
+ * substitutions give); undefined when it is none, or could be more than one, or is a control or
+ * private-use character, which says nothing about what is written.
+ */
+export function characterOf(font: Font | undefined, glyph: number | undefined): string | undefined {
+	if (!font || glyph === undefined || !(glyph >= 0 && glyph < font.glyphCount)) return undefined;
+	const codes = [...new Set(font.charactersOf(glyph))];
+	const code = codes[0];
+	if (codes.length !== 1 || code === undefined) return undefined;
+	if (code < 0x20 || (code >= 0x7f && code < 0xa0) || (code >= 0xe000 && code <= 0xf8ff) || code >= 0xf0000) return undefined;
+	return String.fromCodePoint(code);
+}
+
+/** A run of text on a page: its characters, where its first glyph is, and where one that goes on from it would start. */
+interface TextRun {
+	text: string;
+	given: string;
+	first?: Point;
+	next: Point[];
+	/** The em size on the page. */
+	em: number;
+}
+
+/**
+ * The characters of a run (an XPS `Glyphs` element) in order: those the document writes, and for a
+ * glyph it gives without one, the character its font draws with it (`characterOf`); and where it
+ * sits, in page units (`m` is the transform it is drawn with).
+ */
+export function textRun(attrs: Map<string, string>, font: Font | undefined, m: Matrix): TextRun | undefined {
+	let units = attrs.get('UnicodeString') ?? '';
+	if (units.startsWith('{}')) units = units.slice(2);
+	let entries: IndexEntry[];
+	try {
+		entries = indexEntries(attrs.get('Indices'));
+	}
+	catch {
+		entries = [];
+	}
+	const em = Number(attrs.get('FontRenderingEmSize')), ox = Number(attrs.get('OriginX')), oy = Number(attrs.get('OriginY'));
+	const placed = em > 0 && Number.isFinite(ox) && Number.isFinite(oy);
+	const origins: Point[] = [];
+	let x = 0, v = 0, ends = placed;
+	const place = (glyph: number | undefined, advance: number | undefined, u: number, offset: number) => {
+		origins.push({ x: x + u * em / 100, y: -offset * em / 100 });
+		v = -offset * em / 100;
+		const step = advance ?? (font && glyph !== undefined && glyph >= 0 && glyph < font.glyphCount ? font.advance(glyph) * 100 / font.unitsPerEm : undefined);
+		if (step === undefined) ends = false;
+		else x += step * em / 100;
+	};
+	let text = '', given = '', at = 0;
+	for (let i = 0; i < entries.length;) {
+		const count = Math.max(1, entries[i]!.glyphs ?? 1);
+		const cluster = entries.slice(i, i + count);
+		const piece = units.slice(at, at + (entries[i]!.units ?? 1));
+		at += entries[i]!.units ?? 1;
+		if (piece) {
+			text += piece;
+			given += piece;
+		}
+		else for (const entry of cluster) text += characterOf(font, entry.glyph) ?? '';
+		const single = [...piece].length === 1 ? font?.glyphOf(piece.codePointAt(0)!) : undefined;
+		for (const entry of cluster) place(entry.glyph ?? single, entry.advance, entry.u, entry.v);
+		i += count;
+	}
+	// Characters past the indices: one glyph each, from the character map.
+	for (const character of units.slice(at)) {
+		text += character;
+		given += character;
+		place(font?.glyphOf(character.codePointAt(0)!), undefined, 0, 0);
+	}
+	if (!text) return undefined;
+	if (!placed || !origins.length) return { text, given, next: [], em: 0 };
+	const transform = compose(m, transformOf(attrs.get('RenderTransform')));
+	const scale = Math.sqrt(Math.abs(transform[0] * transform[3] - transform[1] * transform[2]));
+	const at0 = (point: Point) => apply(transform, ox + point.x, oy + point.y);
+	const first = at0(origins[0]!), last = at0(origins[origins.length - 1]!);
+	const pageEm = em * scale;
+	// Where the next glyph would go: along the run's advance, one more step as its glyphs go (down a
+	// column, where they are placed by offsets and advance nothing), or one em down (a column of one).
+	const next: Point[] = [{ x: last.x, y: last.y + pageEm }];
+	if (ends) next.push(apply(transform, ox + x, oy + v));
+	if (origins.length > 1) {
+		const before = at0(origins[origins.length - 2]!);
+		next.push({ x: 2 * last.x - before.x, y: 2 * last.y - before.y });
+	}
+	return { text, given, first, next, em: pageEm };
+}
+
+/**
+ * The text of one page (§11.5 item 78), whether it can be drawn here or not. Runs are taken in the
+ * document's order; a run that starts where an earlier one would go on (within half an em) is
+ * joined to it, so a line split into several runs, or a column of vertical text with its ruby set
+ * apart, reads as one piece; everything else starts a new line.
+ */
+async function pageText(pkg: Package, path: string, fonts: Map<string, Promise<Font | undefined>>): Promise<PageText | undefined> {
+	const xml = await pkg.text(path);
+	if (xml === undefined) return undefined;
+	const stack: Matrix[] = [IDENTITY];
+	const runs: TextRun[] = [];
+	for (const match of xml.matchAll(/<(\/?)(Canvas|Glyphs)((?:\s+[\w.:]+\s*=\s*"[^"]*")*)\s*(\/?)>/g)) {
+		const [, closing, name, rest, selfClosing] = match;
+		const top = stack[stack.length - 1]!;
+		if (name === 'Canvas') {
+			if (closing) {
+				if (stack.length > 1) stack.pop();
+			}
+			else if (!selfClosing) stack.push(compose(top, transformOf(attributes(rest ?? '').get('RenderTransform'))));
+			continue;
+		}
+		if (closing) continue;
+		const attrs = attributes(rest ?? '');
+		const uri = attrs.get('FontUri');
+		const font = uri && !uri.includes('#') ? await readFont(pkg, fonts, resolve(path, uri)) : undefined;
+		const run = textRun(attrs, font, top);
+		if (run) runs.push(run);
+	}
+	const lines: { text: string, next: Point[], em: number }[] = [];
+	for (const run of runs) {
+		const first = run.first;
+		const line = first && lines.slice(-64).reverse().find(earlier => earlier.next.some(point => Math.hypot(point.x - first.x, point.y - first.y) <= 0.5 * Math.max(earlier.em, run.em)));
+		if (line) {
+			line.text += run.text;
+			line.next = run.next;
+			line.em = run.em;
+		}
+		else lines.push({ text: run.text, next: run.next, em: run.em });
+	}
+	const text = lines.map(line => line.text.trim()).filter(Boolean).join('\n');
+	return text ? { text, given: runs.map(run => run.given).join('\n') } : undefined;
 }

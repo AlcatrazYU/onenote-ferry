@@ -6,6 +6,7 @@ import { asset, element, outline, pageJson, sectionJson } from './helpers.ts';
 import type { AttachmentHint, PageRenderOptions } from '../src/core/render/page.ts';
 import { zhHans } from '../src/core/strings.ts';
 import type { AssetData, Element, EmbeddedFile, Image, ListInfo, Outline, Page, Paragraph, Placement, Tag } from '../src/core/model.ts';
+import { xpsDocument } from './samples-xps.ts';
 
 // Builders for small, invented pages.
 
@@ -218,10 +219,12 @@ test('tags on list items, inside list items and in table cells become symbols be
 		'| Stop | Note |\n| --- | --- |\n| \u2b50 East | \u2611 Check pier |\n| \u2753 West | \u2610 Ask |');
 });
 
-test('the adapter keeps the alternative text of an image in the model', () => {
-	const adapted = new Adapter(zhHans).section(sectionJson('S', [pageJson('P', [outline([element([{ type: 'image', asset: asset('m.png'), fileName: 'm.png', alt: 'Title\n\nDescription', x: null, y: null, w: null }])])])]));
+test('the adapter keeps the alternative text of an image, and the text OneNote recognized in it, in the model', () => {
+	const adapted = new Adapter(zhHans).section(sectionJson('S', [pageJson('P', [outline([element([{ type: 'image', asset: asset('m.png'), fileName: 'm.png', alt: 'Title\n\nDescription', ocr: 'Gate 3', x: null, y: null, w: null }])])])]));
 	const first = adapted.pages[0].outlines[0].children[0] as Image | Outline;
-	assert.equal((first.kind === 'image' ? first : first.children[0] as Image).alt, 'Title\n\nDescription');
+	const image = first.kind === 'image' ? first : first.children[0] as Image;
+	assert.equal(image.alt, 'Title\n\nDescription');
+	assert.equal(image.recognizedText, 'Gate 3');
 });
 
 test('with the option on, the alternative text of an image follows it in a collapsed callout, as written in OneNote', async () => {
@@ -232,4 +235,58 @@ test('with the option on, the alternative text of an image follows it in a colla
 	const item = p('item', { list: bullet, children: [image] });
 	assert.equal(await md(page([box([item])]), { imageAltText: true }),
 		'- item\n\n\t![](<_附件/img1.png>)\n\n\t> [!info]- 替换文字\n\t> Ferry map\n\t>\n\t> \\# Route \\[A\\]\n\t> \\- dock');
+});
+
+const RECOGNIZED = '> [!info]- OneNote 识别的文字（可能有错）';
+
+test('a Windows printout page: the text its document writes follows it in a folded box, option on or off; what OneNote recognized only when it says something else (§11.5 item 78)', async () => {
+	const printout = (recognizedText?: string): Image => ({ kind: 'image', fileName: 'letter.docx', extension: 'xps', data: stored('y.xps'), printoutPage: 2, ...(recognizedText ? { recognizedText } : {}) });
+	const readAsset = async () => xpsDocument();
+	// Page 2 of the sample is text without its font: not drawn, its text read all the same.
+	const shown = '![](<_附件/img1.xps>)\n\n> [!info]- 打印页上的文字\n> text';
+	assert.equal(await md(page([box([printout()])]), { readAsset }), shown);
+	assert.equal(await md(page([box([printout(' te xt ')])]), { readAsset }), shown);
+	assert.equal(await md(page([box([printout('teXt')])]), { readAsset }), `${shown}\n\n${RECOGNIZED}\n> teXt`);
+});
+
+test('a Mac printout page (a picture) has only what OneNote recognized: written, option on or off; for a run of pages shown by one embed, after it, each page named', async () => {
+	const lone: Image = { kind: 'image', fileName: 'doc_1.pdf', extension: 'png', data: stored('m1.png'), printoutPage: 1, printoutName: 'doc.pdf', recognizedText: 'Chapter 1' };
+	assert.equal(await md(page([box([lone])])), `![](<_附件/img1.png>)\n\n${RECOGNIZED}\n> Chapter 1`);
+	const pdf: EmbeddedFile = { kind: 'embedded-file', fileName: 'doc.pdf', extension: 'pdf', data: stored('doc.pdf') };
+	const macPage = (n: number): Image => ({ ...lone, fileName: `doc_${n}.pdf`, data: stored(`m${n}.png`), printoutPage: n, printoutOf: pdf, recognizedText: `Page ${n}` });
+	assert.equal(await md(page([box([pdf, macPage(1), macPage(2)])], [])), [
+		'[doc.pdf](<_附件/doc.pdf>)',
+		'![](<_附件/doc.pdf#page=1>)',
+		`${RECOGNIZED}\n> *doc.pdf 第 1 页*\n> Page 1\n>\n> *doc.pdf 第 2 页*\n> Page 2`,
+	].join('\n\n'));
+});
+
+test('a picture\'s recognized text only with the option on; alternative text that says the same is not written twice', async () => {
+	const image = (alt?: string): Image => ({ kind: 'image', extension: 'png', data: stored('a.png'), recognizedText: 'Gate 3\nPier', ...(alt ? { alt } : {}) });
+	assert.equal(await md(page([box([image()])])), '![](<_附件/img1.png>)');
+	const recognized = `${RECOGNIZED}\n> Gate 3\n> Pier`;
+	assert.equal(await md(page([box([image()])]), { imageAltText: true }), `![](<_附件/img1.png>)\n\n${recognized}`);
+	assert.equal(await md(page([box([image('Gate 3 Pier')])]), { imageAltText: true }), `![](<_附件/img1.png>)\n\n${recognized}`);
+	assert.equal(await md(page([box([image('Ferry map')])]), { imageAltText: true }), `![](<_附件/img1.png>)\n\n> [!info]- 替换文字\n> Ferry map\n\n${recognized}`);
+});
+
+test('pictures without data keep the text OneNote recognized in them: after their notice, each named', async () => {
+	const gone = (fileName: string, recognizedText: string): Image => ({ kind: 'image', fileName, recognizedText });
+	assert.equal(await md(page([box([gone('a.png', 'one'), gone('b.png', 'two')])]), { imageAltText: true }), [
+		'*〔图片缺失 2 张：a.png、b.png（OneDrive 下载包里没有这些图片的数据）〕*',
+		`${RECOGNIZED}\n> *a.png*\n> one\n>\n> *b.png*\n> two`,
+	].join('\n\n'));
+	// A printout page's, whether asked or not.
+	const macPage: Image = { kind: 'image', fileName: 'doc_1.pdf', printoutPage: 1, printoutName: 'doc.pdf', recognizedText: 'Chapter 1' };
+	assert.equal(await md(page([box([macPage])])), [
+		'*〔打印页缺失：doc.pdf 第 1 页（OneDrive 下载包里没有这一页的数据）〕*',
+		`${RECOGNIZED}\n> *doc.pdf 第 1 页*\n> Chapter 1`,
+	].join('\n\n'));
+});
+
+test('a picture Obsidian cannot show (EMF) is linked with a label saying so, not embedded', async () => {
+	const emf: Image = { kind: 'image', data: stored('e.emf'), extension: 'emf' };
+	const out = await md(page([box([emf])]));
+	assert.match(out, /^\[EMF 图片（Obsidian 无法显示这种格式）\]\(<_附件\/img1\.emf>\)$/m);
+	assert.doesNotMatch(out, /!\[/);
 });

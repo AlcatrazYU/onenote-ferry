@@ -22,3 +22,9 @@
 
 ![](<_attachments/test4.pdf#page=1>)
 
+> [!info]- Text recognized by OneNote (may contain errors)
+> *test4.pdf, page 1*
+> Test
+> Test!
+> maln
+

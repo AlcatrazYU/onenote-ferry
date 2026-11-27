@@ -26,8 +26,8 @@ export interface UiStrings {
 	badFolder: string;
 	boxMarkers: string;
 	boxMarkersDesc: string;
-	altText: string;
-	altTextDesc: string;
+	pictureText: string;
+	pictureTextDesc: string;
 
 	// The import window, before the import: what to import, and how.
 	wizardTitle: string;
@@ -274,8 +274,8 @@ const en: UiStrings = {
 	badFolder: 'A folder name cannot start with a dot.',
 	boxMarkers: 'Text box positions',
 	boxMarkersDesc: 'Pages laid out in columns come out with their text boxes one after another. When on, a hidden comment before each text box says where it sat on the page.',
-	altText: 'Picture alt text',
-	altTextDesc: 'Keep the alt text a picture already has in the notes: written below the picture, collapsed.',
+	pictureText: 'Text in pictures',
+	pictureTextDesc: 'Keep the text pictures carry in the notes (alt text, and text OneNote recognized): written below each picture, collapsed. Printout pages always get their text.',
 
 	wizardTitle: 'Import OneNote notes',
 	chooseBoth: 'Choose files or folders',
@@ -486,8 +486,8 @@ const zh: UiStrings = {
 	badFolder: '文件夹名不能以点开头。',
 	boxMarkers: '文本框位置',
 	boxMarkersDesc: '多栏排版的页面导入后，文本框会依次排成一列。开启后，在每个文本框前加一条隐藏注释，写明它在原页面上的位置。',
-	altText: '图片替换文字',
-	altTextDesc: '保留原笔记已有的图片替换文字，写在图片下方，默认收起。',
+	pictureText: '图片里的文字',
+	pictureTextDesc: '保留图片带的文字（替换文字、OneNote 识别出的文字），写在图片下方，默认收起。打印页的文字总会写上。',
 
 	wizardTitle: '导入 OneNote 笔记',
 	chooseBoth: '选择文件或文件夹',
@@ -700,8 +700,8 @@ const ja: UiStrings = {
 	badFolder: 'フォルダー名をドットで始めることはできません。',
 	boxMarkers: 'テキストボックスの位置',
 	boxMarkersDesc: '段組みのページは、インポートするとテキストボックスが順に一列に並びます。オンにすると、各テキストボックスの前に元のページでの位置を記した非表示のコメントを入れます。',
-	altText: '画像の代替テキスト',
-	altTextDesc: '元のノートにある画像の代替テキストを残し、画像の下に折りたたんで書きます。',
+	pictureText: '画像の中の文字',
+	pictureTextDesc: '画像に付いている文字（代替テキスト、OneNote が認識した文字）を残し、画像の下に折りたたんで書きます。印刷イメージの文字は常に書きます。',
 
 	wizardTitle: 'OneNote のノートをインポート',
 	chooseBoth: 'ファイルまたはフォルダーを選択',
@@ -913,8 +913,8 @@ const ko: UiStrings = {
 	badFolder: '폴더 이름은 점으로 시작할 수 없습니다.',
 	boxMarkers: '텍스트 상자 위치',
 	boxMarkersDesc: '여러 열로 된 페이지는 가져오면 텍스트 상자가 위에서 아래로 차례로 놓입니다. 켜면 각 텍스트 상자 앞에 원래 페이지에서의 위치를 적은 숨은 주석을 넣습니다.',
-	altText: '그림 대체 텍스트',
-	altTextDesc: '원래 노트에 있는 그림 대체 텍스트를 유지해 그림 아래에 접힌 상태로 씁니다.',
+	pictureText: '그림 속 글자',
+	pictureTextDesc: '그림에 딸린 글자(대체 텍스트, OneNote가 인식한 글자)를 유지해 그림 아래에 접힌 상태로 씁니다. 인쇄물 페이지의 글자는 항상 씁니다.',
 
 	wizardTitle: 'OneNote 노트 가져오기',
 	chooseBoth: '파일 또는 폴더 선택',

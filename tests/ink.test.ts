@@ -241,7 +241,8 @@ test('handwriting on a Windows printout page whose document can be drawn: on the
 	});
 	const assets = { 'doc.xps': xpsDocument() };
 	const onFirst = await render(page([], [winPage(1), winPage(2), ink(pen([[3, 6], [6, 6]], '#ff0000'))]), assets);
-	assert.equal(onFirst.markdown, ['![](<_附件/doc.pdf#page=1>)', '*〔doc.pdf 第 1 页上的手写批注（按它在这一页上的位置画出）〕*', '![](<_附件/ink1.svg>)'].join('\n\n'));
+	// The text of the run's pages follows it, each page named (§11.5 item 78): page 2 has some.
+	assert.equal(onFirst.markdown, ['![](<_附件/doc.pdf#page=1>)', '*〔doc.pdf 第 1 页上的手写批注（按它在这一页上的位置画出）〕*', '![](<_附件/ink1.svg>)', '> [!info]- 打印页上的文字\n> *doc.pdf 第 2 页*\n> text'].join('\n\n'));
 	const drawing = onFirst.saved.find(s => s.hint.role === 'ink')!.text!;
 	// The page (12.4 half inches wide, 96 by 192 of its own units) under the stroke, not a blank sheet.
 	assert.match(drawing, /<svg x="0" y="0" width="595.2" height="1190.4" preserveAspectRatio="none" viewBox="0 0 96 192"><rect width="96" height="192" fill="#ffffff"\/>/);

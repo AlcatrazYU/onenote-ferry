@@ -77,6 +77,27 @@ test('Mac printout pages (one picture each, named <document>_<page>.pdf) point a
 	assert.deepEqual([second.printoutPage, second.printoutOf, second.extension], [2, embedded, 'png']);
 });
 
+test('a printout whose PDF is on another page of the section points at it, when only one PDF has that name', () => {
+	const adapter = new Adapter(zhHans);
+	const file = (key: string) => ({ type: 'file', asset: asset(key), fileName: 'doc.pdf', x: 1, y: 1, w: 5 });
+	const printout = { type: 'image', asset: asset('p.xps'), fileName: 'doc.pdf', page: 2, x: 1, y: 2, w: 5 };
+	const one = adapter.section(sectionJson('One', [pageJson('With the PDF', [outline([element([file('f.pdf')])])]), pageJson('Printout', [outline([element([printout])])])]));
+	const embedded = unwrap(one.pages[0]!.outlines[0]!.children[0]!) as EmbeddedFile;
+	const image = unwrap(one.pages[1]!.outlines[0]!.children[0]!) as Image;
+	assert.deepEqual([image.printoutPage, image.printoutOf, image.originalOnPage], [3, embedded, undefined]);
+	// Two different files of that name: which one was printed is not known, so neither.
+	const two = adapter.section(sectionJson('Two', [pageJson('A', [outline([element([file('f1.pdf')])])]), pageJson('B', [outline([element([file('f2.pdf')])])]), pageJson('Printout', [outline([element([printout])])])]));
+	assert.equal((unwrap(two.pages[2]!.outlines[0]!.children[0]!) as Image).printoutOf, undefined);
+});
+
+test('a printout whose Word document is on the page knows its original is there, without a PDF to show', () => {
+	const file = { type: 'file', asset: asset('w.docx'), fileName: 'report.docx', x: 1, y: 1, w: 5 };
+	const printout = { type: 'image', asset: asset('p.xps'), fileName: 'report.docx', page: 0, x: 1, y: 2, w: 5 };
+	const { page } = adapt([outline([element([file]), element([printout])])]);
+	const image = unwrap(page.outlines[0].children[1]!) as Image;
+	assert.deepEqual([image.printoutOf, image.originalOnPage], [undefined, true]);
+});
+
 test('a Mac printout page without its PDF, or an image only named like one, stays an ordinary image', () => {
 	const alone = { type: 'image', asset: asset('m.png'), fileName: 'doc_1.pdf', page: 1, x: 1, y: 2, w: 5 };
 	const wrongPage = { type: 'image', asset: asset('w.png'), fileName: 'scan_2.pdf', page: 3, x: 1, y: 2, w: 5 };

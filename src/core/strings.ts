@@ -18,6 +18,8 @@ export interface Strings {
 	missingAttachment(fileName: string): string;
 	/** Shown where pictures have no data in the download; pictures in a row share one notice. `names`: the known file names. */
 	missingImages(count: number, names: string[]): string;
+	/** The link to a picture in a format Obsidian cannot show (EMF, WMF), in place of the picture (§11.5 item 77). */
+	unshownPicture(format: string): string;
 	/** Shown where printout pages `first` to `last` (1-based) of a document have no data in the download. */
 	missingPrintoutPages(document: string, first: number, last: number): string;
 	/** Above handwriting written on a printout page that cannot be drawn under it (the notes follow on a blank page outline). */
@@ -44,6 +46,10 @@ export interface Strings {
 	incompleteSection: string;
 	/** Title of the collapsed callout holding an image's alternative text. */
 	altTextTitle: string;
+	/** Title of the folded box with the text of a printout page as its document gives it (§11.5 item 78). */
+	printoutTextTitle: string;
+	/** Title of the folded box with the text OneNote recognized in a picture or printout page. */
+	recognizedTextTitle: string;
 	/** Title of the folded copy of a picture with the writing on it (handwriting, highlighter) drawn where it was estimated to be (§11.5 items 67 and 69). */
 	inkEstimated: string;
 	/** The note in a section that could not be converted, with the parser's message. */
@@ -95,6 +101,8 @@ export interface ReportStrings {
 	recordsMissing: string;
 	/** After a link to a page: pictures, attachments or printout pages with no data in the download. */
 	missingItems(count: number): string;
+	/** After a link to a page: Windows printout pages not drawn (§11.5 item 77); their document is linked on the page. */
+	printoutsNotDrawn(count: number): string;
 	/** The last run was an update: what it changed is in its record (`record` is a link). */
 	update(record: string): string;
 }
@@ -187,6 +195,7 @@ export const en: Strings = {
 		? `[Missing printout page ${first} of ${document}. The OneDrive download has no data for this page.]`
 		: `[Missing printout pages ${first} to ${last} of ${document}. The OneDrive download has no data for these pages.]`,
 	printoutNotes: (document, page) => `[Handwriting on page ${page} of ${document}, drawn where it sits on that page.]`,
+	unshownPicture: format => `${format} picture (Obsidian cannot show this format)`,
 	printoutPage: (document, page) => `${document}, page ${page}`,
 	unnamedFile: 'unnamed file',
 	untitledPage: 'Untitled',
@@ -201,6 +210,8 @@ export const en: Strings = {
 	passwordProtected: 'This section is password protected and cannot be read. Remove its password protection in OneNote, then download it again.',
 	incompleteSection: 'This section did not download completely. Download again to get it.',
 	altTextTitle: 'Alt text',
+	printoutTextTitle: 'Text of the printout',
+	recognizedTextTitle: 'Text recognized by OneNote (may contain errors)',
 	inkEstimated: 'Ink (estimated position)',
 	conversionFailedNote: error => `This section could not be converted. The parser reported: ${error}`,
 	attachmentsFolder: '_attachments',
@@ -229,6 +240,7 @@ export const en: Strings = {
 		unfinished: 'This import has not finished yet, or Obsidian was closed during it. Import again to add the sections not imported yet.',
 		recordsMissing: 'Some sections have no earlier record (the data of this report was deleted or changed), so the page and attachment counts here may be incomplete.',
 		missingItems: count => `${plural(count, 'picture or attachment', 'pictures or attachments')} missing (the download has no data for ${count === 1 ? 'it' : 'them'})`,
+		printoutsNotDrawn: count => `${plural(count, 'printout page', 'printout pages')} not drawn (${count === 1 ? 'its' : 'their'} text could not be checked character by character, or the page uses what is not drawn here); open the original file to see ${count === 1 ? 'it' : 'them'}`,
 		update: record => `This run updated notes imported before; what changed is in ${record}.`,
 	},
 	update: {
@@ -291,6 +303,7 @@ export const zhHans: Strings = {
 		? `〔打印页缺失：${document} 第 ${first} 页（OneDrive 下载包里没有这一页的数据）〕`
 		: `〔打印页缺失：${document} 第 ${first} 到 ${last} 页（OneDrive 下载包里没有这些页面的数据）〕`,
 	printoutNotes: (document, page) => `〔${document} 第 ${page} 页上的手写批注（按它在这一页上的位置画出）〕`,
+	unshownPicture: format => `${format} 图片（Obsidian 无法显示这种格式）`,
 	printoutPage: (document, page) => `${document} 第 ${page} 页`,
 	unnamedFile: '未命名文件',
 	untitledPage: '无标题',
@@ -305,6 +318,8 @@ export const zhHans: Strings = {
 	passwordProtected: '这个分区设了密码，无法读取。请在 OneNote 里取消它的密码保护，再重新下载。',
 	incompleteSection: '这个分区没有下载完整，请重新下载。',
 	altTextTitle: '替换文字',
+	printoutTextTitle: '打印页上的文字',
+	recognizedTextTitle: 'OneNote 识别的文字（可能有错）',
 	inkEstimated: '笔迹（位置为估算）',
 	conversionFailedNote: error => `这个分区没能转换。解析器报告：${error}`,
 	attachmentsFolder: '_附件',
@@ -333,6 +348,7 @@ export const zhHans: Strings = {
 		unfinished: '这次导入还没有结束，或者中途退出了 Obsidian。再导入一次，没导入的分区会补进来。',
 		recordsMissing: '有的分区以前的记录不在了（报告的数据被删掉或改动过），这里的页数和附件数可能不全。',
 		missingItems: count => `缺少 ${num(count)} 处图片或附件（下载包里没有数据）`,
+		printoutsNotDrawn: count => `${num(count)} 页打印页没有画出（文字无法逐字核对，或页面用了这里画不了的内容），请打开原文件查看`,
 		update: record => `这次更新了已导入的笔记，详见${record}。`,
 	},
 	update: {
@@ -395,6 +411,7 @@ export const zhHant: Strings = {
 		? `〔列印頁缺失：${document} 第 ${first} 頁（OneDrive 下載包裡沒有這一頁的資料）〕`
 		: `〔列印頁缺失：${document} 第 ${first} 到 ${last} 頁（OneDrive 下載包裡沒有這些頁面的資料）〕`,
 	printoutNotes: (document, page) => `〔${document} 第 ${page} 頁上的手寫批註（按它在這一頁上的位置畫出）〕`,
+	unshownPicture: format => `${format} 圖片（Obsidian 無法顯示這種格式）`,
 	printoutPage: (document, page) => `${document} 第 ${page} 頁`,
 	unnamedFile: '未命名檔案',
 	untitledPage: '無標題',
@@ -409,6 +426,8 @@ export const zhHant: Strings = {
 	passwordProtected: '這個節設了密碼，無法讀取。請在 OneNote 裡取消它的密碼保護，再重新下載。',
 	incompleteSection: '這個節沒有下載完整，請重新下載。',
 	altTextTitle: '替代文字',
+	printoutTextTitle: '列印頁上的文字',
+	recognizedTextTitle: 'OneNote 辨識的文字（可能有誤）',
 	inkEstimated: '筆跡（位置為估算）',
 	conversionFailedNote: error => `這個節沒能轉換。解析器報告：${error}`,
 	attachmentsFolder: '_附件',
@@ -437,6 +456,7 @@ export const zhHant: Strings = {
 		unfinished: '這次匯入還沒有結束，或者中途退出了 Obsidian。再匯入一次，沒匯入的節會補進來。',
 		recordsMissing: '有的節以前的紀錄不在了（報告的資料被刪除或改動過），這裡的頁數和附件數可能不全。',
 		missingItems: count => `缺少 ${num(count)} 處圖片或附件（下載包裡沒有資料）`,
+		printoutsNotDrawn: count => `${num(count)} 頁列印頁沒有畫出（文字無法逐字核對，或頁面用了這裡畫不了的內容），請開啟原檔案查看`,
 		update: record => `這次更新了已匯入的筆記，詳見${record}。`,
 	},
 	update: {
@@ -499,6 +519,7 @@ export const ja: Strings = {
 		? `〔印刷イメージなし：${document} ${first} ページ目（OneDrive のダウンロードにこのページのデータがありません）〕`
 		: `〔印刷イメージなし：${document} ${first} ページ目から ${last} ページ目（OneDrive のダウンロードにこれらのページのデータがありません）〕`,
 	printoutNotes: (document, page) => `〔${document} の ${page} ページへの手書きメモ（そのページ上の位置どおりに描画）〕`,
+	unshownPicture: format => `${format} 画像（Obsidian ではこの形式を表示できません）`,
 	printoutPage: (document, page) => `${document} の ${page} ページ`,
 	unnamedFile: '名前のないファイル',
 	untitledPage: '無題',
@@ -513,6 +534,8 @@ export const ja: Strings = {
 	passwordProtected: 'このセクションはパスワードで保護されているため読み取れません。OneNote でパスワード保護を解除してから、もう一度ダウンロードしてください。',
 	incompleteSection: 'このセクションは最後までダウンロードされていません。もう一度ダウンロードしてください。',
 	altTextTitle: '代替テキスト',
+	printoutTextTitle: '印刷イメージの文字',
+	recognizedTextTitle: 'OneNote が認識した文字（誤りを含む場合があります）',
 	inkEstimated: 'インク（位置は推定）',
 	conversionFailedNote: error => `このセクションは変換できませんでした。解析器のメッセージ：${error}`,
 	attachmentsFolder: '_添付ファイル',
@@ -541,6 +564,7 @@ export const ja: Strings = {
 		unfinished: 'このインポートはまだ終わっていないか、途中で Obsidian が終了しました。もう一度インポートすると、残りのセクションが追加されます。',
 		recordsMissing: '以前の記録が残っていないセクションがあります（このレポートのデータが削除または変更されました）。ここのページ数と添付ファイル数は不完全な場合があります。',
 		missingItems: count => `画像または添付ファイル ${num(count)} 個が欠けています（ダウンロードにデータがありません）`,
+		printoutsNotDrawn: count => `印刷イメージ ${num(count)} ページは描画していません（文字を一字ずつ確認できないか、ここでは描けない内容を含みます）。元のファイルを開いてご覧ください`,
 		update: record => `今回はインポート済みのノートを更新しました。変更点は${record}を参照してください。`,
 	},
 	update: {
@@ -603,6 +627,7 @@ export const ko: Strings = {
 		? `〔인쇄물 페이지 없음: ${document} ${first}페이지 (OneDrive 다운로드에 이 페이지의 데이터가 없습니다)〕`
 		: `〔인쇄물 페이지 없음: ${document} ${first}페이지부터 ${last}페이지까지 (OneDrive 다운로드에 이 페이지들의 데이터가 없습니다)〕`,
 	printoutNotes: (document, page) => `〔${document} ${page}쪽에 쓴 손글씨 메모(그 쪽에서의 위치대로 그림)〕`,
+	unshownPicture: format => `${format} 그림 (Obsidian에서 이 형식을 표시할 수 없음)`,
 	printoutPage: (document, page) => `${document} ${page}쪽`,
 	unnamedFile: '이름 없는 파일',
 	untitledPage: '제목 없음',
@@ -617,6 +642,8 @@ export const ko: Strings = {
 	passwordProtected: '이 섹션은 암호로 보호되어 있어 읽을 수 없습니다. OneNote에서 암호 보호를 해제한 뒤 다시 다운로드하세요.',
 	incompleteSection: '이 섹션은 끝까지 다운로드되지 않았습니다. 다시 다운로드하세요.',
 	altTextTitle: '대체 텍스트',
+	printoutTextTitle: '인쇄물 페이지의 글자',
+	recognizedTextTitle: 'OneNote가 인식한 글자(오류가 있을 수 있음)',
 	inkEstimated: '잉크(위치는 추정)',
 	conversionFailedNote: error => `이 섹션은 변환하지 못했습니다. 파서 메시지: ${error}`,
 	attachmentsFolder: '_첨부 파일',
@@ -645,6 +672,7 @@ export const ko: Strings = {
 		unfinished: '이 가져오기가 아직 끝나지 않았거나 도중에 Obsidian이 종료되었습니다. 다시 가져오면 나머지 섹션이 추가됩니다.',
 		recordsMissing: '이전 기록이 없는 섹션이 있습니다(이 보고서의 데이터가 삭제되었거나 바뀌었습니다). 여기의 페이지 수와 첨부 파일 수는 정확하지 않을 수 있습니다.',
 		missingItems: count => `그림 또는 첨부 파일 ${num(count)}개 없음 (다운로드에 데이터가 없음)`,
+		printoutsNotDrawn: count => `인쇄 페이지 ${num(count)}쪽을 그리지 않았습니다 (글자를 한 자씩 확인할 수 없거나 여기서 그릴 수 없는 내용이 있음). 원본 파일을 열어 보세요`,
 		update: record => `이번에는 이전에 가져온 노트를 업데이트했습니다. 바뀐 내용은 ${record}에 있습니다.`,
 	},
 	update: {

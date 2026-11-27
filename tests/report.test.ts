@@ -363,3 +363,24 @@ test('simplified Chinese never uses 「」; traditional Chinese calls a section 
 	assert.match(zhHant.report.sectionsCancelled(2), /節/);
 	assert.match(zhHant.notImportedSuffix, /匯入/);
 });
+
+test('a Windows printout page that is not drawn is named under the page, with where to see it (§11.5 item 77)', async () => {
+	const sink = memorySink();
+	// A printout of a Word document whose XPS cannot be read here: shown as before, and noted.
+	const printout = { type: 'image', asset: asset('doc.xps'), fileName: 'report.docx', page: 0, x: 1, y: 2, w: 5 };
+	const host: ImportHost = {
+		sink,
+		async parse(section: DownloadSection) {
+			return { json: sectionJson(section.label, [pageJson('Printed page', [outline([element([printout])])])]), source: { async readAsset() { return new TextEncoder().encode('not an XPS package'); } }, release() {} };
+		},
+		async isPasswordProtected() {
+			return false;
+		},
+		async listFolders() {
+			return folders(sink);
+		},
+	};
+	const result = await importNotebooks(findNotebooks(files('Tides/Spring.one'), 'Documents'), host, { languageFor: () => 'zh-Hans', ...OPTIONS, links: true });
+	const page = reportMarkdown(updateReport(undefined, result, { at: AT, sources: ['Notes.zip'], options: OPTIONS }, folders(sink)), zhHans);
+	assert.match(page, /- \[Printed page\]\(<Tides\/Spring\/Printed page\.md>\): 1 页打印页没有画出（文字无法逐字核对，或页面用了这里画不了的内容），请打开原文件查看\n/);
+});

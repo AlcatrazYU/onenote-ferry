@@ -18,7 +18,9 @@
 //                        or auto: each notebook's own language, read from its text first
 //   --no-box-markers     no position comments before text boxes
 //   --no-links           leave onenote: links between pages as they are
-//   --image-alt-text     write images' alternative text in a collapsed callout below them
+//   --image-text         write the text pictures carry (alternative text, text OneNote recognized)
+//                        in collapsed callouts below them; a printout page's text is written anyway
+//                        (--image-alt-text, its older name, still works)
 //
 //   node src/cli/main.ts plan <new download> <converted output folder> [options]
 //
@@ -91,7 +93,7 @@ function parseArgs(argv: string[]) {
 		language: option('--language') ?? SYSTEM_LANGUAGE,
 		languageGiven: false,
 		boxMarkers: !flag('--no-box-markers'),
-		imageAltText: flag('--image-alt-text'),
+		imageAltText: flag('--image-text') || flag('--image-alt-text'),
 		links: !flag('--no-links'),
 		partial: flag('--partial'),
 		apply: flag('--apply'),
@@ -171,7 +173,7 @@ function sectionParser(options: ReturnType<typeof parseArgs>, download: Download
 async function main() {
 	const options = parseArgs(process.argv.slice(2));
 	if (!options.input || !options.output) {
-		console.error('Usage: node src/cli/main.ts <download zip or folder, or a .onepkg or .one exported by OneNote for Windows> <output folder> [--dump <native parser>] [--parser-wasm DIR] [--tmp DIR] [--only "A|B"] [--language CODE] [--no-box-markers] [--no-links] [--image-alt-text]');
+		console.error('Usage: node src/cli/main.ts <download zip or folder, or a .onepkg or .one exported by OneNote for Windows> <output folder> [--dump <native parser>] [--parser-wasm DIR] [--tmp DIR] [--only "A|B"] [--language CODE] [--no-box-markers] [--no-links] [--image-text]');
 		process.exit(2);
 	}
 	if (options.language !== 'auto' && !isLanguage(options.language)) {

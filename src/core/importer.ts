@@ -38,6 +38,7 @@ export interface SectionHost {
 /** How each section is written: everything that is not about the notebook as a whole. */
 export interface SectionOptions {
 	boxMarkers: boolean;
+	/** The text pictures carry (§11.5 items 32 and 78); named for what it first held, as reports keep it. */
 	imageAltText?: boolean;
 }
 

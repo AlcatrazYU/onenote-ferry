@@ -94,7 +94,7 @@ async function render(page: Page, profile: Float32Array | undefined) {
 		boxMarkers: false, strings: zhHans,
 		saveAttachment: async (data, hint) => {
 			saved.push({ role: hint.role, text: data.kind === 'inline' ? new TextDecoder().decode(data.bytes) : undefined });
-			const name = hint.role === 'image' ? `img${++n}.${hint.extension ?? 'bin'}` : hint.role === 'ink' ? `ink${++n}.svg` : hint.fileName;
+			const name = hint.role === 'image' ? `img${++n}.${hint.extension ?? 'bin'}` : hint.role === 'ink' ? `ink${++n}.svg` : hint.role === 'page' ? `page${++n}.svg` : hint.fileName;
 			return { path: `_附件/${name}`, name };
 		},
 		readAsset: async data => (data.kind === 'stored' ? pngHeader(600, 300) : data.bytes),

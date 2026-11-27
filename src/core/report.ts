@@ -262,8 +262,10 @@ export function reportMarkdown(report: ImportReport, strings: Strings): string {
 			for (const page of section.report?.pages ?? []) {
 				// One `no-data` entry per missing item (other entries say more about the same item).
 				const missing = page.skipped.filter(entry => entry.endsWith(': no-data')).length;
-				if (!missing || !section.dir) continue;
-				items.push(`- ${link(page.title || strings.untitledPage, joinPath(section.dir, page.file))}: ${r.missingItems(missing)}`);
+				const notDrawn = page.skipped.filter(entry => entry.endsWith(': not-drawn')).length;
+				if (!section.dir) continue;
+				if (missing) items.push(`- ${link(page.title || strings.untitledPage, joinPath(section.dir, page.file))}: ${r.missingItems(missing)}`);
+				if (notDrawn) items.push(`- ${link(page.title || strings.untitledPage, joinPath(section.dir, page.file))}: ${r.printoutsNotDrawn(notDrawn)}`);
 			}
 		}
 		const cancelled = notebook.sections.filter(section => section.cancelled).length;
