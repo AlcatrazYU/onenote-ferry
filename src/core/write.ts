@@ -230,6 +230,7 @@ export async function writeSection(section: Section, source: SectionSource, sink
 					return undefined;
 				}
 			},
+			rowProfile: async data => (data.kind === 'stored' ? await source.rowProfile?.(data.key).catch(() => undefined) : undefined),
 		});
 
 		const frontMatter = [

@@ -15,7 +15,7 @@ It reads the original notebook files, either straight from your OneDrive once yo
 - text formatting, highlights (with their colors), web links, math as LaTeX
 - links between notes, rewritten as links inside your vault
 - original images and attachments, unchanged; printouts shown as the original PDF
-- handwriting, drawn as a picture where it was written
+- handwriting, drawn as a picture where it was written, with highlighter strokes drawn into the picture or handwriting they cover
 - page hierarchy, with a contents page for each notebook and section
 - a reading order for free-floating text boxes
 - a report of what was converted, and of anything that could not be
@@ -80,6 +80,7 @@ Your OneNote files are only read, never modified: in OneDrive, the plugin only h
 - Password-protected sections cannot be read: remove the password in OneNote, then import or check for updates again. From OneDrive, a password only shows once the section is downloaded, so such a section can be ticked, downloaded, and then reported as not converted.
 - The OneDrive website downloads the folder that holds your notebooks, not a single notebook.
 - The free layout of a page (fonts, sizes, exact positions) is not reproduced. Text boxes are put in reading order, with an optional comment giving each one's position.
+- OneNote does not record where a screenshot sits inside a text box, so highlighter strokes on one are placed by estimate. When the estimate is not sure, the screenshot is kept as it is, followed by a folded copy with the strokes drawn where they are estimated to be. Highlighter strokes on typed text or on empty space are not kept.
 - Sections are sorted by name, because OneDrive's files do not record their order.
 - A page moved to another section in OneNote ends up twice: in its old section, listed under `Pages no longer in OneNote`, and in the new one.
 - A notebook keeps the language of its contents pages and notices. To change it, move the notebook's folder out of the target folder, then import the notebook again.
@@ -120,7 +121,7 @@ OneNote Ferry（OneNote 摆渡）是一个 Obsidian 社区插件（附命令行�
 - 文字格式、高亮（保留颜色）、网页链接，数学公式转成 LaTeX
 - 笔记间链接，改写为仓库内链接
 - 原始图片和附件，不转码；打印页显示为原来的 PDF
-- 手写，画成图片放在原来的位置
+- 手写，画成图片放在原来的位置；荧光笔画进它盖住的图片或手写
 - 页面层级，每个笔记本和分区都有目录页
 - 自由文本框排出阅读顺序
 - 一份报告，写明转了什么、有什么没能转
@@ -185,6 +186,7 @@ OneNote Ferry（OneNote 摆渡）是一个 Obsidian 社区插件（附命令行�
 - 设了密码的分区读不出：请在 OneNote 里取消密码，再导入或检查更新。从 OneDrive 导入时，分区下载后才能看出有没有密码，所以这样的分区可能被勾上、下载，然后在报告里列为没有转换。
 - OneDrive 网页上只能下载装着笔记本的文件夹，不能单独下载一本笔记本。
 - 不还原页面的自由版面（字体、字号、精确位置）。文本框排成阅读顺序，可选在每块前加一行注释写明它的位置。
+- OneNote 不记截图在文本框里的位置，截图上的荧光笔按估算放置。估算没有把握时，截图保持原样，下面跟一个折叠框，里面是按估算位置画上荧光笔的副本。打字文字上和空白处的荧光笔不保留。
 - 分区按名称排序，因为 OneDrive 上的文件没有记下分区的顺序。
 - 在 OneNote 里把页面挪到别的分区后，仓库里会有两份：旧分区里那份（列在“OneNote 中已移除的页面”下）和新分区里的。
 - 笔记本的目录和提示的语言不能改。要换语言，把这本的文件夹移出目标文件夹，再重新导入。
@@ -216,7 +218,7 @@ OneNote Ferry は、Obsidian コミュニティプラグイン（コマンドラ
 - 文字の書式、ハイライト（色つき）、Web リンク、数式（LaTeX に変換）
 - ノート間リンク（保管庫内のリンクに書き換え）
 - 元の画像と添付ファイル（変換なし）、印刷イメージは元の PDF として表示
-- 手書き（書かれた位置に画像として配置）
+- 手書き（書かれた位置に画像として配置）、蛍光ペン（重なっている画像や手書きに描き込む）
 - ページの階層、ノートブックとセクションごとの目次ページ
 - 自由配置のテキストボックスを読む順に並べる
 - 変換できたもの、できなかったものを記したレポート
@@ -281,6 +283,7 @@ OneNote のファイルは読み込むだけで、変更しません。OneDrive 
 - パスワードで保護されたセクションは読み込めません。OneNote でパスワードを解除してから、もう一度インポートするか更新を確認してください。OneDrive からの場合、パスワードの有無はセクションをダウンロードしたあとでしかわからないため、そのようなセクションにチェックを入れるとダウンロードされ、レポートで変換できなかったものとして示されます。
 - OneDrive の Web サイトでダウンロードできるのはノートブックが入っているフォルダーで、ノートブックを 1 冊ずつダウンロードすることはできません。
 - ページの自由なレイアウト（フォント、文字サイズ、正確な位置）は再現しません。テキストボックスは読む順に並べ、オプションで各ブロックの位置を記したコメントを付けます。
+- OneNote はテキストボックス内のスクリーンショットの位置を記録しないため、その上の蛍光ペンは推定で配置します。推定に確信が持てない場合は、スクリーンショットをそのまま残し、その下に推定位置に蛍光ペンを描き込んだコピーを折りたたんで置きます。入力した文字の上や空白部分の蛍光ペンは残りません。
 - OneDrive のファイルにはセクションの順序が記録されていないため、セクションは名前順に並びます。
 - OneNote でページをほかのセクションに移すと、保管庫には 2 つ残ります。元のセクションのもの（「OneNote にはもうないページ」の下に表示）と、新しいセクションのものです。
 - ノートブックの目次と注記の言語は変えられません。変えるには、そのノートブックのフォルダーを保存先のフォルダーの外へ移してから、もう一度インポートします。
@@ -312,7 +315,7 @@ OneNote Ferry는 Obsidian 커뮤니티 플러그인(명령줄 버전 포함)입�
 - 글자 서식, 하이라이트(색상 유지), 웹 링크, 수식(LaTeX로 변환)
 - 노트 간 링크(보관함 안의 링크로 변환)
 - 원본 이미지와 첨부 파일(변환 없음), 인쇄 페이지는 원래 PDF로 표시
-- 손글씨(쓴 자리에 그림으로 배치)
+- 손글씨(쓴 자리에 그림으로 배치), 형광펜(덮고 있는 그림이나 손글씨에 그려 넣음)
 - 페이지 계층, 전자 필기장과 섹션마다 목차 페이지
 - 자유 배치 텍스트 상자를 읽는 순서대로 정렬
 - 무엇을 변환했고 무엇을 변환하지 못했는지 적은 보고서
@@ -377,6 +380,7 @@ OneNote 파일은 읽기만 하고 수정하지 않습니다. OneDrive에서 플
 - 암호로 보호된 섹션은 읽을 수 없습니다. OneNote에서 암호를 해제한 뒤 다시 가져오거나 업데이트를 확인하세요. OneDrive에서 가져올 때는 섹션을 다운로드한 뒤에야 암호 여부를 알 수 있으므로, 그런 섹션을 선택하면 다운로드된 뒤 보고서에 변환하지 못한 것으로 표시됩니다.
 - OneDrive 웹사이트에서는 전자 필기장이 든 폴더를 다운로드할 수 있을 뿐, 전자 필기장을 하나씩 다운로드할 수는 없습니다.
 - 페이지의 자유로운 레이아웃(글꼴, 글자 크기, 정확한 위치)은 재현하지 않습니다. 텍스트 상자는 읽는 순서대로 정렬하고, 선택에 따라 각 블록 앞에 위치를 적은 주석을 붙입니다.
+- OneNote는 텍스트 상자 안 스크린샷의 위치를 기록하지 않으므로, 그 위의 형광펜은 추정으로 배치합니다. 추정이 확실하지 않으면 스크린샷은 그대로 두고, 그 아래에 추정한 위치에 형광펜을 그려 넣은 사본을 접어서 둡니다. 입력한 글자 위나 빈 곳의 형광펜은 남지 않습니다.
 - OneDrive의 파일에는 섹션 순서가 기록되지 않으므로 섹션은 이름순으로 정렬됩니다.
 - OneNote에서 페이지를 다른 섹션으로 옮기면 보관함에 두 개가 남습니다. 원래 섹션에 있는 것("OneNote에 더 이상 없는 페이지" 아래에 표시)과 새 섹션에 있는 것입니다.
 - 전자 필기장의 목차와 안내 문구의 언어는 바꿀 수 없습니다. 바꾸려면 그 전자 필기장의 폴더를 대상 폴더 밖으로 옮긴 뒤 다시 가져옵니다.

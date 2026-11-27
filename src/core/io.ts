@@ -5,6 +5,12 @@
 export interface SectionSource {
 	/** The bytes of the attachment the parser named `key`. Throws when it is missing. */
 	readAsset(key: string): Promise<Uint8Array>;
+	/**
+	 * How dark each pixel row of the picture named `key` is, as the parser reads it
+	 * (`[width, height, paper, dark...]`, see parser/ferry/src/profile.rs), or nothing when it
+	 * cannot tell. Not every source can (§11.5 item 67).
+	 */
+	rowProfile?(key: string): Promise<Float32Array | undefined>;
 }
 
 /**

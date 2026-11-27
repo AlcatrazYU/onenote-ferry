@@ -11,6 +11,7 @@ import type { InlineOptions } from './inline.ts';
 import { strokesToSvg } from './ink-svg.ts';
 import type { DrawingParts } from './ink-svg.ts';
 import { assignToPictures, clusters, drawingUnder, insertionPoint, isHighlighter, strokeBox, unionBox } from './ink-layout.ts';
+import { placeHighlights, readProfile } from './flow-highlights.ts';
 import type { Box, ColumnSpan } from './ink-layout.ts';
 import { base64, pictureInfo } from './picture.ts';
 import type { PictureInfo } from './picture.ts';
@@ -47,6 +48,8 @@ export interface PageRenderOptions extends InlineOptions {
 	saveAttachment: (data: AssetData, hint: AttachmentHint) => Promise<ResolvedAttachment | null>;
 	/** The bytes of a picture, to draw handwriting over it; undefined when they cannot be read. */
 	readAsset?: (data: AssetData) => Promise<Uint8Array | undefined>;
+	/** How dark each pixel row of a picture is (the parser's row profile), to line highlighter strokes up with its text (§11.5 item 67). */
+	rowProfile?: (data: AssetData) => Promise<Float32Array | undefined>;
 	onSkipped?: (description: string, reason: 'no-data') => void;
 	isCancelled?: () => boolean;
 }
@@ -207,6 +210,8 @@ class PageWriter {
 	/** Handwriting drawn on a picture placed on the page, and where that picture sits. */
 	readonly annotations = new Map<Image, InkPiece[]>();
 	readonly pictures = new Map<Image, PlacedPicture>();
+	/** Highlighter strokes on a picture inside a text box whose place is not sure: drawn on a copy folded under it (§11.5 item 67). */
+	readonly folded = new Map<Image, { pieces: InkPiece[], picture: PlacedPicture }>();
 	/** Printed documents with handwriting on some page: shown page by page (Mac printouts) so the notes can be drawn on. */
 	readonly annotatedDocuments = new Set<EmbeddedFile>();
 	/** How many list items enclose what is being written; each adds one tab. */
@@ -312,6 +317,8 @@ class PageWriter {
 				}
 				await this.writeAsset(element.data, imageHint(element), '', true);
 				if (notes) await this.writeNotesBesidePage(element, notes);
+				const folded = this.folded.get(element);
+				if (folded) await this.writeFoldedHighlights(folded.pieces, folded.picture);
 				if (this.options.imageAltText && element.alt) this.pushAltText(element.alt);
 				break;
 			}
@@ -436,6 +443,18 @@ class PageWriter {
 		if (!link) return false;
 		this.push(link);
 		return true;
+	}
+
+	/**
+	 * Highlighter strokes on a picture whose place in its text box is not sure (§11.5 item 67): drawn
+	 * on a copy of it where they were estimated to be, folded under the picture and marked as estimated.
+	 * The copy is named as a drawing, so the pictures after it on the page keep their numbers.
+	 */
+	private async writeFoldedHighlights(pieces: InkPiece[], picture: PlacedPicture): Promise<void> {
+		if (!picture.bytes || !picture.info) return;
+		const underlay = { ...pixelRect(picture.box), href: `data:${picture.info.mime};base64,${base64(picture.bytes)}` };
+		const link = await this.drawingLink(pieces, { underlays: [underlay] }, { role: 'ink' });
+		if (link) this.push(`> [!info]- ${this.options.strings.highlighterEstimated}\n> ${link}`);
 	}
 
 	/**
@@ -661,10 +680,29 @@ export async function renderPage(page: Page, options: PageRenderOptions): Promis
 		if (!keepAll) {
 			const drawings = [...slotted.values()];
 			const pens = drawings.map(list => list.map(item => item.piece.stroke));
+			const left: { piece: InkPiece, index: number }[] = [];
 			for (const item of free) {
 				if (pen(item)) continue;
 				const under = drawingUnder(item.piece.stroke, pens);
 				if (under >= 0) drawings[under]!.push(item);
+				else left.push(item);
+			}
+			// The rest may lie on a picture inside a text box (§11.5 item 67): drawn into it when its
+			// place is sure, else on a copy folded under it.
+			const placed = await placeHighlights(page.outlines, left.map(item => item.piece.stroke), async image => {
+				const raw = image.data ? await options.rowProfile?.(image.data) : undefined;
+				return raw ? readProfile(raw) : undefined;
+			});
+			for (const { image, box, strokes, sure } of placed) {
+				const bytes = image.data ? await options.readAsset?.(image.data) : undefined;
+				const info = bytes ? pictureInfo(bytes) : undefined;
+				if (!bytes || !info) continue;
+				const notes = strokes.map(i => left[i]!.piece);
+				if (sure) {
+					writer.annotations.set(image, notes);
+					writer.pictures.set(image, { box, bytes, info });
+				}
+				else writer.folded.set(image, { pieces: notes, picture: { box, bytes, info } });
 			}
 		}
 		// Within one drawing, strokes keep the order they were written in.

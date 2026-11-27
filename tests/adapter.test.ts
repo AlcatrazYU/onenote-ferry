@@ -120,6 +120,26 @@ test('ink inside a line of text becomes an SVG drawing after the paragraph; high
 	assert.equal(adapter.stats.highlighterOnly, 1);
 });
 
+test('highlighter alone inside a line of text is kept with the page, in page half inches', () => {
+	const { page } = adapt([outline([element([rich([run('text')], { inks: [{ strokes: [stroke(128, [[2540, 3810], [1270, 0]])] }] })])])]);
+	assert.equal(page.highlighterInk?.length, 1);
+	assert.deepEqual(page.highlighterInk![0]!.strokes[0]!.points, [{ x: 2, y: 3 }, { x: 3, y: 3 }]);
+});
+
+test('what places a picture inside a text box: font size and spacing, picture size, a height the user gave the box', () => {
+	const text = rich([run('a', { size: 28 })], { para: { size: 22, before: 6, after: 0, lineExact: null } });
+	const picture = { type: 'image', asset: asset('s.png'), fileName: null, x: null, y: null, w: 10, h: 4 };
+	const sized = { ...outline([element([text]), element([picture])], { x: 1, y: 2, w: 13 }), h: 9, bySize: true };
+	const unsized = { ...outline([element([rich([run('b')])])], { x: 1, y: 12, w: 13 }), h: 3, bySize: false };
+	const { page } = adapt([sized, unsized]);
+	const [first, second] = page.outlines;
+	assert.deepEqual(first!.place, { x: 1, y: 2, width: 13, height: 9 });
+	assert.equal(first!.sizedByUser, true);
+	assert.deepEqual((first!.children[0] as Paragraph).layout, { fontSize: 14, spaceBefore: 6 });
+	assert.deepEqual((unwrap(first!.children[1]!) as Image).size, { width: 10, height: 4 });
+	assert.deepEqual([second!.place?.height, second!.sizedByUser, (second!.children[0] as Paragraph).layout], [undefined, undefined, undefined]);
+});
+
 test('list items: numbered when the format holds the number placeholder, children attached to the item', () => {
 	const numbered = element([rich([run('first')])], [element([rich([run('child')])])], { list: { format: '\uFFFD.' } });
 	const bulleted = element([rich([run('second')])], [], { list: { format: '•' } });

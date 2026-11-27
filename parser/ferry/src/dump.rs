@@ -142,6 +142,8 @@ fn run_json(text: String, s: Option<&ParagraphStyling>, href: Option<String>, la
         "link": s.map(|s| s.hyperlink()).unwrap_or(false),
         "href": href,
         "latex": latex,
+        // Font size in half points: where text sits on the page is not stored, its size lets it be estimated.
+        "size": s.and_then(|s| s.font_size()),
     })
 }
 
@@ -193,12 +195,20 @@ fn rich(ctx: &mut Ctx, rt: &RichText) -> Value {
         .into_iter()
         .map(|i| ink(ctx, i))
         .collect();
+    let style = rt.paragraph_style();
     json!({
         "type": "rich",
         "runs": runs,
-        "styleId": rt.paragraph_style().style_id(),
+        "styleId": style.style_id(),
         "tags": tags(rt.note_tags()),
         "inks": inks,
+        // How tall the paragraph is laid out: its font size (half points), the space before and after it, a fixed line spacing.
+        "para": {
+            "size": style.font_size(),
+            "before": rt.paragraph_space_before(),
+            "after": rt.paragraph_space_after(),
+            "lineExact": rt.paragraph_line_spacing_exact(),
+        },
     })
 }
 
@@ -217,7 +227,7 @@ fn image(ctx: &mut Ctx, img: &Image) -> Value {
         "asset": asset,
         "fileName": img.image_filename(),
         "alt": img.alt_text(),
-        "x": img.offset_horizontal(), "y": img.offset_vertical(), "w": img.layout_max_width(),
+        "x": img.offset_horizontal(), "y": img.offset_vertical(), "w": img.layout_max_width(), "h": img.layout_max_height(),
         "background": img.is_background(),
         "href": img.hyperlink_url(),
         "ocr": img.text(),
@@ -317,7 +327,7 @@ fn page(ctx: &mut Ctx, p: &Page) -> Value {
         .map(|c| match c {
             PageContent::Outline(o) => {
                 let items: Vec<Value> = o.items().iter().map(|i| item(ctx, i)).collect();
-                json!({ "type": "outline", "x": o.offset_horizontal(), "y": o.offset_vertical(), "w": o.layout_max_width(), "items": items })
+                json!({ "type": "outline", "x": o.offset_horizontal(), "y": o.offset_vertical(), "w": o.layout_max_width(), "h": o.layout_max_height(), "bySize": o.is_layout_size_set_by_user(), "items": items })
             }
             PageContent::Image(i) => image(ctx, i),
             PageContent::EmbeddedFile(f) => embedded(ctx, f),

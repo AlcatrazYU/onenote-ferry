@@ -46,6 +46,21 @@ export interface Placement {
 	x?: number;
 	y?: number;
 	width?: number;
+	/** A text box's height as stored: what its content took when the user last sized it (see Outline.sizedByUser). */
+	height?: number;
+}
+
+/**
+ * What a paragraph's height on the page is made of (OneNote does not store where its lines are):
+ * its font size and the spaces around it, in points. Only used to estimate where a picture
+ * further down in the same text box sits (§11.5 item 67).
+ */
+export interface ParagraphLayout {
+	fontSize?: number;
+	spaceBefore?: number;
+	spaceAfter?: number;
+	/** A fixed line spacing, when the paragraph has one. */
+	lineSpacing?: number;
 }
 
 interface Placed {
@@ -61,12 +76,16 @@ export interface Paragraph extends Placed {
 	tags?: Tag[];
 	/** The notice in place of an attached file the download has no data for: that file's name. */
 	missingFile?: string;
+	/** Its font size and spacing, for estimating where things below it sit. */
+	layout?: ParagraphLayout;
 }
 
 export interface Outline extends Placed {
 	kind: 'outline';
 	children: Element[];
 	list?: ListInfo;
+	/** The user sized the text box: its stored height is then what its content took. */
+	sizedByUser?: boolean;
 }
 
 export interface TableCell {
@@ -100,6 +119,8 @@ export interface Image extends Placed {
 	printoutName?: string;
 	/** The original PDF on the same page, when there is one. */
 	printoutOf?: EmbeddedFile;
+	/** How large it is shown, in half inches (also for a picture inside a text box, which has no place). */
+	size?: { width: number, height?: number };
 }
 
 export interface EmbeddedFile extends Placed {

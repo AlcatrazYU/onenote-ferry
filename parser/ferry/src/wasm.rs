@@ -31,6 +31,14 @@ impl ParsedSection {
         source.read().map_err(|e| JsError::new(&e))
     }
 
+    /// How dark each pixel row of the picture named `key` is (see profile.rs), or nothing when it
+    /// cannot be read (not PNG or JPEG, too large, damaged).
+    #[wasm_bindgen(js_name = rowProfile)]
+    pub fn row_profile(&self, key: &str) -> Option<Vec<f32>> {
+        let bytes = self.assets.get(key)?.read().ok()?;
+        crate::profile::row_profile(&bytes)
+    }
+
     #[wasm_bindgen(getter, js_name = assetCount)]
     pub fn asset_count(&self) -> usize {
         self.assets.len()

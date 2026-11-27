@@ -1,6 +1,6 @@
 // Maps the parser's JSON (one section) to the semantic model.
 
-import type { AssetData, Element, EmbeddedFile, Image, Ink, InkStroke, Outline, Page, Paragraph, Section, Tag, TextRun } from './model.ts';
+import type { AssetData, Element, EmbeddedFile, Image, Ink, InkStroke, Outline, Page, Paragraph, ParagraphLayout, Placement, Section, Tag, TextRun } from './model.ts';
 import { MIN_PEN_OPACITY } from './model.ts';
 import { composedText } from './names.ts';
 import type { Strings } from './strings.ts';
@@ -176,13 +176,27 @@ function stored(asset: Json): AssetData | undefined {
 	return { kind: 'stored', key: asset.asset, size: asset.size ?? 0 };
 }
 
-function placeOf(o: Json) {
+/** A paragraph's font size (the first run's, else its style's; in points) and spacing, when known. */
+function layoutOf(c: Json): ParagraphLayout | undefined {
+	const runSize = (c.runs as Json[] | undefined)?.find(r => typeof r.size === 'number')?.size;
+	const halfPoints: number | undefined = runSize ?? c.para?.size ?? undefined;
+	const layout: ParagraphLayout = {};
+	if (typeof halfPoints === 'number' && halfPoints > 0) layout.fontSize = halfPoints / 2;
+	if (typeof c.para?.before === 'number' && c.para.before > 0) layout.spaceBefore = c.para.before;
+	if (typeof c.para?.after === 'number' && c.para.after > 0) layout.spaceAfter = c.para.after;
+	if (typeof c.para?.lineExact === 'number' && c.para.lineExact > 0) layout.lineSpacing = c.para.lineExact;
+	return Object.keys(layout).length ? layout : undefined;
+}
+
+function placeOf(o: Json): Placement | undefined {
 	return o.x === null || o.x === undefined ? undefined : { x: o.x, y: o.y ?? undefined, width: o.w ?? undefined };
 }
 
 export class Adapter {
 	readonly stats: AdapterStats = { ink: 0, highlighterOnly: 0 };
 	private readonly strings: Strings;
+	/** The page being read: highlighter ink found inside its text boxes is kept on it. */
+	private current?: Page;
 
 	constructor(strings: Strings) {
 		this.strings = strings;
@@ -204,11 +218,17 @@ export class Adapter {
 			outlines: [],
 			directContent: [],
 		};
+		this.current = page;
 		for (const c of p.contents as Json[]) {
 			if (c.type === 'outline') {
 				const outline: Outline = { kind: 'outline', children: this.items(c.items) };
 				const place = placeOf(c);
 				if (place) outline.place = place;
+				// Its stored height says what its content took only when the user sized it (§11.5 item 67).
+				if (place && c.bySize && typeof c.h === 'number') {
+					place.height = c.h;
+					outline.sizedByUser = true;
+				}
 				page.outlines.push(outline);
 			}
 			else {
@@ -216,6 +236,7 @@ export class Adapter {
 				if (element) page.directContent.push(element);
 			}
 		}
+		this.current = undefined;
 		linkPrintouts(page);
 		return page;
 	}
@@ -271,6 +292,7 @@ export class Adapter {
 				}
 				const place = placeOf(c);
 				if (place) image.place = place;
+				if (typeof c.w === 'number' && c.w > 0) image.size = { width: c.w, ...(typeof c.h === 'number' && c.h > 0 ? { height: c.h } : {}) };
 				return image;
 			}
 			case 'file': {
@@ -345,12 +367,18 @@ export class Adapter {
 		}
 		for (const r of runs) delete r.link;
 		const paragraph: Paragraph = { kind: 'paragraph', runs, children: [], styleId: c.styleId ?? undefined, tags: tags(c.tags) };
+		const layout = layoutOf(c);
+		if (layout) paragraph.layout = layout;
 		// Ink written inside a line of text: drawn on its own, right after the paragraph.
 		for (const ink of (c.inks ?? []) as Json[]) {
 			const strokes = inkStrokes(ink, HIMETRIC_PER_PX);
 			const pen = strokes.filter(isPen);
 			if (!pen.length) {
 				this.stats.highlighterOnly++;
+				// Highlighter alone, kept in a paragraph of a text box: its strokes are where they were
+				// drawn on the page (OneNote puts them there when they are drawn over a text box).
+				// Kept with the page's highlighter ink, to go onto what it was drawn over (§11.5 item 67).
+				if (this.current) (this.current.highlighterInk ??= []).push({ kind: 'ink', strokes: inkStrokes(ink, HIMETRIC_PER_HALF_INCH) });
 				continue;
 			}
 			// Highlighter strokes on this handwriting are drawn with it (§11.5 item 67).

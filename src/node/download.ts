@@ -197,7 +197,7 @@ export async function passwordProtected(download: Download, section: DownloadSec
 
 /** The WebAssembly parser (`parser/ferry`, built for Node). */
 export interface WasmParser {
-	parseSection(path: string): { takeJson(): string; readAsset(key: string): Uint8Array; free(): void };
+	parseSection(path: string): { takeJson(): string; readAsset(key: string): Uint8Array; rowProfile?(key: string): Float32Array | undefined; free(): void };
 }
 
 /** Parses a section of a download with the WebAssembly parser; release() frees it and its temporary copy. */
@@ -223,5 +223,12 @@ export async function parseWithWasm(parser: WasmParser, download: Download, sect
 		release();
 		throw error;
 	}
-	return { json, source: { async readAsset(key) { return parsed.readAsset(key); } }, release };
+	return {
+		json,
+		source: {
+			async readAsset(key) { return parsed.readAsset(key); },
+			async rowProfile(key) { return parsed.rowProfile?.(key) ?? undefined; },
+		},
+		release,
+	};
 }
