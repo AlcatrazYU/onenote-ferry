@@ -138,19 +138,28 @@ test('highlighter away from pictures is not drawn unless asked for', async () =>
 	assert.equal((await render(page([text], [], { highlighterInk: [highlight] }), {}, { keepHighlighterInk: true })).markdown, 'text\n\n![](<_附件/ink1.svg>)');
 });
 
-test('highlighter on loose handwriting is drawn into that drawing; one away from it is not; the drawing stays where its handwriting puts it', async () => {
+test('highlighter touching loose handwriting is drawn into that drawing; one beside it or away from it is not; the drawing stays where its handwriting puts it', async () => {
 	const top = box([p('first')], { x: 1, y: 2, width: 13 });
 	const bottom = box([p('second')], { x: 1, y: 10, width: 13 });
-	const writing = ink(pen([[2, 5], [6, 5]]), pen([[2, 6], [6, 6]]));
-	const over = ink(marker([[2, 5.5], [6, 5.5]]));
+	// Two lines of writing (a stroke across each), and a word on the first.
+	const writing = ink(pen([[2, 5], [6, 5]]), pen([[2, 6], [6, 6]]), pen([[3, 4.9], [3.5, 5.1], [4, 4.9]]));
+	const over = ink(marker([[2.5, 5], [4.5, 5]]));
+	// Between the two lines, touching neither; and far away.
+	const beside = ink(marker([[2, 5.5], [6, 5.5]]));
 	const away = ink(marker([[20, 20], [25, 20]]));
-	const { markdown, saved } = await render(page([top, bottom], [writing], { highlighterInk: [over, away] }));
+	const { markdown, saved } = await render(page([top, bottom], [writing], { highlighterInk: [over, beside, away] }));
 	assert.equal(markdown, 'first\n\n![](<_附件/ink1.svg>)\n\nsecond');
 	assert.equal(saved.length, 1);
-	assert.equal((saved[0].text!.match(/<path /g) ?? []).length, 3);
+	assert.equal((saved[0].text!.match(/<path /g) ?? []).length, 4);
 	assert.equal((saved[0].text!.match(/mix-blend-mode:multiply/g) ?? []).length, 1);
+	// Drawn along the very edge of the writing (on its top line): drawn, whatever the hair's breadth.
+	for (const dy of [-0.05, 0, 0.05]) {
+		const along = ink(marker([[2, 5 + dy], [6, 5 + dy]]));
+		const { saved: one } = await render(page([top, bottom], [writing], { highlighterInk: [along] }));
+		assert.equal((one[0].text!.match(/mix-blend-mode:multiply/g) ?? []).length, 1, String(dy));
+	}
 	// A highlighter stroke reaching down past the next text box does not move the drawing.
-	const long = ink(marker([[2, 5.5], [6, 5.5], [6, 5.6]]));
+	const long = ink(marker([[2.5, 5], [4.5, 5], [4.5, 12]]));
 	assert.equal((await render(page([top, bottom], [writing], { highlighterInk: [long] }))).markdown, 'first\n\n![](<_附件/ink1.svg>)\n\nsecond');
 });
 

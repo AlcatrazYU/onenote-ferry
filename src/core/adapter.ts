@@ -6,7 +6,7 @@ import { composedText } from './names.ts';
 import type { Strings } from './strings.ts';
 import { emphasisColor } from './render/color.ts';
 import { strokesToSvg } from './render/ink-svg.ts';
-import { drawingUnder, strokeBox, unionBox } from './render/ink-layout.ts';
+import { drawingUnder } from './render/ink-layout.ts';
 import { officeMathToLatex } from './render/math.ts';
 
 /** Ink at page level is in HIMETRIC (1/2540 inch); the model uses half inches. */
@@ -354,8 +354,7 @@ export class Adapter {
 				continue;
 			}
 			// Highlighter strokes on this handwriting are drawn with it (§11.5 item 67).
-			const drawing = unionBox(pen.map(strokeBox));
-			const shown = strokes.filter(stroke => isPen(stroke) || drawingUnder(stroke, [drawing]) === 0);
+			const shown = strokes.filter(stroke => isPen(stroke) || drawingUnder(stroke, [pen]) === 0);
 			const svg = strokesToSvg(shown.map(stroke => ({ ...stroke, width: Math.max(1, stroke.width) })));
 			if (!svg) continue;
 			paragraph.children.push({ kind: 'image', extension: 'svg', inkSvg: true, data: { kind: 'inline', bytes: new TextEncoder().encode(svg) } });

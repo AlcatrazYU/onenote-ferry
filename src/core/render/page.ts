@@ -400,10 +400,9 @@ class PageWriter {
 	 */
 	private visible(pieces: InkPiece[]): InkPiece[] {
 		if (this.options.keepHighlighterInk) return pieces;
-		const pens = pieces.filter(piece => !isHighlighter(piece.stroke));
+		const pens = pieces.filter(piece => !isHighlighter(piece.stroke)).map(piece => piece.stroke);
 		if (!pens.length) return [];
-		const drawing = unionBox(pens.map(piece => strokeBox(piece.stroke)));
-		return pieces.filter(piece => !isHighlighter(piece.stroke) || drawingUnder(piece.stroke, [drawing]) === 0);
+		return pieces.filter(piece => !isHighlighter(piece.stroke) || drawingUnder(piece.stroke, [pens]) === 0);
 	}
 
 	/** Handwriting as an embedded drawing (and the recognized text, when OneNote kept any). */
@@ -661,10 +660,10 @@ export async function renderPage(page: Page, options: PageRenderOptions): Promis
 		}
 		if (!keepAll) {
 			const drawings = [...slotted.values()];
-			const boxes = drawings.map(list => unionBox(list.map(boxOf)));
+			const pens = drawings.map(list => list.map(item => item.piece.stroke));
 			for (const item of free) {
 				if (pen(item)) continue;
-				const under = drawingUnder(item.piece.stroke, boxes);
+				const under = drawingUnder(item.piece.stroke, pens);
 				if (under >= 0) drawings[under]!.push(item);
 			}
 		}

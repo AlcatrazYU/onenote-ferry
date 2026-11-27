@@ -64,28 +64,50 @@ export function clusters<T>(items: T[], boxOf: (item: T) => Box, maxGap = STROKE
 	return [...groups.values()];
 }
 
-/** How much of box `a` lies inside box `b`, as a share of `a`'s area. */
-function shareInside(a: Box, b: Box): number {
-	const area = (a.right - a.left) * (a.bottom - a.top);
-	if (area <= 0) return 0;
-	const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-	const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
-	return w > 0 && h > 0 ? (w * h) / area : 0;
+type Point = { x: number, y: number };
+
+/** Distance from a point to a segment. */
+function toSegment(p: Point, a: Point, b: Point): number {
+	const dx = b.x - a.x, dy = b.y - a.y;
+	const length = dx * dx + dy * dy;
+	const t = length ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / length)) : 0;
+	return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
+}
+
+/** Distance between two segments (0 when they cross). */
+function betweenSegments(a1: Point, a2: Point, b1: Point, b2: Point): number {
+	const side = (p: Point, q: Point, r: Point) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+	const d1 = side(a1, a2, b1), d2 = side(a1, a2, b2), d3 = side(b1, b2, a1), d4 = side(b1, b2, a2);
+	if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return 0;
+	return Math.min(toSegment(a1, b1, b2), toSegment(a2, b1, b2), toSegment(b1, a1, a2), toSegment(b2, a1, a2));
+}
+
+/** Whether two strokes, as drawn (with their widths), touch. */
+function touch(a: InkStroke, b: InkStroke): boolean {
+	const reach = (a.width + b.width) / 2;
+	const boxA = strokeBox(a), boxB = strokeBox(b);
+	if (boxA.right < boxB.left || boxB.right < boxA.left || boxA.bottom < boxB.top || boxB.bottom < boxA.top) return false;
+	const segments = (s: InkStroke) => (s.points.length > 1 ? s.points.slice(1).map((p, i) => [s.points[i]!, p] as const) : s.points.map(p => [p, p] as const));
+	for (const [a1, a2] of segments(a)) {
+		for (const [b1, b2] of segments(b)) if (betweenSegments(a1, a2, b1, b2) <= reach) return true;
+	}
+	return false;
 }
 
 /**
- * The drawing a highlighter stroke lies on (index into `drawings`, the boxes of pieces of
- * handwriting): the one holding at least half of the stroke's box, the most if several; -1 for
- * none (§11.5 item 67). Drawn into that handwriting, it marks it as it did in OneNote.
+ * The drawing a highlighter stroke marks (index into `drawings`, the pen strokes of each piece of
+ * handwriting): the one whose pen strokes it touches, the most of them if several; -1 for none
+ * (§11.5 item 67). Drawn into that handwriting, it marks it as it did in OneNote. Touching the
+ * strokes themselves, not lying in their box, so a stroke along the edge of a drawing is not
+ * decided by a hair's breadth.
  */
-export function drawingUnder(stroke: InkStroke, drawings: Box[]): number {
-	const box = strokeBox(stroke);
-	let best = -1, most = 0.5;
-	drawings.forEach((drawing, i) => {
-		const share = shareInside(box, drawing);
-		if (share >= most) {
+export function drawingUnder(stroke: InkStroke, drawings: InkStroke[][]): number {
+	let best = -1, most = 0;
+	drawings.forEach((pens, i) => {
+		const touched = pens.filter(pen => touch(stroke, pen)).length;
+		if (touched > most) {
 			best = i;
-			most = share;
+			most = touched;
 		}
 	});
 	return best;
