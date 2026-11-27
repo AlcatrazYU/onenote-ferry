@@ -169,7 +169,8 @@ async function pageSvg(pkg: Package, path: string): Promise<XpsPage | undefined>
 	const xml = await pkg.text(path);
 	if (xml === undefined) return undefined;
 	// What is not drawn here: text, other brushes, transforms and data given as elements, visuals.
-	if (/<(Glyphs|LinearGradientBrush|RadialGradientBrush|VisualBrush|[\w]+\.RenderTransform|Path\.Data|ImageBrush\.Transform)\b/.test(xml)) return undefined;
+	if (/<(Glyphs|LinearGradientBrush|RadialGradientBrush|VisualBrush|[\w]+\.RenderTransform|[\w]+\.OpacityMask|Path\.Data|ImageBrush\.Transform)\b/.test(xml)) return undefined;
+	if (/\sOpacityMask\s*=/.test(xml)) return undefined;
 	// Shapes kept in resource dictionaries (the page's own, and those it names).
 	const shapes = new Map<string, { figures: string, rule: string }>();
 	const dictionaries = [xml];
@@ -207,6 +208,7 @@ async function pageSvg(pkg: Package, path: string): Promise<XpsPage | undefined>
 		const parts: string[] = [];
 		const transform = attrs.get('RenderTransform');
 		const opacity = attrs.has('Opacity') ? Number(attrs.get('Opacity')) : 1;
+		if (!(opacity >= 0 && opacity <= 1)) throw new Error('opacity');
 		const open = [transform !== undefined ? ` transform="${matrix(transform) ?? ''}"` : '', opacity !== 1 ? ` opacity="${opacity}"` : ''].join('');
 		if (transform !== undefined && !matrix(transform)) throw new Error('transform');
 		if (imageBrush) {
@@ -230,9 +232,12 @@ async function pageSvg(pkg: Package, path: string): Promise<XpsPage | undefined>
 		out.push(open ? `<g${open}>${parts.join('')}</g>` : parts.join(''));
 	};
 
+	// Every tag must be read: one written otherwise (single quotes, say) would leave part of the page out.
+	let tags = 0;
 	for (const match of xml.matchAll(/<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<(\/?)([A-Za-z][\w.:]*)((?:\s+[\w.:]+\s*=\s*"[^"]*")*)\s*(\/?)>/g)) {
 		const [, closing, name, rest, selfClosing] = match;
 		if (!name) continue;
+		tags++;
 		const attrs = attributes(rest ?? '');
 		if (name === 'FixedPage' && !closing) {
 			width = Number(attrs.get('Width'));
@@ -243,7 +248,9 @@ async function pageSvg(pkg: Package, path: string): Promise<XpsPage | undefined>
 			else if (!selfClosing) {
 				const transform = attrs.get('RenderTransform');
 				if (transform !== undefined && !matrix(transform)) return undefined;
-				const opacity = attrs.has('Opacity') ? ` opacity="${Number(attrs.get('Opacity'))}"` : '';
+				const value = attrs.has('Opacity') ? Number(attrs.get('Opacity')) : 1;
+				if (!(value >= 0 && value <= 1)) return undefined;
+				const opacity = value !== 1 ? ` opacity="${value}"` : '';
 				out.push(`<g${transform !== undefined ? ` transform="${matrix(transform)}"` : ''}${opacity}>`);
 			}
 		}
@@ -263,6 +270,8 @@ async function pageSvg(pkg: Package, path: string): Promise<XpsPage | undefined>
 		}
 		else if (current && !closing) return undefined; // something inside a path that is not drawn here
 	}
+	const comments = xml.replace(/<!--[\s\S]*?-->|<\?[\s\S]*?\?>/g, '');
+	if (tags !== (comments.match(/<[A-Za-z/]/g) ?? []).length) return undefined;
 	if (!(width > 0) || !(height > 0)) return undefined;
 	return { width, height, content: `<rect width="${width}" height="${height}" fill="#ffffff"/>${out.join('')}` };
 }

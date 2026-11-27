@@ -257,7 +257,6 @@ class PageWriter {
 		return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 	}
 
-	/** How many blocks are written so far (see addMarkers). */
 	/** Where the first block written since beginItem went (after anything held then let go), if any. */
 	private itemStart?: number;
 

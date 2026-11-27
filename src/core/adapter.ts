@@ -160,19 +160,20 @@ function inPage(json: Json, box: Json | undefined): InkStroke[] {
 }
 
 /**
- * The handwriting of a text box that holds nothing else (no text, no picture, no file, no table),
- * or undefined. Ink inside a line of text stands in the text as an object replacement character.
+ * The handwriting of a text box that holds nothing else (no text, no picture, no file, no table,
+ * no tag such as a to-do box, no list item), or undefined. Ink inside a line of text stands in the
+ * text as an object replacement character.
  */
 function inkOnly(outline: Json): Json[] | undefined {
 	const inks: Json[] = [];
 	const visit = (items: Json[] | undefined): boolean => {
 		for (const item of items ?? []) {
 			if (item.type === 'element') {
-				if (!visit(item.contents) || !visit(item.children)) return false;
+				if (item.list || !visit(item.contents) || !visit(item.children)) return false;
 			}
 			else if (item.type === 'rich') {
 				const text = ((item.runs ?? []) as Json[]).map(r => r.text ?? '').join('');
-				if (text.replace(/[\uFFFC\s]/g, '') !== '') return false;
+				if (text.replace(/[\uFFFC\s]/g, '') !== '' || (Array.isArray(item.tags) ? item.tags.length > 0 : !!item.tags)) return false;
 				inks.push(...((item.inks ?? []) as Json[]));
 			}
 			else return false;

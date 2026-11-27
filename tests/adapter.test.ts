@@ -151,6 +151,12 @@ test('a text box holding nothing but handwriting: its ink is the page\'s, where 
 	const inks = page.directContent.filter((e): e is Ink => e.kind === 'ink');
 	assert.deepEqual(inks.map(ink => ink.strokes[0]!.points[0]), [{ x: 10, y: 20 }, { x: 10.9, y: 20.4 }]);
 	assert.equal(((page.outlines[1]!.children[0] as Paragraph).children[0] as Image).inkSvg, true);
+	// Handwriting beside a to-do box, or as a list item, stays where it is, with its box or bullet.
+	const todo = outline([element([rich([run('\uFFFC')], { inks: [dot(50, 60)], tags: [{ shape: 'ToDo', label: 'To Do', completed: false }] })])], { x: 49.9, y: 59.9, w: 1.3 });
+	const listed = outline([element([rich([run('\uFFFC')], { inks: [dot(70, 80)] })], [], { list: { format: '•' } })], { x: 69.9, y: 79.9, w: 1.3 });
+	const kept = adapt([todo, listed]).page;
+	assert.deepEqual(kept.outlines.map(outline => outline.children.length), [1, 1]);
+	assert.equal(kept.directContent.length, 0);
 });
 
 test('list items: numbered when the format holds the number placeholder, children attached to the item', () => {
