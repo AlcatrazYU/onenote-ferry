@@ -10,13 +10,26 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { SignInAnswer } from '../core/microsoft-auth.ts';
 
-/** The text of the page the browser shows once the answer is in. */
+/** The text of the page the browser shows once the answer is in (in the interface's language). */
 export interface ReceiverPages {
+	/** The browser tab's title. */
 	title: string;
-	/** Signed in: the page can be closed. */
+	/** Signed in: the heading, and that the page can be closed. */
+	doneTitle: string;
 	done: string;
-	/** Not signed in, with Microsoft's words (or the reason) after it. */
+	/** Not signed in: the heading, and what to do; Microsoft's words follow it. */
+	failedTitle: string;
 	failed: string;
+	/** The usual reasons, said plainly: the user cancelled or declined, or an administrator must approve the app first. */
+	cancelled: string;
+	adminApproval: string;
+	/** Before Microsoft's own words. */
+	microsoftSays: string;
+	/** A request for no sign-in going on (an old or a stray one): the heading and what to do. */
+	endedTitle: string;
+	ended: string;
+	/** Where the page comes from: the plugin, on this computer (its address is `localhost`). */
+	local: string;
 }
 
 export interface Receiver {
@@ -43,12 +56,24 @@ const MAX_BODY = 256 * 1024;
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, char => ESCAPES[char]!);
 
-function page(pages: ReceiverPages, ok: boolean, detail = ''): string {
-	const message = ok ? pages.done : pages.failed;
+/** Microsoft's codes for a sign-in an organization's administrator must approve first. */
+const ADMIN_APPROVAL = /\bAADSTS9009[45]\b/;
+
+/**
+ * The page the browser shows: signed in; not signed in (the usual reason said plainly, then
+ * Microsoft's own words); or a request for no sign-in going on now. Each says where it comes from.
+ */
+function page(pages: ReceiverPages, kind: 'done' | 'failed' | 'ended', error = '', description = ''): string {
+	const heading = kind === 'done' ? pages.doneTitle : kind === 'failed' ? pages.failedTitle : pages.endedTitle;
+	const lines = kind === 'done' ? [pages.done] : kind === 'ended' ? [pages.ended]
+		: [ADMIN_APPROVAL.test(description) ? pages.adminApproval : error === 'access_denied' ? pages.cancelled : '', pages.failed].filter(Boolean);
+	const words = [error, description].filter(Boolean).join(': ');
+	const detail = kind === 'failed' && words ? `${pages.microsoftSays} ${words}` : '';
 	return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(pages.title)}</title>`
 		+ '<style>body{font:16px/1.6 system-ui,sans-serif;max-width:36em;margin:15vh auto;padding:0 1.5em;color:#222;background:#fff}'
-		+ '@media (prefers-color-scheme: dark){body{color:#ddd;background:#1e1e1e}}p.detail{font-size:13px;opacity:.7;word-break:break-word}</style>'
-		+ `</head><body><h1>${escapeHtml(pages.title)}</h1><p>${escapeHtml(message)}</p>${detail ? `<p class="detail">${escapeHtml(detail)}</p>` : ''}</body></html>`;
+		+ '@media (prefers-color-scheme: dark){body{color:#ddd;background:#1e1e1e}}p.detail,p.local{font-size:13px;opacity:.7;word-break:break-word}p.local{margin-top:2.5em}</style>'
+		+ `</head><body><h1>${escapeHtml(heading)}</h1>${lines.map(line => `<p>${escapeHtml(line)}</p>`).join('')}`
+		+ `${detail ? `<p class="detail">${escapeHtml(detail)}</p>` : ''}<p class="local">${escapeHtml(pages.local)}</p></body></html>`;
 }
 
 function send(res: ServerResponse, status: number, body: string, html = true): void {
@@ -130,12 +155,12 @@ export async function startReceiver(pages: ReceiverPages, timeoutMs = 10 * 60 * 
 		else return send(res, 405, 'Method not allowed', false);
 
 		// Not our answer, or not one now: turned away, and the receiver keeps waiting.
-		if (finished || expected === undefined || params.get('state') !== expected) return send(res, 400, page(pages, false));
+		if (finished || expected === undefined || params.get('state') !== expected) return send(res, 400, page(pages, 'ended'));
 
 		const code = params.get('code') ?? undefined;
 		const error = params.get('error') ?? undefined;
 		const description = params.get('error_description') ?? undefined;
-		send(res, 200, page(pages, !!code && !error, code && !error ? '' : [error, description].filter(Boolean).join(': ')));
+		send(res, 200, code && !error ? page(pages, 'done') : page(pages, 'failed', error, description));
 		finish({ answer: { code: error ? undefined : code, error, description } });
 	}
 

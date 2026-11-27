@@ -6,7 +6,10 @@ import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import { ReceiverClosed, startReceiver } from '../src/node/loopback.ts';
 
-const PAGES = { title: 'Ferry test', done: 'All done here.', failed: 'Did not work.' };
+const PAGES = {
+	title: 'Ferry test', doneTitle: 'In', done: 'All done here.', failedTitle: 'Not in', failed: 'Did not work.', cancelled: 'You said no.', adminApproval: 'Ask your admin.',
+	microsoftSays: 'They said:', endedTitle: 'Over', ended: 'Nothing going on.', local: 'Served from this computer.',
+};
 
 /** Sends one request to the receiver's port, answering the status and the body. */
 function send(port: number, options: { method?: string, path?: string, host?: string, type?: string, body?: string } = {}): Promise<{ status: number, body: string }> {
@@ -49,7 +52,11 @@ test('anything else is turned away and the receiver keeps waiting', async () => 
 	const receiver = await startReceiver(PAGES);
 	const port = portOf(receiver.redirectUri);
 	const answer = receiver.answer('right');
-	assert.equal((await send(port, { body: 'code=x&state=wrong' })).status, 400);
+	const stray = await send(port, { body: 'code=x&state=wrong' });
+	assert.equal(stray.status, 400);
+	// A request for no sign-in going on is not called a failed sign-in.
+	assert.match(stray.body, /<h1>Over<\/h1><p>Nothing going on\.<\/p>/);
+	assert.doesNotMatch(stray.body, /Did not work/);
 	assert.equal((await send(port, { body: 'code=x' })).status, 400);
 	assert.equal((await send(port, { body: 'code=x&state=right', host: 'evil.example' })).status, 421);
 	assert.equal((await send(port, { body: 'code=x&state=right', host: `evil.example:${port}` })).status, 421);
@@ -69,11 +76,20 @@ test('an error comes back as an answer, and Microsoft\'s words are shown as text
 	const answer = receiver.answer('s');
 	const reply = await send(port, { body: new URLSearchParams({ error: 'access_denied', error_description: '<script>alert(1)</script> AADSTS65004', state: 's' }).toString() });
 	assert.equal(reply.status, 200);
-	assert.match(reply.body, /Did not work\./);
+	assert.match(reply.body, /<h1>Not in<\/h1><p>You said no\.<\/p><p>Did not work\.<\/p><p class="detail">They said: access_denied: /);
+	assert.match(reply.body, /Served from this computer\./);
 	assert.ok(!reply.body.includes('<script>'));
 	assert.match(reply.body, /&lt;script&gt;/);
 	assert.match(reply.body, /Content-Security-Policy|<!doctype html>/);
 	assert.deepEqual(await answer, { code: undefined, error: 'access_denied', description: '<script>alert(1)</script> AADSTS65004' });
+});
+
+test('a sign-in an administrator must approve first says so plainly', async () => {
+	const receiver = await startReceiver(PAGES);
+	const answer = receiver.answer('s');
+	const reply = await send(portOf(receiver.redirectUri), { body: new URLSearchParams({ error: 'access_denied', error_description: 'AADSTS90094: Admin consent is required.', state: 's' }).toString() });
+	assert.match(reply.body, /<p>Ask your admin\.<\/p><p>Did not work\.<\/p>/);
+	await answer;
 });
 
 test('a sign-in left unfinished frees the port when the time runs out, or when called off', async () => {

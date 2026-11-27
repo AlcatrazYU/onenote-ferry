@@ -42,7 +42,10 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 	ui: UiStrings = uiStrings('en');
 	private readonly client = new WorkerClient();
 	/** The Microsoft account to download with (M3.5, §11.5 item 61). */
-	readonly microsoft = new MicrosoftAccount(this.app, () => ({ title: this.ui.signInPageTitle, done: this.ui.signInPageDone, failed: this.ui.signInPageFailed }));
+	readonly microsoft = new MicrosoftAccount(this.app, () => ({
+		title: this.ui.signInPageTitle, doneTitle: this.ui.signInPageDoneTitle, done: this.ui.signInPageDone, failedTitle: this.ui.signInPageFailedTitle, failed: this.ui.signInPageFailed,
+		cancelled: this.ui.signInPageCancelled, adminApproval: this.ui.signInPageAdmin, microsoftSays: this.ui.signInPageMicrosoftSays, endedTitle: this.ui.signInPageEndedTitle, ended: this.ui.signInPageEnded, local: this.ui.signInPageLocal,
+	}));
 	/** The import being set up, running, or finished and not looked at yet. */
 	private session?: ImportSession;
 	private wizard?: ImportWizard;
@@ -170,6 +173,12 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 
 	startImport(session: ImportSession): void {
 		if (session !== this.session || session.phase !== 'setup' || !session.ready) return;
+		// The folder imported into is the one the window starts with next time, so that updating the
+		// notebooks in it does not need it typed again (§11.5 item 81).
+		if (session.folder !== this.settings.folder) {
+			this.settings.folder = session.folder;
+			void this.saveSettings();
+		}
 		const progress = new ProgressDisplay(this, this.ui, () => this.openWizard());
 		this.progress = progress;
 		const off = session.onChange(() => {

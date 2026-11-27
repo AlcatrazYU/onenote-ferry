@@ -182,8 +182,16 @@ export interface UiStrings {
 
 	// The page the browser shows once the Microsoft sign-in's answer has come back to the plugin.
 	signInPageTitle: string;
+	signInPageDoneTitle: string;
 	signInPageDone: string;
+	signInPageFailedTitle: string;
 	signInPageFailed: string;
+	signInPageCancelled: string;
+	signInPageAdmin: string;
+	signInPageMicrosoftSays: string;
+	signInPageEndedTitle: string;
+	signInPageEnded: string;
+	signInPageLocal: string;
 
 	// OneDrive as a source in the import window (Internal-10 §22.1).
 	/** The row that adds OneDrive, in the import window and in the update window. */
@@ -269,7 +277,7 @@ const en: UiStrings = {
 	startImport: 'Start import',
 	settingsDefaults: 'Defaults for new imports',
 	folder: 'Folder',
-	folderDesc: 'Imported notes are stored in this folder, with a subfolder for each notebook and section.',
+	folderDesc: 'Imported notes are stored in this folder, with a subfolder for each notebook and section. The import window remembers the folder you last imported into.',
 	vaultTop: 'the top of the vault',
 	badFolder: 'A folder name cannot start with a dot.',
 	boxMarkers: 'Text box positions',
@@ -405,8 +413,16 @@ const en: UiStrings = {
 	alreadyInFolder: names => `Already in the target folder: ${names.join(', ')}`,
 
 	signInPageTitle: 'OneNote Ferry',
-	signInPageDone: 'Signed in. You can close this page and go back to Obsidian.',
-	signInPageFailed: 'Sign-in failed. Return to Obsidian to try again.',
+	signInPageDoneTitle: 'Signed in',
+	signInPageDone: 'You can close this page and go back to Obsidian.',
+	signInPageFailedTitle: 'Sign-in not completed',
+	signInPageFailed: 'Go back to Obsidian to try again.',
+	signInPageCancelled: 'The sign-in was cancelled, or access was not granted.',
+	signInPageAdmin: 'Your organization requires an administrator to approve OneNote Ferry first.',
+	signInPageMicrosoftSays: 'Microsoft\'s message:',
+	signInPageEndedTitle: 'This sign-in has ended',
+	signInPageEnded: 'It has already finished, or has expired. Check in Obsidian whether you are signed in; if not, sign in again from there.',
+	signInPageLocal: 'This page is shown by the OneNote Ferry plugin on your own computer.',
 
 	chooseOneDrive: 'Import from OneDrive',
 	chooseOneDriveUpdate: 'Check OneDrive for updates',
@@ -481,7 +497,7 @@ const zh: UiStrings = {
 	startImport: '开始导入',
 	settingsDefaults: '新导入的默认设置',
 	folder: '文件夹',
-	folderDesc: '导入的笔记存放在此文件夹中，每本笔记本和每个分区各有一个子文件夹。',
+	folderDesc: '导入的笔记存放在此文件夹中，每本笔记本和每个分区各有一个子文件夹。导入窗口会记住你上次导入用的文件夹。',
 	vaultTop: '仓库的根目录',
 	badFolder: '文件夹名不能以点开头。',
 	boxMarkers: '文本框位置',
@@ -619,8 +635,16 @@ const zh: UiStrings = {
 	alreadyInFolder: names => `目标文件夹里已经有：${names.join('、')}`,
 
 	signInPageTitle: 'OneNote Ferry',
-	signInPageDone: '登录成功，可以关闭此页面并返回 Obsidian。',
-	signInPageFailed: '登录失败，请返回 Obsidian 重试。',
+	signInPageDoneTitle: '已登录',
+	signInPageDone: '可以关闭此页面，回到 Obsidian。',
+	signInPageFailedTitle: '登录没有完成',
+	signInPageFailed: '请回到 Obsidian 重试。',
+	signInPageCancelled: '你取消了登录，或没有同意授权。',
+	signInPageAdmin: '你的单位要求管理员先批准 OneNote Ferry。',
+	signInPageMicrosoftSays: '微软的说明：',
+	signInPageEndedTitle: '这次登录已经结束',
+	signInPageEnded: '它已经完成或已过期。请在 Obsidian 里查看是否已登录；没有的话，从 Obsidian 重新登录。',
+	signInPageLocal: '此页面由你电脑上的 OneNote Ferry 插件显示。',
 
 	chooseOneDrive: '从 OneDrive 导入',
 	chooseOneDriveUpdate: '从 OneDrive 检查更新',
@@ -695,7 +719,7 @@ const ja: UiStrings = {
 	startImport: 'インポートを開始',
 	settingsDefaults: '新しいインポートの既定値',
 	folder: 'フォルダー',
-	folderDesc: 'インポートしたノートはこのフォルダーに保存され、ノートブックとセクションごとにサブフォルダーが作られます。',
+	folderDesc: 'インポートしたノートはこのフォルダーに保存され、ノートブックとセクションごとにサブフォルダーが作られます。インポートウィンドウは、前回インポートしたフォルダーを覚えています。',
 	vaultTop: '保管庫の一番上',
 	badFolder: 'フォルダー名をドットで始めることはできません。',
 	boxMarkers: 'テキストボックスの位置',
@@ -832,8 +856,16 @@ const ja: UiStrings = {
 	alreadyInFolder: names => `インポート先にすでにあります：${names.join('、')}`,
 
 	signInPageTitle: 'OneNote Ferry',
-	signInPageDone: 'サインインしました。このページを閉じて Obsidian に戻ってください。',
-	signInPageFailed: 'サインインできませんでした。Obsidian に戻ってもう一度お試しください。',
+	signInPageDoneTitle: 'サインインしました',
+	signInPageDone: 'このページを閉じて Obsidian に戻ってください。',
+	signInPageFailedTitle: 'サインインが完了しませんでした',
+	signInPageFailed: 'Obsidian に戻って、もう一度お試しください。',
+	signInPageCancelled: 'サインインがキャンセルされたか、アクセスが許可されませんでした。',
+	signInPageAdmin: '組織の管理者による OneNote Ferry の承認が必要です。',
+	signInPageMicrosoftSays: 'Microsoft からのメッセージ：',
+	signInPageEndedTitle: 'このサインインは終了しています',
+	signInPageEnded: 'すでに完了したか、期限が切れています。Obsidian でサインイン済みかどうか確認し、まだであれば Obsidian からもう一度サインインしてください。',
+	signInPageLocal: 'このページは、お使いのコンピューター上の OneNote Ferry プラグインが表示しています。',
 
 	chooseOneDrive: 'OneDrive からインポート',
 	chooseOneDriveUpdate: 'OneDrive で更新を確認',
@@ -908,7 +940,7 @@ const ko: UiStrings = {
 	startImport: '가져오기 시작',
 	settingsDefaults: '새 가져오기의 기본값',
 	folder: '폴더',
-	folderDesc: '가져온 노트는 이 폴더에 저장되며, 전자 필기장과 섹션마다 하위 폴더가 만들어집니다.',
+	folderDesc: '가져온 노트는 이 폴더에 저장되며, 전자 필기장과 섹션마다 하위 폴더가 만들어집니다. 가져오기 창은 마지막으로 가져온 폴더를 기억합니다.',
 	vaultTop: '보관함 최상위 폴더',
 	badFolder: '폴더 이름은 점으로 시작할 수 없습니다.',
 	boxMarkers: '텍스트 상자 위치',
@@ -1045,8 +1077,16 @@ const ko: UiStrings = {
 	alreadyInFolder: names => `대상 폴더에 이미 있습니다: ${names.join(', ')}`,
 
 	signInPageTitle: 'OneNote Ferry',
-	signInPageDone: '로그인했습니다. 이 페이지를 닫고 Obsidian으로 돌아가세요.',
-	signInPageFailed: '로그인하지 못했습니다. Obsidian으로 돌아가 다시 시도하세요.',
+	signInPageDoneTitle: '로그인했습니다',
+	signInPageDone: '이 페이지를 닫고 Obsidian으로 돌아가세요.',
+	signInPageFailedTitle: '로그인이 완료되지 않았습니다',
+	signInPageFailed: 'Obsidian으로 돌아가 다시 시도하세요.',
+	signInPageCancelled: '로그인을 취소했거나 접근을 허용하지 않았습니다.',
+	signInPageAdmin: '조직의 관리자가 먼저 OneNote Ferry를 승인해야 합니다.',
+	signInPageMicrosoftSays: 'Microsoft의 메시지:',
+	signInPageEndedTitle: '이 로그인은 이미 끝났습니다',
+	signInPageEnded: '이미 완료되었거나 만료되었습니다. Obsidian에서 로그인되어 있는지 확인하고, 그렇지 않으면 Obsidian에서 다시 로그인하세요.',
+	signInPageLocal: '이 페이지는 사용자 컴퓨터의 OneNote Ferry 플러그인이 표시합니다.',
 
 	chooseOneDrive: 'OneDrive에서 가져오기',
 	chooseOneDriveUpdate: 'OneDrive에서 업데이트 확인',
