@@ -1,11 +1,14 @@
 // Reading a OneDrive download on disk with Node: a folder, or a zip read in place (sections stored
-// in it go straight to the parser as byte ranges; compressed ones through a temporary copy).
+// in it go straight to the parser as byte ranges; compressed ones through a temporary copy). Also
+// what OneNote for Windows exports (§11.5 item 73): a section (`.one`), or a notebook packaged as
+// `.onepkg`, unpacked into a temporary folder the first time one of its sections is needed.
 // Shared by the command line and the plugin's worker (Obsidian is desktop only, so Node is there).
 
-import { closeSync, createReadStream, createWriteStream, fstatSync, mkdirSync, openSync, readdirSync, readSync, rmSync, statSync } from 'node:fs';
+import { closeSync, createReadStream, createWriteStream, fstatSync, mkdirSync, openSync, readdirSync, readSync, rmSync, statSync, writeSync } from 'node:fs';
 import { basename, dirname, join, relative, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { createInflateRaw } from 'node:zlib';
+import { extractCab, readCabIndex } from '../core/cab.ts';
 import { findNotebooks } from '../core/download.ts';
 import type { DownloadFile, DownloadNotebook, DownloadSection } from '../core/download.ts';
 import type { ParsedSection } from '../core/importer.ts';
@@ -95,7 +98,94 @@ async function inflatedHead(path: string, offset: number, compressedSize: number
 	return new Uint8Array(Buffer.concat(chunks).subarray(0, length));
 }
 
+/** The first bytes of a file. */
+async function fileHead(path: string, length: number): Promise<Uint8Array> {
+	const file = fileAccess(path);
+	try {
+		return await file.read(0, Math.min(length, file.size));
+	}
+	finally {
+		file.close();
+	}
+}
+
+/** A section exported by OneNote for Windows: a notebook of that one section, named after it. */
+function openSectionFile(input: string): Download {
+	const name = basename(input).replace(/\.one$/i, '');
+	const section: DownloadSection = { notebook: name, groups: [], label: name, path: basename(input), size: statSync(input).size };
+	return {
+		notebooks: [{ name, path: '', sections: [section] }],
+		parserPath: async () => input,
+		head: (_, length) => fileHead(input, length),
+		done() {},
+		close() {},
+	};
+}
+
+/**
+ * A notebook packaged by OneNote for Windows: its sections are listed from the package's index;
+ * the package is unpacked into `tmp` once, when the first section is needed.
+ */
+async function openPackage(input: string, tmp: string): Promise<Download> {
+	const pkg = fileAccess(input);
+	let notebooks: DownloadNotebook[];
+	try {
+		const entries = await readCabIndex(pkg);
+		notebooks = findNotebooks(entries.map(entry => ({ path: entry.path, size: entry.size })), basename(input).replace(/\.onepkg$/i, ''));
+	}
+	catch (error) {
+		pkg.close();
+		throw error;
+	}
+	const folder = join(tmp, 'package');
+	const target = (path: string) => {
+		const parts = path.split('/').filter(part => part !== '' && part !== '.');
+		// Nothing outside the folder, whatever names the package holds.
+		if (!parts.length || parts.includes('..') || /^[A-Za-z]:/.test(parts[0]!)) throw new Error(`The package holds a file with a name that cannot be unpacked: ${path}`);
+		return join(folder, ...parts);
+	};
+	let unpacked: Promise<void> | undefined;
+	const unpack = () => unpacked ??= (async () => {
+		mkdirSync(folder, { recursive: true });
+		const open = new Map<string, number>();
+		try {
+			await extractCab(pkg, async (entry, piece) => {
+				let fd = open.get(entry.path);
+				if (fd === undefined) {
+					const path = target(entry.path);
+					mkdirSync(dirname(path), { recursive: true });
+					// Never into a file that is already there (or a link someone left in its place).
+					fd = openSync(path, 'wx');
+					open.set(entry.path, fd);
+				}
+				for (let written = 0; written < piece.length;) written += writeSync(fd, piece, written, piece.length - written);
+			}, entry => /\.(one|onetoc2)$/i.test(entry.path));
+		}
+		finally {
+			for (const fd of open.values()) closeSync(fd);
+		}
+	})();
+	return {
+		notebooks,
+		async parserPath(section) {
+			await unpack();
+			return target(section.path);
+		},
+		async head(section, length) {
+			await unpack();
+			return fileHead(target(section.path), length);
+		},
+		done() {},
+		close() {
+			pkg.close();
+			rmSync(tmp, { recursive: true, force: true });
+		},
+	};
+}
+
 export async function openDownload(input: string, tmp: string, inPlace: boolean): Promise<Download> {
+	if (/\.one$/i.test(input)) return openSectionFile(input);
+	if (/\.onepkg$/i.test(input)) return openPackage(input, tmp);
 	if (!/\.zip$/i.test(input)) {
 		const notebooks = findNotebooks(listFolder(input), basename(input));
 		return {

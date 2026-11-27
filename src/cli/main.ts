@@ -3,7 +3,8 @@
 //   node src/cli/main.ts <download> <output folder> [options]
 //
 // <download> is the zip OneDrive gives, or a folder: one that holds notebook
-// folders (as downloaded from OneDrive, unzipped), or one notebook folder.
+// folders (as downloaded from OneDrive, unzipped), or one notebook folder. It can
+// also be what OneNote for Windows exports: a notebook (.onepkg) or a section (.one).
 // Sections are parsed by the WebAssembly build of the parser (npm run build:parser), or by the
 // native `dump` binary when --dump is given (folders only).
 // Options:
@@ -170,7 +171,7 @@ function sectionParser(options: ReturnType<typeof parseArgs>, download: Download
 async function main() {
 	const options = parseArgs(process.argv.slice(2));
 	if (!options.input || !options.output) {
-		console.error('Usage: node src/cli/main.ts <download zip or folder> <output folder> [--dump <native parser>] [--parser-wasm DIR] [--tmp DIR] [--only "A|B"] [--language CODE] [--no-box-markers] [--no-links] [--image-alt-text]');
+		console.error('Usage: node src/cli/main.ts <download zip or folder, or a .onepkg or .one exported by OneNote for Windows> <output folder> [--dump <native parser>] [--parser-wasm DIR] [--tmp DIR] [--only "A|B"] [--language CODE] [--no-box-markers] [--no-links] [--image-alt-text]');
 		process.exit(2);
 	}
 	if (options.language !== 'auto' && !isLanguage(options.language)) {
