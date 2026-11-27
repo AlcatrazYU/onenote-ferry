@@ -233,9 +233,41 @@ type LabelledTexts = PictureTexts & { label?: string };
 
 const squash = (text: string | undefined) => (text ?? '').replace(/\s+/g, '');
 
-/** The lines of a text for a folded box: each one escaped, runs of blank lines as one. */
+/** Han, kana, CJK punctuation and full-width forms: written without spaces between them (Hangul is not: Korean puts spaces between words). */
+const CJK_CHARACTERS = '\\u2e80-\\u303f\\u3040-\\u30ff\\u3100-\\u9fff\\uf900-\\ufaff\\ufe30-\\ufe4f\\uff00-\\uffef\\u{20000}-\\u{3134f}';
+const CJK = new RegExp(`[${CJK_CHARACTERS}]`, 'u');
+const CJK_GAPS = new RegExp(`(?<=[${CJK_CHARACTERS}])[ \\t]+(?=[${CJK_CHARACTERS}])`, 'gu');
+
+/** OneNote puts spaces between the Chinese and Japanese characters it recognizes: taken out where such characters are on both sides (§11.5 item 78). */
+const withoutCjkGaps = (text: string) => text.replace(CJK_GAPS, '');
+
+/**
+ * Text recognized in vertical writing comes one or two characters to a line (OneNote reads across
+ * the columns). Three or more such lines in a row are joined into one, with no space between CJK
+ * characters (§11.5 item 78); lines of other lengths stay as they are.
+ */
+function joinShortLines(lines: string[]): string[] {
+	const out: string[] = [];
+	let run: string[] = [];
+	const flush = () => {
+		if (run.length >= 3) out.push(run.reduce((joined, line) => joined + (CJK.test([...joined].pop()!) || CJK.test([...line][0]!) ? '' : ' ') + line));
+		else out.push(...run);
+		run = [];
+	};
+	for (const line of lines) {
+		if (line !== '' && [...line.replace(/\s+/g, '')].length <= 2) run.push(line);
+		else {
+			flush();
+			out.push(line);
+		}
+	}
+	flush();
+	return out;
+}
+
+/** The lines of a text for a folded box: runs of very short lines joined, each line escaped, runs of blank lines as one. */
 function boxLines(text: string): string[] {
-	const lines = text.replace(/\r\n?/g, '\n').trim().split('\n').map(line => escapeLineStart(escapeInline(line.trim())));
+	const lines = joinShortLines(text.replace(/\r\n?/g, '\n').trim().split('\n').map(line => line.trim())).map(line => escapeLineStart(escapeInline(line)));
 	return lines.filter((line, index) => line !== '' || lines[index - 1] !== '');
 }
 
@@ -708,7 +740,7 @@ class PageWriter {
 		const said = (text: string, others: (string | undefined)[]) => others.some(other => other !== undefined && squash(other) === squash(text));
 		const texts: PictureTexts = {};
 		if (page) texts.printout = page.text;
-		if (recognized && (printout || asked) && !said(recognized, [page?.text, page?.given])) texts.recognized = recognized;
+		if (recognized && (printout || asked) && !said(recognized, [page?.text, page?.given])) texts.recognized = withoutCjkGaps(recognized);
 		if (alt && asked && !said(alt, [recognized, page?.text, page?.given])) texts.alt = alt;
 		return texts;
 	}

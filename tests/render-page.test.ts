@@ -270,6 +270,16 @@ test('a picture\'s recognized text only with the option on; alternative text tha
 	assert.equal(await md(page([box([image('Ferry map')])]), { imageAltText: true }), `![](<_附件/img1.png>)\n\n> [!info]- 替换文字\n> Ferry map\n\n${recognized}`);
 });
 
+test('recognized text of vertical writing, one or two characters to a line: three or more such lines in a row are joined, CJK without spaces', async () => {
+	const page1: Image = { kind: 'image', fileName: 'doc_1.pdf', extension: 'png', data: stored('m1.png'), printoutPage: 1, printoutName: 'doc.pdf', recognizedText: '渡\n船\n、港\n口\nA line of ordinary length\nA\nB\nC\n\n年\n月' };
+	assert.equal(await md(page([box([page1])])), `![](<_附件/img1.png>)\n\n${RECOGNIZED}\n> 渡船、港口\n> A line of ordinary length\n> A B C\n>\n> 年\n> 月`);
+});
+
+test('spaces OneNote puts between the Chinese and Japanese characters it recognizes are taken out; others stay', async () => {
+	const page1: Image = { kind: 'image', fileName: 'doc_1.pdf', extension: 'png', data: stored('m1.png'), printoutPage: 1, printoutName: 'doc.pdf', recognizedText: '港 の 渡 し 船 (FERRY BOATS)\n第 1 页 、 上\n그림 속 글자' };
+	assert.equal(await md(page([box([page1])])), `![](<_附件/img1.png>)\n\n${RECOGNIZED}\n> 港の渡し船 (FERRY BOATS)\n> 第 1 页、上\n> 그림 속 글자`);
+});
+
 test('pictures without data keep the text OneNote recognized in them: after their notice, each named', async () => {
 	const gone = (fileName: string, recognizedText: string): Image => ({ kind: 'image', fileName, recognizedText });
 	assert.equal(await md(page([box([gone('a.png', 'one'), gone('b.png', 'two')])]), { imageAltText: true }), [
