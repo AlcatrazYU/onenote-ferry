@@ -371,7 +371,7 @@ export class ImportWizard extends Modal {
 				continue;
 			}
 			const row = new Setting(listEl).setName(this.downloadLabel(download));
-			rowIcon(row, /\.zip$/i.test(download.input) ? 'lucide-file-archive' : 'lucide-folder');
+			rowIcon(row, /\.(zip|onepkg)$/i.test(download.input) ? 'lucide-file-archive' : /\.one$/i.test(download.input) ? 'lucide-file' : 'lucide-folder');
 			row.settingEl.setAttr('title', download.input);
 			row.setDesc(download.state === 'reading' ? ui.reading
 				: download.state === 'failed' ? ui.cannotRead(download.stopped ? ui.converterStopped : download.error ?? '')
@@ -387,12 +387,13 @@ export class ImportWizard extends Modal {
 			row.addExtraButton(button => button.setIcon('lucide-external-link').setTooltip(ui.reopenSignIn).onClick(() => this.host.microsoft.reopenSignIn()));
 			row.addExtraButton(button => button.setIcon('lucide-x').setTooltip(ui.cancelSignIn).onClick(() => this.host.microsoft.cancelSignIn()));
 		}
-		// Where notebooks come from: OneDrive itself first, then what was downloaded from its website.
+		// Where notebooks come from: OneDrive itself first, then files downloaded from its website or
+		// exported by OneNote for Windows.
 		const add = (name: string, desc: string, kind: 'both' | 'zip' | 'folder' | 'onedrive') => {
 			const row = new Setting(listEl).setClass('mod-add-item').setName(name);
-			// What it does: beside the name, in quiet text, while the row is pointed at or focused, so
-			// the rows stay one line each and nothing floats over the window. Read out by screen readers.
-			row.nameEl.createSpan({ cls: 'onenote-ferry-add-hint', text: desc });
+			// What it takes, in a card where the pointer rests, so the rows stay one line each and the
+			// text need not be cut to fit beside the name. Read out by screen readers.
+			this.restTip(row.settingEl, () => desc, true);
 			row.settingEl.setAttr('aria-description', desc);
 			rowIcon(row, 'lucide-plus');
 			rowAction(row, byKeyboard => void (kind === 'onedrive' ? this.fromOneDrive() : this.choose(kind, byKeyboard)));
@@ -401,10 +402,10 @@ export class ImportWizard extends Modal {
 			add(session.entry === 'update' ? ui.chooseOneDriveUpdate : ui.chooseOneDrive, this.host.microsoft.signedIn ? ui.oneDriveAddDescSignedIn : ui.oneDriveAddDesc, 'onedrive');
 		}
 		// One open dialog picks zips and folders together only on macOS.
-		if (BOTH_IN_ONE_DIALOG) add(ui.chooseBoth, ui.downloadedDesc, 'both');
+		if (BOTH_IN_ONE_DIALOG) add(ui.chooseBoth, `${ui.sourceZipsOrFolders}\n${ui.sourceExports}`, 'both');
 		else {
-			add(ui.chooseZips, ui.downloadedDesc, 'zip');
-			add(ui.chooseFolders, ui.downloadedDesc, 'folder');
+			add(ui.chooseZips, `${ui.sourceZips}\n${ui.sourceExports}`, 'zip');
+			add(ui.chooseFolders, ui.sourceFolders, 'folder');
 		}
 	}
 
@@ -526,7 +527,8 @@ export class ImportWizard extends Modal {
 				message: title,
 				properties: kind === 'both' ? ['openFile', 'openDirectory', 'multiSelections', 'dontAddToRecent']
 					: kind === 'zip' ? ['openFile', 'multiSelections', 'dontAddToRecent'] : ['openDirectory', 'multiSelections', 'dontAddToRecent'],
-				filters: kind === 'folder' ? undefined : [{ name: 'Zip', extensions: ['zip'] }],
+				// A zip downloaded from OneDrive, or what OneNote for Windows exports: a notebook (.onepkg) or a section (.one).
+				filters: kind === 'folder' ? undefined : [{ name: 'OneNote', extensions: ['zip', 'onepkg', 'one'] }],
 			});
 			paths = result.canceled ? [] : result.filePaths;
 		}
@@ -585,11 +587,12 @@ export class ImportWizard extends Modal {
 	}
 
 	/**
-	 * Shows what a click on `row` does where the pointer comes to rest on it, as a tooltip does, while
-	 * `when` holds: the row is as wide as the window, and a tip pinned to its middle is far from the
-	 * pointer. Gone when the pointer leaves the row or clicks.
+	 * Shows `text` where the pointer comes to rest on `row`, as a tooltip does, while it gives one: the
+	 * row is as wide as the window, and a tip pinned to its middle is far from the pointer. Gone when
+	 * the pointer leaves the row or clicks. Each line of `text` is a paragraph; `wide` cards are for
+	 * lists that read best a line an item.
 	 */
-	private restTip(row: HTMLElement, when: () => boolean): void {
+	private restTip(row: HTMLElement, text: () => string | undefined, wide = false): void {
 		let timer = 0;
 		let shown = false;
 		const end = () => {
@@ -600,12 +603,13 @@ export class ImportWizard extends Modal {
 		row.addEventListener('mousemove', event => {
 			if (shown) return;
 			row.win.clearTimeout(timer);
-			if (!when()) return;
+			if (text() === undefined) return;
 			const { clientX: x, clientY: y } = event;
 			timer = row.win.setTimeout(() => {
-				if (!when() || !row.isConnected) return;
+				const tip = text();
+				if (tip === undefined || !row.isConnected) return;
 				shown = true;
-				this.showRowTip(row, x, y);
+				this.showRowTip(row, x, y, tip, wide);
 			}, 500);
 		});
 		row.addEventListener('mouseleave', end);
@@ -613,9 +617,10 @@ export class ImportWizard extends Modal {
 	}
 
 	/** Obsidian's tooltip, in our quiet card, centred above the pointer (below it at the window's top). */
-	private showRowTip(row: HTMLElement, x: number, y: number): void {
+	private showRowTip(row: HTMLElement, x: number, y: number, text: string, wide: boolean): void {
 		this.hideRowTip();
-		const tip = row.doc.body.createDiv({ cls: 'tooltip onenote-ferry-tip', text: this.ui.reconvertTip });
+		const tip = row.doc.body.createDiv({ cls: wide ? 'tooltip onenote-ferry-tip onenote-ferry-tip-wide' : 'tooltip onenote-ferry-tip' });
+		for (const line of text.split('\n')) tip.createDiv({ text: line });
 		const half = tip.offsetWidth / 2;
 		const above = y - tip.offsetHeight - 12;
 		tip.setCssStyles({
@@ -710,7 +715,7 @@ export class ImportWizard extends Modal {
 			else if (!box.disabled) click();
 		});
 		// A section's row converts again on a click anywhere: said where the pointer rests on it.
-		if (kind === 'section') this.restTip(self, () => self.hasClass('onenote-ferry-kept'));
+		if (kind === 'section') this.restTip(self, () => (self.hasClass('onenote-ferry-kept') ? this.ui.reconvertTip : undefined));
 
 		rows.push(() => {
 			const states = node.sections.map(stateOf);

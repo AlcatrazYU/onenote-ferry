@@ -189,11 +189,17 @@ export interface UiStrings {
 	/** The row that adds OneDrive, in the import window and in the update window. */
 	chooseOneDrive: string;
 	chooseOneDriveUpdate: string;
-	/** Under it: what it does (signing in first, when not signed in). */
+	/** In its card: what it does (signing in first, when not signed in). */
 	oneDriveAddDesc: string;
 	oneDriveAddDescSignedIn: string;
-	/** Under the rows that choose a zip or folder: where those come from. */
-	downloadedDesc: string;
+	/**
+	 * In the card on the rows that choose files or folders: what each takes, one source a line. The
+	 * row that takes both (macOS) shows the first and the last; the row for files shows zips and exports.
+	 */
+	sourceZipsOrFolders: string;
+	sourceZips: string;
+	sourceFolders: string;
+	sourceExports: string;
 	oneDrive: string;
 	oneDriveReading: string;
 	otherFolder: string;
@@ -272,11 +278,11 @@ const en: UiStrings = {
 	altTextDesc: 'Keep the alt text a picture already has in the notes: written below the picture, collapsed.',
 
 	wizardTitle: 'Import OneNote notes',
-	chooseBoth: 'Choose zip files or folders',
-	chooseZips: 'Choose zip files',
+	chooseBoth: 'Choose files or folders',
+	chooseZips: 'Choose files',
 	chooseFolders: 'Choose folders',
-	dialogTitle: 'Choose the zip file or folder downloaded from OneDrive',
-	dialogTitleZips: 'Choose the zip file downloaded from OneDrive',
+	dialogTitle: 'Choose the zip file or folder downloaded from OneDrive, or a file exported by OneNote for Windows',
+	dialogTitleZips: 'Choose the zip file downloaded from OneDrive, or a file exported by OneNote for Windows',
 	dialogTitleFolders: 'Choose the folder downloaded from OneDrive',
 	dialogUnavailable: error => `The file dialog is not available: ${error}`,
 	reading: 'Reading...',
@@ -404,9 +410,12 @@ const en: UiStrings = {
 
 	chooseOneDrive: 'Import from OneDrive',
 	chooseOneDriveUpdate: 'Check OneDrive for updates',
-	oneDriveAddDesc: 'Sign in to your Microsoft account and read the notebooks in your OneDrive.',
-	oneDriveAddDescSignedIn: 'Reads the notebooks in your OneDrive.',
-	downloadedDesc: 'Download the folder that holds your notebooks on the OneDrive website, then import it here.',
+	oneDriveAddDesc: 'Sign in to your Microsoft account and read the notebooks in your OneDrive',
+	oneDriveAddDescSignedIn: 'Reads the notebooks in your OneDrive',
+	sourceZipsOrFolders: 'A zip file downloaded from the OneDrive website or its unzipped folder',
+	sourceZips: 'A zip file downloaded from the OneDrive website',
+	sourceFolders: 'A folder downloaded from the OneDrive website and unzipped',
+	sourceExports: 'A notebook (.onepkg) or section (.one) exported by OneNote for Windows',
 	oneDrive: 'OneDrive',
 	oneDriveReading: 'Reading the notebooks in OneDrive...',
 	otherFolder: 'Look in another folder',
@@ -481,11 +490,11 @@ const zh: UiStrings = {
 	altTextDesc: '保留原笔记已有的图片替换文字，写在图片下方，默认收起。',
 
 	wizardTitle: '导入 OneNote 笔记',
-	chooseBoth: '选择 zip 文件或文件夹',
-	chooseZips: '选择 zip 文件',
+	chooseBoth: '选择文件或文件夹',
+	chooseZips: '选择文件',
 	chooseFolders: '选择文件夹',
-	dialogTitle: '选择从 OneDrive 下载的 zip 文件或文件夹',
-	dialogTitleZips: '选择从 OneDrive 下载的 zip 文件',
+	dialogTitle: '选择从 OneDrive 下载的 zip 文件或文件夹，或 Windows 版 OneNote 导出的文件',
+	dialogTitleZips: '选择从 OneDrive 下载的 zip 文件，或 Windows 版 OneNote 导出的文件',
 	dialogTitleFolders: '选择从 OneDrive 下载的文件夹',
 	dialogUnavailable: error => `无法打开选择文件的窗口：${error}`,
 	reading: '正在读取...',
@@ -615,9 +624,12 @@ const zh: UiStrings = {
 
 	chooseOneDrive: '从 OneDrive 导入',
 	chooseOneDriveUpdate: '从 OneDrive 检查更新',
-	oneDriveAddDesc: '登录微软账号，直接读取 OneDrive 上的笔记本。',
-	oneDriveAddDescSignedIn: '直接读取 OneDrive 上的笔记本。',
-	downloadedDesc: '从 OneDrive 网页上下载装着笔记本的文件夹，再从这里导入。',
+	oneDriveAddDesc: '登录微软账号后直接读取 OneDrive 上的笔记本',
+	oneDriveAddDescSignedIn: '直接读取 OneDrive 上的笔记本',
+	sourceZipsOrFolders: '从 OneDrive 网页上下载的 zip 文件或解压后的文件夹',
+	sourceZips: '从 OneDrive 网页上下载的 zip 文件',
+	sourceFolders: '从 OneDrive 网页上下载并解压的文件夹',
+	sourceExports: '用 Windows 版 OneNote 导出的笔记本（.onepkg）或分区（.one）',
 	oneDrive: 'OneDrive',
 	oneDriveReading: '正在读取 OneDrive 上的笔记本...',
 	otherFolder: '在其他文件夹里找',
@@ -692,11 +704,11 @@ const ja: UiStrings = {
 	altTextDesc: '元のノートにある画像の代替テキストを残し、画像の下に折りたたんで書きます。',
 
 	wizardTitle: 'OneNote のノートをインポート',
-	chooseBoth: 'zip ファイルまたはフォルダーを選択',
-	chooseZips: 'zip ファイルを選択',
+	chooseBoth: 'ファイルまたはフォルダーを選択',
+	chooseZips: 'ファイルを選択',
 	chooseFolders: 'フォルダーを選択',
-	dialogTitle: 'OneDrive からダウンロードした zip ファイルかフォルダーを選ぶ',
-	dialogTitleZips: 'OneDrive からダウンロードした zip ファイルを選ぶ',
+	dialogTitle: 'OneDrive からダウンロードした zip ファイルかフォルダー、または Windows 版 OneNote でエクスポートしたファイルを選ぶ',
+	dialogTitleZips: 'OneDrive からダウンロードした zip ファイル、または Windows 版 OneNote でエクスポートしたファイルを選ぶ',
 	dialogTitleFolders: 'OneDrive からダウンロードしたフォルダーを選ぶ',
 	dialogUnavailable: error => `ファイルを選ぶ画面を開けません：${error}`,
 	reading: '読み込み中...',
@@ -825,9 +837,12 @@ const ja: UiStrings = {
 
 	chooseOneDrive: 'OneDrive からインポート',
 	chooseOneDriveUpdate: 'OneDrive で更新を確認',
-	oneDriveAddDesc: 'Microsoft アカウントにサインインして、OneDrive のノートブックを直接読み込みます。',
-	oneDriveAddDescSignedIn: 'OneDrive のノートブックを直接読み込みます。',
-	downloadedDesc: 'Web 版の OneDrive でノートブックの入ったフォルダーをダウンロードし、ここからインポートします。',
+	oneDriveAddDesc: 'Microsoft アカウントにサインインして OneDrive のノートブックを直接読み込む',
+	oneDriveAddDescSignedIn: 'OneDrive のノートブックを直接読み込む',
+	sourceZipsOrFolders: 'OneDrive の Web サイトでダウンロードした zip ファイルまたは展開したフォルダー',
+	sourceZips: 'OneDrive の Web サイトでダウンロードした zip ファイル',
+	sourceFolders: 'OneDrive の Web サイトでダウンロードして展開したフォルダー',
+	sourceExports: 'Windows 版 OneNote でエクスポートしたノートブック（.onepkg）またはセクション（.one）',
 	oneDrive: 'OneDrive',
 	oneDriveReading: 'OneDrive のノートブックを読み込んでいます...',
 	otherFolder: 'ほかのフォルダーを探す',
@@ -902,11 +917,11 @@ const ko: UiStrings = {
 	altTextDesc: '원래 노트에 있는 그림 대체 텍스트를 유지해 그림 아래에 접힌 상태로 씁니다.',
 
 	wizardTitle: 'OneNote 노트 가져오기',
-	chooseBoth: 'zip 파일 또는 폴더 선택',
-	chooseZips: 'zip 파일 선택',
+	chooseBoth: '파일 또는 폴더 선택',
+	chooseZips: '파일 선택',
 	chooseFolders: '폴더 선택',
-	dialogTitle: 'OneDrive에서 다운로드한 zip 파일이나 폴더 선택',
-	dialogTitleZips: 'OneDrive에서 다운로드한 zip 파일 선택',
+	dialogTitle: 'OneDrive에서 다운로드한 zip 파일이나 폴더, 또는 Windows용 OneNote에서 내보낸 파일 선택',
+	dialogTitleZips: 'OneDrive에서 다운로드한 zip 파일, 또는 Windows용 OneNote에서 내보낸 파일 선택',
 	dialogTitleFolders: 'OneDrive에서 다운로드한 폴더 선택',
 	dialogUnavailable: error => `파일 선택 창을 열 수 없습니다: ${error}`,
 	reading: '읽는 중...',
@@ -1035,9 +1050,12 @@ const ko: UiStrings = {
 
 	chooseOneDrive: 'OneDrive에서 가져오기',
 	chooseOneDriveUpdate: 'OneDrive에서 업데이트 확인',
-	oneDriveAddDesc: 'Microsoft 계정에 로그인해 OneDrive의 전자 필기장을 바로 읽습니다.',
-	oneDriveAddDescSignedIn: 'OneDrive의 전자 필기장을 바로 읽습니다.',
-	downloadedDesc: '웹에서 OneDrive를 열고 전자 필기장이 든 폴더를 다운로드한 뒤, 여기서 가져옵니다.',
+	oneDriveAddDesc: 'Microsoft 계정에 로그인해 OneDrive의 전자 필기장을 바로 읽기',
+	oneDriveAddDescSignedIn: 'OneDrive의 전자 필기장을 바로 읽기',
+	sourceZipsOrFolders: 'OneDrive 웹사이트에서 다운로드한 zip 파일 또는 압축을 푼 폴더',
+	sourceZips: 'OneDrive 웹사이트에서 다운로드한 zip 파일',
+	sourceFolders: 'OneDrive 웹사이트에서 다운로드해 압축을 푼 폴더',
+	sourceExports: 'Windows용 OneNote에서 내보낸 전자 필기장(.onepkg) 또는 섹션(.one)',
 	oneDrive: 'OneDrive',
 	oneDriveReading: 'OneDrive의 전자 필기장을 읽는 중...',
 	otherFolder: '다른 폴더에서 찾기',

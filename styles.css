@@ -301,19 +301,6 @@
 	text-overflow: ellipsis;
 }
 
-/* The rows that add a source: what each does, beside its name, shown while it is pointed at or focused. */
-.onenote-ferry-add-hint {
-	margin-inline-start: var(--size-4-3);
-	color: var(--text-muted);
-	font-size: var(--font-ui-smaller);
-	opacity: 0;
-	transition: opacity 120ms ease-in-out;
-}
-.setting-item.mod-add-item:hover .onenote-ferry-add-hint,
-.setting-item.mod-add-item:focus-visible .onenote-ferry-add-hint {
-	opacity: 1;
-}
-
 /* Why a row says what it says, on hover: a small card in the window's colours, text left-aligned,
    without the arrow, instead of Obsidian's dark bubble. */
 .tooltip.onenote-ferry-tip {
@@ -331,4 +318,12 @@
 }
 .tooltip.onenote-ferry-tip .tooltip-arrow {
 	display: none;
+}
+/* Paragraphs in a card, a little apart, so a wrapped item still reads as one. */
+.tooltip.onenote-ferry-tip > div + div {
+	margin-top: var(--size-4-1);
+}
+/* What a source row takes: wide enough that each item fits a line in most languages. */
+.tooltip.onenote-ferry-tip-wide {
+	max-width: 440px;
 }

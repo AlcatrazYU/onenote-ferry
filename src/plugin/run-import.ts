@@ -137,7 +137,7 @@ export async function runImport(app: App, client: WorkerClient, request: ImportR
 	// A folder's sections are on disk: one with a password is told by its first bytes, and the import
 	// reports it as not converted (OneDrive's are only known once downloaded, so they can be ticked).
 	// A zip's password-protected sections cannot be ticked in the window.
-	const folderOf = new Map(request.downloads.filter(download => !/\.zip$/i.test(download.input))
+	const folderOf = new Map(request.downloads.filter(download => !/\.(zip|onepkg|one)$/i.test(download.input))
 		.flatMap(download => download.notebooks.flatMap(notebook => notebook.sections.map(section => [section, download.input] as const))));
 	const host: ImportHost = {
 		sink,
