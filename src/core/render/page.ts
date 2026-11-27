@@ -10,7 +10,7 @@ import { renderRuns } from './inline.ts';
 import type { InlineOptions } from './inline.ts';
 import { strokesToSvg } from './ink-svg.ts';
 import type { DrawingParts } from './ink-svg.ts';
-import { assignToPictures, clusters, insertionPoint, isHighlighter, strokeBox, unionBox } from './ink-layout.ts';
+import { assignToPictures, clusters, drawingUnder, insertionPoint, isHighlighter, strokeBox, unionBox } from './ink-layout.ts';
 import type { Box, ColumnSpan } from './ink-layout.ts';
 import { base64, pictureInfo } from './picture.ts';
 import type { PictureInfo } from './picture.ts';
@@ -394,9 +394,16 @@ class PageWriter {
 		this.push(lines.join('\n'));
 	}
 
-	/** Pen strokes, and highlighter strokes only when asked for: away from a picture they mark nothing. */
+	/**
+	 * Pen strokes, with the highlighter strokes that lie on them (§11.5 item 67); every highlighter
+	 * stroke only when asked for: away from handwriting or a picture they mark nothing.
+	 */
 	private visible(pieces: InkPiece[]): InkPiece[] {
-		return pieces.filter(piece => !isHighlighter(piece.stroke) || this.options.keepHighlighterInk);
+		if (this.options.keepHighlighterInk) return pieces;
+		const pens = pieces.filter(piece => !isHighlighter(piece.stroke));
+		if (!pens.length) return [];
+		const drawing = unionBox(pens.map(piece => strokeBox(piece.stroke)));
+		return pieces.filter(piece => !isHighlighter(piece.stroke) || drawingUnder(piece.stroke, [drawing]) === 0);
 	}
 
 	/** Handwriting as an embedded drawing (and the recognized text, when OneNote kept any). */
@@ -632,7 +639,7 @@ export async function renderPage(page: Page, options: PageRenderOptions): Promis
 		pieces.forEach((piece, index) => {
 			const owner = owners[index];
 			if (owner < 0) {
-				if (!isHighlighter(piece.stroke) || options.keepHighlighterInk) free.push({ piece, index });
+				free.push({ piece, index });
 				return;
 			}
 			const [image, picture] = placed[owner];
@@ -641,10 +648,25 @@ export async function renderPage(page: Page, options: PageRenderOptions): Promis
 			writer.pictures.set(image, picture);
 			if (image.printoutOf && !isWholeDocument(image)) writer.annotatedDocuments.add(image.printoutOf);
 		});
-		for (const group of clusters(free, item => strokeBox(item.piece.stroke))) {
-			const slot = insertionPoint(unionBox(group.map(item => strokeBox(item.piece.stroke))), spans, items.length);
+		const boxOf = (item: { piece: InkPiece }) => strokeBox(item.piece.stroke);
+		const pen = (item: { piece: InkPiece }) => !isHighlighter(item.piece.stroke);
+		// Drawings are made of pen strokes and placed by them, as before; a highlighter stroke then
+		// goes into the drawing it lies on (§11.5 item 67), and one away from any is not drawn
+		// (unless every one is asked for).
+		const keepAll = !!options.keepHighlighterInk;
+		for (const group of clusters(keepAll ? free : free.filter(pen), boxOf)) {
+			const slot = insertionPoint(unionBox(group.map(boxOf)), spans, items.length);
 			if (!slotted.has(slot)) slotted.set(slot, []);
 			slotted.get(slot)!.push(...group);
+		}
+		if (!keepAll) {
+			const drawings = [...slotted.values()];
+			const boxes = drawings.map(list => unionBox(list.map(boxOf)));
+			for (const item of free) {
+				if (pen(item)) continue;
+				const under = drawingUnder(item.piece.stroke, boxes);
+				if (under >= 0) drawings[under]!.push(item);
+			}
 		}
 		// Within one drawing, strokes keep the order they were written in.
 		for (const [slot, list] of slotted) slots.set(slot, list.sort((a, b) => a.index - b.index).map(item => item.piece));

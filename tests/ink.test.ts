@@ -138,6 +138,29 @@ test('highlighter away from pictures is not drawn unless asked for', async () =>
 	assert.equal((await render(page([text], [], { highlighterInk: [highlight] }), {}, { keepHighlighterInk: true })).markdown, 'text\n\n![](<_附件/ink1.svg>)');
 });
 
+test('highlighter on loose handwriting is drawn into that drawing; one away from it is not; the drawing stays where its handwriting puts it', async () => {
+	const top = box([p('first')], { x: 1, y: 2, width: 13 });
+	const bottom = box([p('second')], { x: 1, y: 10, width: 13 });
+	const writing = ink(pen([[2, 5], [6, 5]]), pen([[2, 6], [6, 6]]));
+	const over = ink(marker([[2, 5.5], [6, 5.5]]));
+	const away = ink(marker([[20, 20], [25, 20]]));
+	const { markdown, saved } = await render(page([top, bottom], [writing], { highlighterInk: [over, away] }));
+	assert.equal(markdown, 'first\n\n![](<_附件/ink1.svg>)\n\nsecond');
+	assert.equal(saved.length, 1);
+	assert.equal((saved[0].text!.match(/<path /g) ?? []).length, 3);
+	assert.equal((saved[0].text!.match(/mix-blend-mode:multiply/g) ?? []).length, 1);
+	// A highlighter stroke reaching down past the next text box does not move the drawing.
+	const long = ink(marker([[2, 5.5], [6, 5.5], [6, 5.6]]));
+	assert.equal((await render(page([top, bottom], [writing], { highlighterInk: [long] }))).markdown, 'first\n\n![](<_附件/ink1.svg>)\n\nsecond');
+});
+
+test('in one drawing, highlighter strokes on the handwriting are drawn with it, others not', async () => {
+	const { saved } = await render(page([box([p('before'), ink(pen([[1, 1], [3, 2]]), marker([[1, 1.5], [3, 1.5]]), marker([[10, 10], [12, 10]])), p('after')])]));
+	assert.equal(saved.length, 1);
+	assert.equal((saved[0].text!.match(/<path /g) ?? []).length, 2);
+	assert.match(saved[0].text!, /mix-blend-mode:multiply/);
+});
+
 test('handwriting on a line of its own in a text box is drawn in its place', async () => {
 	const { markdown } = await render(page([box([p('before'), ink(pen([[1, 1], [3, 2]])), p('after')])]));
 	assert.equal(markdown, 'before\n\n![](<_附件/ink1.svg>)\n\nafter');

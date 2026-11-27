@@ -64,6 +64,33 @@ export function clusters<T>(items: T[], boxOf: (item: T) => Box, maxGap = STROKE
 	return [...groups.values()];
 }
 
+/** How much of box `a` lies inside box `b`, as a share of `a`'s area. */
+function shareInside(a: Box, b: Box): number {
+	const area = (a.right - a.left) * (a.bottom - a.top);
+	if (area <= 0) return 0;
+	const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+	const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+	return w > 0 && h > 0 ? (w * h) / area : 0;
+}
+
+/**
+ * The drawing a highlighter stroke lies on (index into `drawings`, the boxes of pieces of
+ * handwriting): the one holding at least half of the stroke's box, the most if several; -1 for
+ * none (§11.5 item 67). Drawn into that handwriting, it marks it as it did in OneNote.
+ */
+export function drawingUnder(stroke: InkStroke, drawings: Box[]): number {
+	const box = strokeBox(stroke);
+	let best = -1, most = 0.5;
+	drawings.forEach((drawing, i) => {
+		const share = shareInside(box, drawing);
+		if (share >= most) {
+			best = i;
+			most = share;
+		}
+	});
+	return best;
+}
+
 const inside = (box: Box, x: number, y: number, tolerance = 0.05) =>
 	x >= box.left - tolerance && x <= box.right + tolerance && y >= box.top - tolerance && y <= box.bottom + tolerance;
 

@@ -100,6 +100,16 @@ test('page ink keeps highlighter strokes in the model; highlighter-only ink is s
 	assert.deepEqual(adapter.stats, { ink: 2, highlighterOnly: 1 });
 });
 
+test('in ink inside a line of text, a highlighter stroke on the handwriting is drawn with it; one away from it is not', () => {
+	const on = stroke(128);
+	const away = stroke(128, [[20000, 20000], [1270, 0]]);
+	const { page } = adapt([outline([element([rich([run('text')], { inks: [{ strokes: [stroke(0), on, away] }] })])])]);
+	const drawing = (page.outlines[0].children[0] as Paragraph).children[0] as Image;
+	const svg = drawing.data?.kind === 'inline' ? new TextDecoder().decode(drawing.data.bytes) : '';
+	assert.equal((svg.match(/<path /g) ?? []).length, 2);
+	assert.match(svg, /mix-blend-mode:multiply/);
+});
+
 test('ink inside a line of text becomes an SVG drawing after the paragraph; highlighter alone draws nothing', () => {
 	const { page, adapter } = adapt([outline([element([rich([run('text')], { inks: [{ strokes: [stroke(0)] }, { strokes: [stroke(128)] }] })])])]);
 	const p = page.outlines[0].children[0] as Paragraph;
