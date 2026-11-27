@@ -40,6 +40,13 @@ for (const lzx of [false, true]) {
 	});
 }
 
+test('names in UTF-8 without the flag that says so, as OneNote writes them: read as UTF-8', async () => {
+	const files = [{ path: '打开笔记本.onetoc2', data: filled(40, 4) }, { path: '新しいセクション 1.one', data: filled(90, 5) }, { path: 'caf\u00e9.one', data: filled(10, 6) }];
+	const bytes = makeCab(files, { unflaggedNames: true });
+	assert.deepEqual((await readCabIndex(memory(bytes))).map(entry => entry.path), ['打开笔记本.onetoc2', '新しいセクション 1.one', 'café.one']);
+	assert.deepEqual([...(await unpack(bytes)).keys()], ['打开笔记本.onetoc2', '新しいセクション 1.one', 'café.one']);
+});
+
 test('a damaged data block, or what is not a package: an error that says so', async () => {
 	await assert.rejects(unpack(makeCab(FILES, { damage: true })), (error: Error) => error instanceof CabFormatError && /checksum/.test(error.message));
 	await assert.rejects(readCabIndex(memory(new Uint8Array(40))), CabFormatError);

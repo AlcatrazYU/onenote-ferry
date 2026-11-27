@@ -11,7 +11,6 @@
   }
  ],
  "attachments": [
-  "Section/_attachments/Test - image001.pdf (14005 bytes)",
   "Section/_attachments/test4.pdf (10691 bytes)"
  ]
 }
@@ -21,5 +20,5 @@
 
 [test4.pdf](<_attachments/test4.pdf>)
 
-![](<_attachments/Test - image001.pdf>)
+![](<_attachments/test4.pdf#page=1>)
 

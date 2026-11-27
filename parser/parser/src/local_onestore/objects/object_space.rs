@@ -109,6 +109,30 @@ impl ObjectSpace {
     }
 }
 
+impl ObjectSpace {
+    /// OneNote Ferry patch: object `id` as `revision` has it, from the revision itself or the ones it builds on.
+    fn object_in(&self, revision: &Revision, id: ExGuid) -> Option<Rc<ExportedObject>> {
+        let by_id: HashMap<ExGuid, &Rc<Revision>> = self.revision_list.revisions.iter().map(|r| (r.id, r)).collect();
+        let mut next = Some(revision);
+        let mut seen = Vec::new();
+        while let Some(revision) = next {
+            if seen.contains(&revision.id) {
+                break;
+            }
+            seen.push(revision.id);
+            for group in &revision.object_groups {
+                for object_ref in &group.objects {
+                    if group.id_table.resolve_id(&object_ref.compact_id).ok() == Some(id) {
+                        return Some(object_ref.data.clone());
+                    }
+                }
+            }
+            next = by_id.get(&revision.parent_id).map(|r| r.as_ref());
+        }
+        None
+    }
+}
+
 impl crate::onestore::object_space::ObjectSpace for ObjectSpace {
     fn get_object(&self, id: ExGuid) -> Option<Rc<ExportedObject>> {
         self.id_to_object.get(&id).map(|result| result.data.clone())
@@ -129,6 +153,17 @@ impl crate::onestore::object_space::ObjectSpace for ObjectSpace {
             //       of pages, look into this.
             // .rev()
             .find_map(|revision| revision.content_root())
+    }
+
+    fn history_metadata(&self) -> Vec<Rc<ExportedObject>> {
+        // OneNote Ferry patch: see the trait.
+        let current: Vec<ExGuid> = self.current_chain().iter().map(|revision| revision.id).collect();
+        self.revision_list
+            .revisions
+            .iter()
+            .filter(|revision| !current.contains(&revision.id))
+            .filter_map(|revision| revision.metadata_root().and_then(|id| self.object_in(revision, id)))
+            .collect()
     }
 
     fn metadata_root(&self) -> Option<ExGuid> {

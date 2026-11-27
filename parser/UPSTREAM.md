@@ -50,7 +50,18 @@ TypeScript core reads, as a native `dump` binary and as WebAssembly.
    failed with "unexpected property type: 0x0" (or with nodes of unknown types); it now reads
    (15 pages, 542 attachments). The public samples give the same JSON as before.
 
-Changes 4, 5 and 7 are marked in the code with comments that start with "OneNote Ferry patch"; changes 2 and 3
+8. `parser/src/onestore/object_space.rs`, `parser/src/local_onestore/objects/object_space.rs`,
+   `parser/src/onenote/page.rs` (desktop files only): a page also tells the GUID its page history
+   gives it (`Page::history_link_target_id`), when every older revision agrees on one GUID and it is
+   not the page's current one. OneNote for Windows gives each page a new GUID, in a new revision,
+   when it exports a section or notebook; the history keeps the GUID that OneNote, OneDrive and
+   links to the page use. In a 1.3 GB section exported by OneNote for Windows all 15 pages had a new
+   GUID, and their history held the GUIDs the same pages have in the OneDrive download. Files in
+   the OneDrive download format have no history here and are unchanged; the public samples give the
+   same JSON as before. (`ferry` uses it as the page's id unless two pages of a section would share
+   one.)
+
+Changes 4, 5, 7 and 8 are marked in the code with comments that start with "OneNote Ferry patch"; changes 2 and 3
 and the table part of change 1 carry comments that explain them, and the outline part of change 1
 only makes `parse_outline_item` visible to the crate. Change 6 carries a comment starting with
 "OneNote Ferry". To see every change, compare this folder with

@@ -19,6 +19,7 @@ use time::macros::utc_datetime;
 #[derive(Clone, Debug)]
 pub struct Page {
     entity_id: Guid,
+    history_entity_id: Option<Guid>,
     title: Option<Title>,
     level: i32,
     updated_at: Option<time::UtcDateTime>,
@@ -101,6 +102,14 @@ impl Page {
     /// Ref: [ONESTORE 2.2.58](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-one/34ea5601-f060-4a69-b5f9-5843a1f14098)
     pub fn link_target_id(&self) -> String {
         format!("{}", self.entity_id)
+    }
+
+    /// OneNote Ferry patch: the GUID every revision of the page history gives the page, when it is
+    /// another than `link_target_id`. OneNote for Windows gives each page a new GUID in a new
+    /// revision when it exports a section or notebook; the history keeps the one OneNote, OneDrive
+    /// and links to the page use.
+    pub fn history_link_target_id(&self) -> Option<String> {
+        self.history_entity_id.map(|id| format!("{}", id))
     }
 
     fn outline_text(outline: &Outline) -> Option<&str> {
@@ -197,6 +206,20 @@ impl Title {
 
 pub(crate) fn parse_page(page_space: ObjectSpaceRef) -> Result<Page> {
     let metadata = parse_metadata(page_space.clone())?;
+    // OneNote Ferry patch: see `Page::history_link_target_id`. Revisions whose metadata root is
+    // not page metadata (the version history itself) are left out.
+    let history_entity_id = {
+        let guids: std::collections::HashSet<Guid> = page_space
+            .history_metadata()
+            .iter()
+            .filter_map(|object| page_metadata::parse(object).ok())
+            .map(|data| data.entity_guid)
+            .collect();
+        match guids.len() {
+            1 => guids.into_iter().next().filter(|guid| *guid != metadata.entity_guid),
+            _ => None,
+        }
+    };
     let manifest = parse_manifest(page_space.clone())?;
 
     let data = parse_data(manifest, page_space.clone())?;
@@ -219,6 +242,7 @@ pub(crate) fn parse_page(page_space: ObjectSpaceRef) -> Result<Page> {
 
     Ok(Page {
         entity_id: metadata.entity_guid,
+        history_entity_id,
         updated_at: data.last_modified.map(|time| time.into()),
         created_at: metadata.created_at.try_into().unwrap_or_else(|error| {
             log_warn!("Invalid timestamp: {:?}", error);

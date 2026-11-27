@@ -69,7 +69,7 @@ export interface CabFile {
 }
 
 /** A Cabinet archive of one folder holding the files in order; `lzx` compresses it (window 2^16). */
-export function makeCab(files: CabFile[], options: { lzx?: boolean, damage?: boolean } = {}): Uint8Array {
+export function makeCab(files: CabFile[], options: { lzx?: boolean, damage?: boolean, unflaggedNames?: boolean } = {}): Uint8Array {
 	const all = new Uint8Array(files.reduce((n, file) => n + file.data.length, 0));
 	let at = 0;
 	for (const file of files) {
@@ -111,7 +111,8 @@ export function makeCab(files: CabFile[], options: { lzx?: boolean, damage?: boo
 		view.setUint32(offset, file.data.length, true);
 		view.setUint32(offset + 4, folderOffset, true);
 		view.setUint16(offset + 8, 0, true);
-		view.setUint16(offset + 14, 0x80, true); // UTF-8 name
+		// UTF-8 name; OneNote leaves the flag out (unflaggedNames).
+		view.setUint16(offset + 14, options.unflaggedNames ? 0 : 0x80, true);
 		out.set(names[i]!, offset + 16);
 		offset += 16 + names[i]!.length + 1;
 		folderOffset += file.data.length;

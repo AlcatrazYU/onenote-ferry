@@ -54,12 +54,21 @@ async function readAt(file: RandomAccessFile, offset: number, length: number, wh
 	return bytes;
 }
 
+/**
+ * A name in the package. OneNote writes names in UTF-8 without the flag that says so, so a name
+ * without it is read as UTF-8 too when it is valid UTF-8, and byte by byte only when it is not.
+ */
 function cString(data: Uint8Array, offset: number, utf8: boolean): { value: string, next: number } {
 	let end = offset;
 	while (end < data.length && data[end] !== 0) end++;
 	if (end >= data.length) throw new CabFormatError('A name in the package is not terminated.');
 	const bytes = data.subarray(offset, end);
-	return { value: utf8 ? new TextDecoder().decode(bytes) : String.fromCharCode(...bytes), next: end + 1 };
+	if (utf8) return { value: new TextDecoder().decode(bytes), next: end + 1 };
+	try {
+		return { value: new TextDecoder('utf-8', { fatal: true }).decode(bytes), next: end + 1 };
+	} catch {
+		return { value: String.fromCharCode(...bytes), next: end + 1 };
+	}
 }
 
 /** The archive's folders and files, read from its header (everything before the first data block). */

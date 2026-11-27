@@ -72,7 +72,38 @@ fn ext_of(name: &str) -> Option<&str> {
     n.rfind('.').map(|i| &n[i + 1..]).filter(|e| !e.is_empty() && e.len() <= 8)
 }
 
-fn save(ctx: &mut Ctx, mut reader: Box<dyn Read>, ext: &str, source: AssetSource) -> Value {
+/// What the bytes of a picture are, by their first bytes; none when not one of these.
+fn sniff_ext(data: &[u8]) -> Option<&'static str> {
+    let at = |i: usize, sig: &[u8]| data.len() >= i + sig.len() && &data[i..i + sig.len()] == sig;
+    if at(0, b"\x89PNG\r\n\x1a\n") {
+        Some("png")
+    } else if at(0, &[0xFF, 0xD8, 0xFF]) {
+        Some("jpg")
+    } else if at(0, b"GIF87a") || at(0, b"GIF89a") {
+        Some("gif")
+    } else if at(0, b"II*\0") || at(0, b"MM\0*") {
+        Some("tif")
+    } else if at(0, b"RIFF") && at(8, b"WEBP") {
+        Some("webp")
+    } else if at(0, b"BM") && at(6, &[0, 0, 0, 0]) && data.len() > 26 {
+        Some("bmp")
+    } else if at(0, b"%PDF-") {
+        Some("pdf")
+    } else if at(0, &[1, 0, 0, 0]) && at(40, b" EMF") {
+        Some("emf")
+    } else if at(0, &[0xD7, 0xCD, 0xC6, 0x9A]) {
+        Some("wmf")
+    } else if at(4, b"ftyp") && [&b"heic"[..], b"heix", b"mif1", b"msf1"].iter().any(|brand| at(8, brand)) {
+        Some("heic")
+    } else if at(0, b"PK\x03\x04") && data.windows(13).any(|w| w == b"FixedDocument") {
+        Some("xps")
+    } else {
+        None
+    }
+}
+
+/// Saves an asset named by its hash and `ext`; with `sniff`, by what its bytes are when they tell.
+fn save(ctx: &mut Ctx, mut reader: Box<dyn Read>, ext: &str, sniff: bool, source: AssetSource) -> Value {
     let mut data = Vec::new();
     if let Err(e) = reader.read_to_end(&mut data) {
         ctx.errors.push(format!("asset read failed: {e}"));
@@ -81,6 +112,7 @@ fn save(ctx: &mut Ctx, mut reader: Box<dyn Read>, ext: &str, source: AssetSource
     if data.is_empty() {
         return Value::Null;
     }
+    let ext = if sniff { sniff_ext(&data).unwrap_or(ext) } else { ext };
     let hash = crate::hash::sha1_hex(&data);
     let name = format!("{hash}.{ext}");
     let dir = match &ctx.sink {
@@ -213,9 +245,13 @@ fn rich(ctx: &mut Ctx, rt: &RichText) -> Value {
 }
 
 fn image(ctx: &mut Ctx, img: &Image) -> Value {
-    let ext = clean_ext(img.extension().or_else(|| img.image_filename().and_then(ext_of)), "png");
+    // Files exported by OneNote for Windows give a picture no extension, and its file name may be
+    // that of the document a printout page came from (".pdf") or of the original (".heic"), not what
+    // the bytes are: then the bytes decide, and the file name only when they cannot tell.
+    let declared = img.extension();
+    let ext = clean_ext(declared.or_else(|| img.image_filename().and_then(ext_of)), "png");
     let asset = match img.read() {
-        Ok(Some(r)) => save(ctx, r, &ext, AssetSource::Image(img.clone())),
+        Ok(Some(r)) => save(ctx, r, &ext, declared.is_none(), AssetSource::Image(img.clone())),
         Ok(None) => Value::Null,
         Err(e) => {
             ctx.errors.push(format!("image read failed: {e}"));
@@ -239,7 +275,7 @@ fn image(ctx: &mut Ctx, img: &Image) -> Value {
 fn embedded(ctx: &mut Ctx, f: &EmbeddedFile) -> Value {
     let ext = clean_ext(ext_of(f.filename()), "bin");
     let asset = match f.read() {
-        Ok(r) => save(ctx, r, &ext, AssetSource::File(f.clone())),
+        Ok(r) => save(ctx, r, &ext, false, AssetSource::File(f.clone())),
         Err(e) => {
             ctx.errors.push(format!("file read failed: {e}"));
             Value::Null
@@ -320,7 +356,23 @@ fn item(ctx: &mut Ctx, i: &OutlineItem) -> Value {
     }
 }
 
-fn page(ctx: &mut Ctx, p: &Page) -> Value {
+/// Each page's id: the GUID its history gives it when that is another (a file exported by OneNote
+/// for Windows, see `Page::history_link_target_id`) and no other page of the section has it or
+/// would get it; else its own.
+fn page_ids(pages: &[&Page]) -> Vec<String> {
+    let own: Vec<String> = pages.iter().map(|p| p.link_target_id()).collect();
+    let history: Vec<Option<String>> = pages.iter().map(|p| p.history_link_target_id()).collect();
+    history
+        .iter()
+        .zip(&own)
+        .map(|(from_history, own_id)| match from_history {
+            Some(id) if !own.contains(id) && history.iter().filter(|other| other.as_ref() == Some(id)).count() == 1 => id.clone(),
+            _ => own_id.clone(),
+        })
+        .collect()
+}
+
+fn page(ctx: &mut Ctx, p: &Page, id: &str) -> Value {
     let contents: Vec<Value> = p
         .contents()
         .iter()
@@ -340,7 +392,7 @@ fn page(ctx: &mut Ctx, p: &Page) -> Value {
         })
         .collect();
     json!({
-        "id": p.link_target_id(),
+        "id": id,
         "title": p.title_text(),
         "level": p.level(),
         "created": p.created_time().unix_timestamp(),
@@ -372,15 +424,15 @@ pub fn dump_section(path: &str, sink: AssetSink) -> Result<Dumped, String> {
     let mut ctx = Ctx { sink, written: HashSet::new(), assets: 0, asset_bytes: 0, ink: 0, unknown: 0, errors: vec![], kept: HashMap::new() };
     let mut parser = Parser::new();
     let section = parser.parse_section(path).map_err(|e| e.to_string())?;
-    let mut pages = Vec::new();
+    let mut all = Vec::new();
     for series in section.page_series() {
         for e in series.errors() {
             ctx.errors.push(format!("page series: {e}"));
         }
-        for p in series.pages() {
-            pages.push(page(&mut ctx, p));
-        }
+        all.extend(series.pages());
     }
+    let ids = page_ids(&all);
+    let pages: Vec<Value> = all.iter().zip(&ids).map(|(p, id)| page(&mut ctx, p, id)).collect();
     let json = json!({
         "name": section.display_name(),
         "pages": pages,
@@ -393,4 +445,27 @@ pub fn dump_section(path: &str, sink: AssetSink) -> Result<Dumped, String> {
 /// Section names listed in a `.onetoc2` table of contents (empty in OneDrive downloads).
 pub fn toc_names(path: &str) -> Result<Vec<String>, String> {
     Parser::new().parse_toc_names(path).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sniff_ext;
+
+    #[test]
+    fn tells_pictures_by_their_first_bytes() {
+        assert_eq!(sniff_ext(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR"), Some("png"));
+        assert_eq!(sniff_ext(&[0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10]), Some("jpg"));
+        assert_eq!(sniff_ext(b"GIF89a\x01\0"), Some("gif"));
+        assert_eq!(sniff_ext(b"%PDF-1.7\n"), Some("pdf"));
+        let mut emf = vec![1u8, 0, 0, 0];
+        emf.resize(40, 0);
+        emf.extend_from_slice(b" EMF");
+        assert_eq!(sniff_ext(&emf), Some("emf"));
+        assert_eq!(sniff_ext(b"\0\0\0\x18ftypheic\0\0\0\0"), Some("heic"));
+        assert_eq!(sniff_ext(b"PK\x03\x04....FixedDocumentSequence.fdseq"), Some("xps"));
+        // A zip that is not XPS, and bytes of no known kind, keep the name's extension.
+        assert_eq!(sniff_ext(b"PK\x03\x04....word/document.xml"), None);
+        assert_eq!(sniff_ext(b"hello"), None);
+        assert_eq!(sniff_ext(b""), None);
+    }
 }
