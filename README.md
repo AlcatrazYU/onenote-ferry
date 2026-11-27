@@ -10,6 +10,8 @@ Convert your OneNote notebooks into Markdown notes in Obsidian, and keep them up
 
 OneNote Ferry reads the files your notebooks are stored in, straight from your OneDrive or from a download, and writes every page as a Markdown note in your vault, with its formatting, highlights, links, pictures, attachments, printouts and handwriting. It runs inside Obsidian on your computer and does not need OneNote for Windows, so it works on a Mac as well.
 
+![A OneNote page and the same page imported into Obsidian](docs/assets/before-after.png)
+
 ## Why OneNote Ferry
 
 There are already several ways to move notes out of OneNote. OneNote Ferry is meant for the cases they leave open:
@@ -185,6 +187,8 @@ MIT. See [LICENSE](LICENSE).
 把 OneNote 笔记本转换成 Obsidian 里的 Markdown 笔记；之后在 OneNote 里继续记的内容，也能随时同步过来。
 
 OneNote Ferry 直接读取笔记本本身的文件（来自你的 OneDrive，或来自下载的文件），把每一页写成库里的一篇 Markdown 笔记，格式、高亮、链接、图片、附件、打印页和手写都会保留。它在你电脑上的 Obsidian 里运行，不需要 Windows 版 OneNote，所以在 Mac 上也能使用。
+
+![OneNote 中的一页，以及导入 Obsidian 后的同一页](docs/assets/before-after.png)
 
 ### 为什么用 OneNote Ferry
 
@@ -366,6 +370,8 @@ OneNote のノートブックを Obsidian の Markdown ノートに変換しま�
 
 OneNote Ferry は、ノートブックそのもののファイルを OneDrive から、またはダウンロードしたファイルから直接読み取り、各ページを保管庫の Markdown ノートとして書き出します。書式、ハイライト、リンク、画像、添付ファイル、印刷イメージ、手書きも残ります。お使いのコンピューター上の Obsidian の中で動作し、Windows 版 OneNote を必要としないため、Mac でも使えます。
 
+![OneNote のページと、Obsidian にインポートした同じページ](docs/assets/before-after.png)
+
 ### OneNote Ferry を選ぶ理由
 
 OneNote からノートを移す方法は、すでにいくつもあります。OneNote Ferry は、それらでは対応しきれない場合のためのものです。
@@ -545,6 +551,8 @@ MIT。[LICENSE](LICENSE) を参照してください。
 OneNote 전자 필기장을 Obsidian의 Markdown 노트로 변환합니다. 이후 OneNote에서 계속 작성한 내용도 언제든 가져올 수 있습니다.
 
 OneNote Ferry는 전자 필기장 자체의 파일을 OneDrive에서, 또는 다운로드한 파일에서 바로 읽어, 각 페이지를 보관함의 Markdown 노트로 씁니다. 서식, 하이라이트, 링크, 그림, 첨부 파일, 인쇄물, 손글씨도 그대로 남습니다. 사용자 컴퓨터의 Obsidian 안에서 실행되고 Windows용 OneNote가 필요하지 않으므로 Mac에서도 쓸 수 있습니다.
+
+![OneNote의 페이지와 Obsidian으로 가져온 같은 페이지](docs/assets/before-after.png)
 
 ### OneNote Ferry를 쓰는 이유
 
