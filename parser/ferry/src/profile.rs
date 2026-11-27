@@ -8,7 +8,8 @@ const MAX_PIXELS: u64 = 40_000_000;
 const SAMPLES: usize = 600;
 
 /// `[width, height, paper, dark...]`: the size of the rows read, the paper's brightness (0 to 255),
-/// and for each row the share of sampled pixels clearly darker than the paper.
+/// and for each row the share of sampled pixels that clearly stand out from the paper (darker on
+/// light paper, lighter on dark paper).
 pub fn row_profile(bytes: &[u8]) -> Option<Vec<f32>> {
     let rows = if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
         png_rows(bytes)?
@@ -130,14 +131,18 @@ fn profile(rows: Rows) -> Option<Vec<f32>> {
             break;
         }
     }
-    let cut = paper as f32 * 0.6;
+    // Dark paper (light text on a dark background): read as if its brightness were turned over, so
+    // the text is what stands out from the paper either way.
+    let flip = paper < 128;
+    let ink = |v: u8| if flip { 255 - v } else { v };
+    let cut = ink(paper) as f32 * 0.6;
     let mut out = Vec::with_capacity(rows.lum.len() + 3);
     out.push(rows.width as f32);
     out.push(rows.lum.len() as f32);
     out.push(paper as f32);
     for row in &rows.lum {
-        let dark = row.iter().filter(|&&v| (v as f32) < cut).count();
-        out.push(dark as f32 / row.len().max(1) as f32);
+        let marked = row.iter().filter(|&&v| (ink(v) as f32) < cut).count();
+        out.push(marked as f32 / row.len().max(1) as f32);
     }
     Some(out)
 }
@@ -146,8 +151,13 @@ fn profile(rows: Rows) -> Option<Vec<f32>> {
 mod tests {
     use super::row_profile;
 
-    /// A white grey-scale PNG, `width` by `height`, with the rows in `dark` black.
+    /// A grey-scale PNG, `width` by `height`, white with the rows in `dark` black.
     fn png(width: u32, height: u32, dark: &[u32]) -> Vec<u8> {
+        png_of(width, height, dark, 255, 0)
+    }
+
+    /// A grey-scale PNG of `paper` with the rows in `marked` of `text`.
+    fn png_of(width: u32, height: u32, marked: &[u32], paper: u8, text: u8) -> Vec<u8> {
         let mut out = Vec::new();
         {
             let mut encoder = png::Encoder::new(&mut out, width, height);
@@ -155,7 +165,7 @@ mod tests {
             encoder.set_depth(png::BitDepth::Eight);
             let mut writer = encoder.write_header().unwrap();
             let pixels: Vec<u8> = (0..height)
-                .flat_map(|y| std::iter::repeat(if dark.contains(&y) { 0 } else { 255 }).take(width as usize))
+                .flat_map(|y| std::iter::repeat(if marked.contains(&y) { text } else { paper }).take(width as usize))
                 .collect();
             writer.write_image_data(&pixels).unwrap();
         }
@@ -166,6 +176,13 @@ mod tests {
     fn rows_of_a_png() {
         let profile = row_profile(&png(80, 6, &[2, 3])).unwrap();
         assert_eq!(profile[..3], [80.0, 6.0, 255.0]);
+        assert_eq!(profile[3..], [0.0, 0.0, 1.0, 1.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn light_text_on_dark_paper() {
+        let profile = row_profile(&png_of(80, 6, &[2, 3], 30, 230)).unwrap();
+        assert_eq!(profile[..3], [80.0, 6.0, 30.0]);
         assert_eq!(profile[3..], [0.0, 0.0, 1.0, 1.0, 0.0, 0.0]);
     }
 

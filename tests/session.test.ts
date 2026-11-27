@@ -760,6 +760,37 @@ test('OneDrive: a notebook is found by the OneDrive notebook its contents page c
 	assert.deepEqual(drive.copies, [{ notebook: 'Currents', only: undefined }]);
 });
 
+test('OneDrive: two folders carry its OneDrive notebook (the user copied one): the one the report says was written last; without that, as by name', async () => {
+	const report = (dir: string) => JSON.stringify({
+		format: 1,
+		notebooks: [{ notebook: 'Tides', dir, language: 'zh-Hans', importedAt: new Date().toISOString(), source: 'OneDrive', oneDrive: 'copy/n1', options: {}, sections: [] }],
+	});
+	const folders = {
+		'T/A copy of my tides/_目录.md': tagged('Tides', 'copy/n1'),
+		'T/A copy of my tides/Spring/_目录.md': toc('complete', 'Spring'),
+		'T/My tides/_目录.md': tagged('Tides', 'copy/n1'),
+		'T/My tides/Spring/_目录.md': toc('complete', 'Spring'),
+	};
+	const drive = () => fakeOneDrive([{ id: 'n1', name: 'Tides', files: ['Spring.one', 'Open Notebook.onetoc2'] }]);
+	const { s } = await oneDriveSession({ ...folders, 'T/_转换报告.json': report('My tides') }, drive());
+	assert.equal(s.choices[0]!.dir, 'My tides');
+	assert.equal(s.choices[0]!.byTag, true);
+	// No report: neither copy is taken for it; the folder of its name is what decides, as before.
+	const { s: alone } = await oneDriveSession(folders, drive());
+	assert.equal(alone.choices[0]!.byTag, undefined);
+	assert.equal(alone.choices[0]!.earlier, undefined);
+});
+
+test('OneDrive: a contents page whose properties Obsidian wrote again without quotes still carries its OneDrive notebook', async () => {
+	const vault = {
+		'T/My tides/_目录.md': '---\ntitle: Tides\nonenote-import: complete\nonedrive-notebook: copy/n1\n---\n\n# Tides\n',
+		'T/My tides/Spring/_目录.md': toc('complete', 'Spring'),
+	};
+	const { s } = await oneDriveSession(vault, fakeOneDrive([{ id: 'n1', name: 'Tides', files: ['Spring.one', 'Open Notebook.onetoc2'] }]));
+	assert.equal(s.choices[0]!.dir, 'My tides');
+	assert.equal(s.choices[0]!.byTag, true);
+});
+
 test('OneDrive: another OneDrive notebook of the same name (a copy) is new here, and takes "Name (2)" once ticked', async () => {
 	const vault = {
 		'T/Tides/_目录.md': tagged('Tides', 'copy/n1'),

@@ -103,15 +103,21 @@ export function oneDriveTagOf(text: string | undefined): string | undefined {
 	if (!text?.startsWith('---\n')) return undefined;
 	const end = text.indexOf('\n---', 3);
 	if (end < 0) return undefined;
-	const value = text.slice(4, end).match(/^onedrive-notebook: (.+)$/m)?.[1];
-	if (value === undefined) return undefined;
-	try {
-		const tag = JSON.parse(value) as unknown;
-		return typeof tag === 'string' && tag ? tag : undefined;
+	const value = text.slice(4, end).match(/^onedrive-notebook:[ \t]*(.*?)[ \t]*$/m)?.[1];
+	if (!value) return undefined;
+	// Written in double quotes; Obsidian writes it again without quotes (or in single ones) when the
+	// user changes the page's properties there.
+	if (value.startsWith('"')) {
+		try {
+			const tag = JSON.parse(value) as unknown;
+			return typeof tag === 'string' && tag ? tag : undefined;
+		}
+		catch {
+			return undefined;
+		}
 	}
-	catch {
-		return undefined;
-	}
+	if (value.startsWith("'")) return value.length > 2 && value.endsWith("'") ? value.slice(1, -1).replace(/''/g, "'") : undefined;
+	return value;
 }
 
 /** The name heading a table of contents (its first `# ` line), or undefined. */

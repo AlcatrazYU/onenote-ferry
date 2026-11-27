@@ -301,11 +301,6 @@ export async function readReport(sink: Sink, strings: Strings): Promise<{ name: 
 }
 
 /**
- * The notebooks the output root's report lists, as far as they can be read (none when there is no
- * report). `strings` are the reader's, as for writeReport: with reports in two languages in the
- * folder, both read the same one.
- */
-/**
  * A report entry for a notebook now in `dir` (§11.5 item 66): its folder's, or else that of the same
  * OneDrive notebook recorded in another folder (renamed with OneNote, or by the user), with its
  * paths moved to `dir`.
@@ -325,6 +320,11 @@ export function movedEntry(entry: ReportNotebook, dir: string): ReportNotebook {
 	return { ...entry, dir, sections: entry.sections.map(section => (section.dir !== undefined ? { ...section, dir: move(section.dir) } : section)) };
 }
 
+/**
+ * The notebooks the output root's report lists, as far as they can be read (none when there is no
+ * report). `strings` are the reader's, as for writeReport: with reports in two languages in the
+ * folder, both read the same one.
+ */
 export async function reportedNotebooks(sink: Sink, strings: Strings): Promise<ReportNotebook[]> {
 	return earlierEntries((await readReport(sink, strings))?.previous);
 }

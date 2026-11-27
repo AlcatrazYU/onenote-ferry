@@ -8,7 +8,7 @@ import { placeHighlights, readProfile } from '../src/core/render/flow-highlights
 import type { RowProfile } from '../src/core/render/flow-highlights.ts';
 import { renderPage } from '../src/core/render/page.ts';
 import { zhHans } from '../src/core/strings.ts';
-import type { Image, InkStroke, Outline, Page, Paragraph } from '../src/core/model.ts';
+import type { EmbeddedFile, Image, InkStroke, Outline, Page, Paragraph } from '../src/core/model.ts';
 
 /** A profile as the parser gives it: 600 px wide, `rows` rows, a line of text every `pitch` rows from `first`. */
 function raw(rows: number, pitch: number, first: number): Float32Array {
@@ -94,7 +94,7 @@ async function render(page: Page, profile: Float32Array | undefined) {
 		keepFontColor: true, boxMarkers: false, strings: zhHans,
 		saveAttachment: async (data, hint) => {
 			saved.push({ role: hint.role, text: data.kind === 'inline' ? new TextDecoder().decode(data.bytes) : undefined });
-			const name = hint.role === 'image' ? `img${++n}.${hint.extension ?? 'bin'}` : `ink${++n}.svg`;
+			const name = hint.role === 'image' ? `img${++n}.${hint.extension ?? 'bin'}` : hint.role === 'ink' ? `ink${++n}.svg` : hint.fileName;
 			return { path: `_附件/${name}`, name };
 		},
 		readAsset: async data => (data.kind === 'stored' ? pngHeader(600, 300) : data.bytes),
@@ -118,4 +118,19 @@ test('written: a sure picture with the strokes drawn into it; an unsure one as i
 	const unsure = await render(page([text('Above.'), picture(10, 5)]), undefined);
 	assert.equal(unsure.markdown, 'Above.\n\n![](<_附件/img1.png>)\n\n> [!info]- 荧光笔笔迹（位置为估算）\n> ![](<_附件/ink2.svg>)');
 	assert.deepEqual(unsure.saved.map(s => s.role), ['image', 'ink']);
+});
+
+test('Mac printout pages in a text box with highlighter on one: shown page by page, the strokes on that page (or on its folded copy)', async () => {
+	const top = 2 + 11 * 1.46 / 36 + 0.08;
+	const pdf: EmbeddedFile = { kind: 'embedded-file', fileName: 'doc.pdf', extension: 'pdf', data: { kind: 'stored', key: 'doc.pdf', size: 10 } };
+	const macPage = (n: number): Image => ({ ...picture(10, 5), fileName: `doc_${n}.pdf`, printoutPage: n, printoutName: 'doc.pdf', printoutOf: pdf });
+	const page = (): Page => ({
+		id: '{P}', title: 'Sample', level: 0, isConflictPage: false, isDeleted: false,
+		outlines: [box([text('Above.'), macPage(1), macPage(2)], { x: 2, y: 2, width: 13 })], directContent: [pdf],
+		highlighterInk: [{ kind: 'ink', strokes: [across(top + 12 / 60), across(top + 52 / 60)] }],
+	});
+	const sure = await render(page(), raw(300, 20, 12));
+	assert.equal(sure.markdown, 'Above.\n\n![](<_附件/img1.svg>)\n\n![](<_附件/img2.png>)\n\n[doc.pdf](<_附件/doc.pdf>)');
+	const unsure = await render(page(), undefined);
+	assert.equal(unsure.markdown, 'Above.\n\n![](<_附件/img1.png>)\n\n> [!info]- 荧光笔笔迹（位置为估算）\n> ![](<_附件/ink2.svg>)\n\n![](<_附件/img3.png>)\n\n[doc.pdf](<_附件/doc.pdf>)');
 });

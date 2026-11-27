@@ -703,6 +703,9 @@ export async function renderPage(page: Page, options: PageRenderOptions): Promis
 					writer.pictures.set(image, { box, bytes, info });
 				}
 				else writer.folded.set(image, { pieces: notes, picture: { box, bytes, info } });
+				// A Mac printout page marked so is shown page by page, as with handwriting on it: the
+				// strokes go onto its picture, or onto the copy folded under it.
+				if (image.printoutOf && !isWholeDocument(image)) writer.annotatedDocuments.add(image.printoutOf);
 			}
 		}
 		// Within one drawing, strokes keep the order they were written in.

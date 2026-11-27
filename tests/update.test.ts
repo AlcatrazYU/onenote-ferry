@@ -932,8 +932,8 @@ async function importedFromOneDrive(version: Version, name = 'Tides'): Promise<M
 	return vault;
 }
 
-/** An update of the notebook now called `name` in OneNote, found in `dir` by its OneDrive notebook. */
-async function updateTagged(vault: MemorySink, version: Version, name: string, dir: string, tag: string | undefined = TAG) {
+/** A request to update the notebook now called `name` in OneNote, found in `dir` by its OneDrive notebook (by name without `dir`). */
+async function taggedRequest(version: Version, name: string, dir: string | undefined, tag: string | undefined = TAG) {
 	const [request] = await Promise.all(download(version, name).map(async notebook => ({
 		notebook,
 		scanned: await Promise.all(notebook.sections.map(async section => ({
@@ -941,9 +941,17 @@ async function updateTagged(vault: MemorySink, version: Version, name: string, d
 			pages: await scannedPages(sectionJson(section.label, version[placeOf(section)]!.pages) as never),
 		}))),
 		chosen: new Set(notebook.sections.map(section => sectionKey(section.groups, section.label))),
-		dir, ...(tag ? { oneDrive: tag } : {}),
+		...(dir !== undefined ? { dir } : {}), ...(tag ? { oneDrive: tag } : {}),
 	})));
-	return updateNotebooks([request!], host(vault, version), { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults: OPTIONS, links: true, sources: ['OneDrive'] });
+	return request!;
+}
+
+const updateWith = (vault: MemorySink, version: Version, requests: Awaited<ReturnType<typeof taggedRequest>>[]) =>
+	updateNotebooks(requests, host(vault, version), { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults: OPTIONS, links: true, sources: ['OneDrive'] });
+
+/** An update of the notebook now called `name` in OneNote, found in `dir` by its OneDrive notebook. */
+async function updateTagged(vault: MemorySink, version: Version, name: string, dir: string, tag: string | undefined = TAG) {
+	return updateWith(vault, version, [await taggedRequest(version, name, dir, tag)]);
 }
 
 const V2_SPRING: Version = { Spring: { pages: [page('a', 'One', 'one, second version', 2), page('b', 'Two', 'two'), page('c', 'Three', 'three')] }, Summer: V1.Summer! };
@@ -975,6 +983,26 @@ test('renamed in OneNote: found by its OneDrive notebook, updated, and its folde
 	assert.match(textOf(vault, result.record)!, /OneNote 中原名“Tides”，文件夹已随之改名/);
 	// Checked again: nothing to do.
 	assert.equal(await updateTagged(vault, V2_SPRING, 'Currents', 'Currents'), undefined);
+});
+
+test('renamed in OneNote: links from another notebook into it point to its new folder', async () => {
+	const vault = await importedFromOneDrive(V1);
+	const other: Version = { Notes: { pages: [page('x', 'Note', 'note')] } };
+	const otherHost: ImportHost = { sink: vault, parse: parser(other), isPasswordProtected: async () => false, listFolders: folders(vault) };
+	await importNotebooks(download(other, 'Other'), otherHost, { languageFor: () => 'zh-Hans', ...OPTIONS, links: true });
+	const note = 'Other/Notes/Note.md';
+	await vault.writeText(note, `${textOf(vault, note)}\n[One](<../../Tides/Spring/One.md>)\n`);
+	assert.ok(await updateTagged(vault, V2_SPRING, 'Currents', 'Tides'));
+	assert.match(textOf(vault, note)!, /\[One\]\(<\.\.\/\.\.\/Currents\/Spring\/One\.md>\)/);
+});
+
+test('renamed in OneNote, but the update is refused (two downloads of it): the folder keeps its name', async () => {
+	const vault = await importedFromOneDrive(V1);
+	const byTag = await taggedRequest(V2_SPRING, 'Currents', 'Tides');
+	const byName = await taggedRequest(V2_SPRING, 'Tides', undefined, undefined);
+	await assert.rejects(updateWith(vault, V2_SPRING, [byTag, byName]), /Two downloads/);
+	assert.ok(vault.files.has('Tides/Spring/One.md'));
+	assert.ok(![...vault.files.keys()].some(path => path.startsWith('Currents/')));
 });
 
 test('a folder the user renamed is found by its OneDrive notebook and keeps the user\'s name, whether or not OneNote renamed the notebook', async () => {

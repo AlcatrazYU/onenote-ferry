@@ -1128,7 +1128,7 @@ export async function updateNotebooks(requests: UpdateRequest[], host: UpdateHos
 		dir ??= notebookFolder(notebook.name, strings);
 		const toc = archive ? await vault.readText(joinPath(dir, `${strings.tocFileName}.md`)) : undefined;
 		const oneDrive = request.oneDrive ?? oneDriveTagOf(toc);
-		let report = reportedEntry(reported, dir, oneDrive);
+		const report = reportedEntry(reported, dir, oneDrive);
 		const planIn = async (at: string, archiveAt: Archive | undefined, entry: ReportNotebook | undefined) => {
 			const plan = planNotebook(notebook.name, request.scanned, archiveAt, strings, { partial: request.partial, ...recordedPlanOptions(entry, at), chosen: request.chosen });
 			// A folder of that name that is not ours: nothing goes into it.
@@ -1140,7 +1140,7 @@ export async function updateNotebooks(requests: UpdateRequest[], host: UpdateHos
 			const chosen = plan.identity === 'different' || occupied ? [] : plan.items.filter(item => (UPDATED.has(item.status) || restoring(item) || reconverting(item)) && request.chosen.has(sectionKey(item.groups, item.label)));
 			return { plan, occupied, todo: inMovingOrder(chosen, archiveAt, strings) };
 		};
-		let { plan, occupied, todo } = await planIn(dir, archive, report);
+		const { plan, occupied, todo } = await planIn(dir, archive, report);
 		// The name it was imported under, and its OneNote name then (the contents page's heading when the report has none).
 		const importedAs = report?.notebook ?? tocHeading(toc) ?? notebook.name;
 		const oneNoteNow = notebook.sourceName ?? notebook.name;
@@ -1149,28 +1149,18 @@ export async function updateNotebooks(requests: UpdateRequest[], host: UpdateHos
 		// name; otherwise it keeps the one it was imported under ("Name (2)" stays so).
 		const renamed = tagged && composedText(oneNoteNow) !== composedText(oneNoteThen);
 		const name = tagged && !renamed ? importedAs : notebook.name;
-		let folderWas: string | undefined;
+		// Its folder follows when it is still called as the import named it (a folder the user renamed
+		// is theirs), and only to a free name; moved once every request is known to be fine (below).
+		let renameTo: string | undefined;
 		if (renamed && todo.length) {
-			// Its folder follows when it is still called as the import named it (a folder the user
-			// renamed is theirs), and only to a free name.
 			const target = notebookFolder(name, strings);
-			let moved = false;
-			if (fold(dir) === fold(notebookFolder(importedAs, strings)) && fold(target) !== fold(dir) && !await vault.exists(target)) {
-				// Refused (a file there after all, the disk said no): it stays, as when the name is taken.
-				moved = await vault.move(dir, target).then(() => true, () => false);
-			}
-			if (moved) {
-				folderWas = dir;
-				dir = target;
-				report = report && movedEntry(report, dir);
-				archive = await readArchive(vault, dir, report?.sections);
-				({ plan, occupied, todo } = await planIn(dir, archive, report));
-			}
+			if (fold(dir) === fold(notebookFolder(importedAs, strings)) && fold(target) !== fold(dir) && !await vault.exists(target)) renameTo = target;
 		}
 		planned.push({
-			request, dir, archive, language, strings, plan, occupied, todo, report, name, oneDrive,
+			request, dir, archive, language, strings, plan, occupied, todo, report, name, oneDrive, planIn, renameTo,
+			folderWas: undefined as string | undefined,
 			...(composedText(name) !== composedText(oneNoteNow) ? { originalName: oneNoteNow } : {}),
-			...(renamed ? { renamedFrom: oneNoteThen } : {}), ...(folderWas !== undefined ? { folderWas } : {}),
+			...(renamed ? { renamedFrom: oneNoteThen } : {}),
 		});
 	}
 	if (!planned.some(entry => entry.todo.length)) return undefined;
@@ -1179,6 +1169,21 @@ export async function updateNotebooks(requests: UpdateRequest[], host: UpdateHos
 	const folders = planned.map(entry => fold(entry.dir));
 	const twice = planned.find((entry, i) => folders.indexOf(fold(entry.dir)) !== i);
 	if (twice) throw new Error(`Two downloads would update the notebook folder ${twice.dir}: choose one of them`);
+	// Folders renamed with OneNote (§11.5 item 66), now that nothing above refuses the update: not into
+	// a folder another notebook of this update uses or takes. The links that pointed into it are made
+	// to point there again with the rest (fixLinks).
+	const taken = new Set(folders);
+	for (const entry of planned) {
+		if (entry.renameTo === undefined || taken.has(fold(entry.renameTo))) continue;
+		// Refused (a file there after all, the disk said no): it stays, as when the name is taken.
+		if (!await vault.move(entry.dir, entry.renameTo).then(() => true, () => false)) continue;
+		taken.add(fold(entry.renameTo));
+		entry.folderWas = entry.dir;
+		entry.dir = entry.renameTo;
+		entry.report = entry.report && movedEntry(entry.report, entry.dir);
+		entry.archive = await readArchive(vault, entry.dir, entry.report?.sections);
+		Object.assign(entry, await entry.planIn(entry.dir, entry.archive, entry.report));
+	}
 
 	const reader = options.strings;
 	const oldRoot = await ownFolder(vault, reader, 'oldVersionsFolder');
@@ -1368,22 +1373,24 @@ async function listedPages(vault: UpdateSink, notebookFolders: string[]): Promis
 async function fixLinks(host: Pick<UpdateHost, 'vault' | 'listFolders'>, ctx: Context): Promise<LinkStats> {
 	const { vault, state } = ctx;
 	const done = state.sections.filter(run => run.outcome === 'done').map(run => run.entry);
-	const moves = done.flatMap(entry => entry.moves);
+	// Notebook folders renamed with OneNote (§11.5 item 66), before their sections moved inside them.
+	const notebookMoves: Move[] = state.notebooks.filter(notebook => notebook.folderWas !== undefined).map(notebook => ({ from: notebook.folderWas!, to: notebook.dir, folder: true }));
+	const moves = [...notebookMoves, ...done.flatMap(entry => entry.moves)];
 	const freshPaths = done.flatMap(entry => entry.fresh);
 	const fresh = new Set(freshPaths.map(fold));
 	const updated = new Set(done.map(entry => fold(joinPath(state.notebooks.find(notebook => notebook.n === entry.n)!.dir, entry.listed.folder!))));
-	const exact = new Map(moves.filter(move => !move.folder).map(move => [fold(move.from), move.to]));
-	const folders = moves.filter(move => move.folder);
+	const sectionMoves = done.flatMap(entry => entry.moves);
+	const exact = new Map(sectionMoves.filter(move => !move.folder).map(move => [fold(move.from), move.to]));
+	const folders = sectionMoves.filter(move => move.folder);
+	const within = (path: string, list: Move[], from: 'from' | 'to', to: 'from' | 'to') => {
+		for (const move of list) if (fold(path).startsWith(`${fold(move[from])}/`)) return move[to] + path.slice(move[from].length);
+		return path;
+	};
 	const moved = (path: string) => {
-		const to = exact.get(fold(path));
-		if (to !== undefined) return to;
-		for (const move of folders) if (fold(path).startsWith(`${fold(move.from)}/`)) return move.to + path.slice(move.from.length);
-		return path;
+		const inNotebook = within(path, notebookMoves, 'from', 'to');
+		return exact.get(fold(inNotebook)) ?? within(inNotebook, folders, 'from', 'to');
 	};
-	const oldPathOf = (path: string) => {
-		for (const move of folders) if (fold(path).startsWith(`${fold(move.to)}/`)) return move.from + path.slice(move.to.length);
-		return path;
-	};
+	const oldPathOf = (path: string) => within(within(path, folders, 'to', 'from'), notebookMoves, 'to', 'from');
 	const names = { tocFileNames: ALL_TOC_NAMES, attachmentsFolders: ALL_ATTACHMENT_FOLDERS };
 	const notebookFolders: string[] = [];
 	for (const name of await host.listFolders()) {

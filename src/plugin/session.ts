@@ -258,7 +258,7 @@ export class ImportSession {
 	/** Counts lookups of the target folder, so that only the latest one is kept. */
 	private lookups = 0;
 	/** Folders of the target folder whose contents page carries a OneDrive notebook, by it (from the last look; §11.5 item 66). */
-	private taggedFolders = new Map<string, string>();
+	private taggedFolders = new Map<string, string[]>();
 	/** Sections read for an update, by download and section path (they do not depend on the target folder). */
 	private readonly scans = new Map<string, Map<string, Scan>>();
 	/** What the target folder holds of a notebook imported before (read once per folder), by folder and notebook folder. */
@@ -643,14 +643,17 @@ export class ImportSession {
 			const recorded = await reportedNotebooks(sink, STRINGS[this.readerLanguage]);
 			// Folders whose contents page carries a OneDrive notebook (§11.5 item 66).
 			const tagged = await oneDriveFolders(sink, sink.listFolders());
-			const tagOfFolder = new Map([...tagged].map(([tag, folder]) => [key(folder), tag]));
+			const tagOfFolder = new Map([...tagged].flatMap(([tag, folders]) => folders.map(folder => [key(folder), tag] as const)));
 			if (lookup !== this.lookups || !this.open) return;
 			this.taggedFolders = tagged;
 			for (const choice of this.choices) {
 				if (lookup !== this.lookups || !this.open) return;
-				// From OneDrive: where its contents page says it is, whatever the folder is called now.
+				// From OneDrive: where its contents page says it is, whatever the folder is called now. In
+				// two folders (the user copied it): the one the report says was written last, else as by name.
 				const tag = this.oneDriveTag(choice);
-				const mine = tag !== undefined ? tagged.get(tag) : undefined;
+				const candidates = tag !== undefined ? tagged.get(tag) ?? [] : [];
+				const last = candidates.length > 1 ? recorded.find(entry => entry.oneDrive === tag)?.dir : undefined;
+				const mine = candidates.length === 1 ? candidates[0] : candidates.find(folder => last !== undefined && key(folder) === key(last));
 				if (mine !== undefined) {
 					const earlier = await earlierNotebook(sink, mine, choice.notebook, reportedEntry(recorded, mine, tag));
 					if (earlier) {
@@ -722,7 +725,7 @@ export class ImportSession {
 	private othersFolders(choice: NotebookChoice | undefined): string[] {
 		const tag = choice && this.oneDriveTag(choice);
 		if (tag === undefined) return [];
-		return [...this.taggedFolders].filter(([other]) => other !== tag && driveOf(other) === driveOf(tag)).map(([, folder]) => folder);
+		return [...this.taggedFolders].filter(([other]) => other !== tag && driveOf(other) === driveOf(tag)).flatMap(([, folders]) => folders);
 	}
 
 	/** Gives names again when the notebooks wanted are not those the names were given for, or one wanted would go into another's folder (see lookUp). */
@@ -1160,7 +1163,6 @@ export class ImportSession {
 		return { notebooks: included.length, sections: sections.length, unreadable: unreadable.length, bytes: sections.reduce((n, section) => n + section.size, 0) };
 	}
 
-	/** What the update of notebooks imported before will do. */
 	/**
 	 * Whether the settings shown are used by what is chosen (§11.5 item 65): a notebook new to the
 	 * target folder, or a section of one imported before written now for the first time or converted again.
@@ -1179,6 +1181,7 @@ export class ImportSession {
 		return this.included().some(choice => choice.earlier && choice.notebook.sections.some(section => this.isChosen(choice, section) && !FIRST_WRITE.has(this.sectionState(choice, section))));
 	}
 
+	/** What the update of notebooks imported before will do. */
 	updateCounts(): UpdateCounts {
 		const counts: UpdateCounts = { updated: 0, added: 0, restored: 0, bothEdited: 0, reconverted: 0 };
 		for (const choice of this.included().filter(choice => choice.earlier)) {

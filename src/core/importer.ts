@@ -313,6 +313,25 @@ export async function importNotebooks(notebooks: DownloadNotebook[], host: Impor
 }
 
 /**
+ * The folders directly under the output root whose notebook contents page of ours carries a OneDrive
+ * notebook (§11.5 item 66), by that notebook (`<drive>/<item ID>`): more than one when the user
+ * copied a notebook's folder.
+ */
+export async function oneDriveFolders(sink: Sink, folders: readonly string[]): Promise<Map<string, string[]>> {
+	const found = new Map<string, string[]>();
+	for (const folder of folders) {
+		for (const name of ALL_TOC_NAMES) {
+			const text = await sink.readText(joinPath(folder, `${name}.md`));
+			if (!importStatusOf(text)) continue;
+			const tag = oneDriveTagOf(text);
+			if (tag !== undefined) found.set(tag, [...found.get(tag) ?? [], folder]);
+			break;
+		}
+	}
+	return found;
+}
+
+/**
  * What an earlier import wrote of a notebook in `dir`, or undefined when the folder is not one of
  * ours (no table of contents of ours in it, §11.5 item 47). What is in the folder decides, never a
  * record: a section is there when its table of contents says it is complete, or that an update is
@@ -323,24 +342,6 @@ export async function importNotebooks(notebooks: DownloadNotebook[], host: Impor
  * renamed): `occupied`, never written into. `recorded` (the notebook's entry in the report, if any)
  * only adds what is known of those sections, for counting.
  */
-/**
- * The folders directly under the output root whose notebook contents page of ours carries a OneDrive
- * notebook (§11.5 item 66), by that notebook (`<drive>/<item ID>`).
- */
-export async function oneDriveFolders(sink: Sink, folders: readonly string[]): Promise<Map<string, string>> {
-	const found = new Map<string, string>();
-	for (const folder of folders) {
-		for (const name of ALL_TOC_NAMES) {
-			const text = await sink.readText(joinPath(folder, `${name}.md`));
-			if (!importStatusOf(text)) continue;
-			const tag = oneDriveTagOf(text);
-			if (tag !== undefined && !found.has(tag)) found.set(tag, folder);
-			break;
-		}
-	}
-	return found;
-}
-
 export async function earlierNotebook(sink: Sink, dir: string, notebook: DownloadNotebook, recorded?: { sections: SectionResult[] }): Promise<EarlierNotebook | undefined> {
 	const files = await sink.listFiles(dir);
 	const byFold = new Map(files.map(file => [fold(file), file]));
