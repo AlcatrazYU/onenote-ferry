@@ -23,7 +23,7 @@ export interface FileLink {
 
 export interface DownloadFileOptions {
 	/** The fetch to use (the window's, in Obsidian). */
-	fetch: typeof globalThis.fetch;
+	fetch: typeof fetch;
 	/** A fresh link and the file's current version (asked from Graph each time). */
 	link(): Promise<FileLink>;
 	/** Where the file is written as it arrives; `<part>.json` records which version it holds. */

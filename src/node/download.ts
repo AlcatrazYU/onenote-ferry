@@ -49,7 +49,7 @@ export function incompleteZipMessage(zip: IncompleteZip): string {
 type ZipRange = { file: string, offset: number, length: number };
 
 /** Byte ranges inside a zip that the WebAssembly parser reads in place (parser/UPSTREAM.md, change 6). */
-export const ranges: Map<string, ZipRange> = (globalThis as typeof globalThis & { __ONENOTE_FERRY_RANGES__?: Map<string, ZipRange> }).__ONENOTE_FERRY_RANGES__ ??= new Map<string, ZipRange>();
+export const ranges: Map<string, ZipRange> = (globalThis as { __ONENOTE_FERRY_RANGES__?: Map<string, ZipRange> }).__ONENOTE_FERRY_RANGES__ ??= new Map<string, ZipRange>();
 
 export function fileAccess(path: string): RandomAccessFile & { close(): void } {
 	const fd = openSync(path, 'r');

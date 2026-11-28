@@ -109,7 +109,7 @@ export function linkFor(graph: GraphGet): (fileId: string) => Promise<FileLink> 
  * cannot be stopped, and files here reach 2 GB, so they are streamed to disk and can be cancelled.
  * Sign-in and Graph requests use requestUrl. The plugin is desktop only.
  */
-export const streamingFetch: typeof globalThis.fetch = (input, init) => fetch(input, init);
+export const streamingFetch: typeof fetch = (input, init) => fetch(input, init);
 
 /** The window's word that the network is back (its online event), for downloads to go on at once. */
 export function whenOnline(callback: () => void): () => void {

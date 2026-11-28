@@ -212,7 +212,7 @@ const isSectionFile = (path: string) => /\.one$/i.test(path);
 
 export interface UpdateCopyOptions {
 	graph: GraphGet;
-	fetch: typeof globalThis.fetch;
+	fetch: typeof fetch;
 	/** The account's copy folder (copyRoot). */
 	root: string;
 	notebook: RemoteNotebook;

@@ -109,7 +109,8 @@ async function handle(message: ToWorker): Promise<unknown> {
 	switch (message.type) {
 		case 'init': {
 			scratchRoot = message.scratch;
-			(globalThis as { __ONENOTE_FERRY_WASM__?: Uint8Array }).__ONENOTE_FERRY_WASM__ = new Uint8Array(message.wasm);
+			// On the worker's global object (`self` in a worker), where the parser's code looks for its bytes (scripts/build-plugin.mjs).
+			(self as unknown as { __ONENOTE_FERRY_WASM__?: Uint8Array }).__ONENOTE_FERRY_WASM__ = new Uint8Array(message.wasm);
 			const started = performance.now();
 			parser();
 			return { startMs: performance.now() - started };
