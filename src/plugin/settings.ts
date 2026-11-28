@@ -5,6 +5,7 @@ import { AbstractInputSuggest, ButtonComponent, Modal, normalizePath, Notice, Pl
 import type { App, Plugin } from 'obsidian';
 import type { SectionOptions } from '../core/importer.ts';
 import { allCopies, copiesFolder, removeCopies, systemCacheFolder } from '../node/mirror.ts';
+import { removeScans, scansFolder } from '../node/scan-store.ts';
 import type { MicrosoftAccount } from './account.ts';
 import { formatBytes } from './i18n.ts';
 import type { UiStrings } from './i18n.ts';
@@ -153,6 +154,8 @@ export class FerrySettingTab extends PluginSettingTab {
 		if (copies.length) kept.addButton(button => button.setButtonText(ui.deleteCopy).setWarning().onClick(() => {
 			new ConfirmModal(this.app, ui.deleteCopyTitle, ui.deleteCopyConfirm(formatBytes(bytes)), ui.deleteCopy, ui.cancel, async () => {
 				await removeCopies(copies.map(copy => copy.dir));
+				// What checks read of the sections goes too (§11.5 item 90): it holds page titles.
+				await removeScans(scansFolder(systemCacheFolder())).catch(() => undefined);
 				this.display();
 			}).open();
 		}));

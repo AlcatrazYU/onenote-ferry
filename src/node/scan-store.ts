@@ -48,6 +48,11 @@ export async function readScans(folder: string, input: string, version: string):
 	return kept;
 }
 
+/** Removes every kept read (cleared with the download cache on the settings page). */
+export async function removeScans(folder: string): Promise<void> {
+	await rm(folder, { recursive: true, force: true });
+}
+
 /** Keeps a download's reads, replacing what was kept for it (written whole, then put in place). */
 export async function writeScans(folder: string, input: string, version: string, scans: ReadonlyMap<string, KeptScan>): Promise<void> {
 	await mkdir(folder, { recursive: true });
