@@ -7,6 +7,7 @@ import { Notice, Plugin, requestUrl } from 'obsidian';
 import * as obsidian from 'obsidian';
 import { markerLanguageFor } from '../core/strings.ts';
 import { findRemoteNotebooks } from '../core/onedrive.ts';
+import { downloadStamp } from '../node/download.ts';
 import { copyRoot, systemCacheFolder, updateCopy } from '../node/mirror.ts';
 import { MicrosoftAccount } from './account.ts';
 import { driveOf, graphFor, linkFor, oneDriveAccess, streamingFetch } from './onedrive.ts';
@@ -20,7 +21,7 @@ import { ImportSession } from './session.ts';
 import type { Entry, SessionHooks } from './session.ts';
 import { cleanFolder, DEFAULT_SETTINGS, FerrySettingTab, folderProblem } from './settings.ts';
 import type { Settings, SettingsHost } from './settings.ts';
-import { ImportWizard } from './wizard.ts';
+import { busyLine, ImportWizard } from './wizard.ts';
 import type { WizardHost } from './wizard.ts';
 import { VaultSink } from './vault-sink.ts';
 import { WorkerClient } from './worker-client.ts';
@@ -46,10 +47,12 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 		title: this.ui.signInPageTitle, doneTitle: this.ui.signInPageDoneTitle, done: this.ui.signInPageDone, failedTitle: this.ui.signInPageFailedTitle, failed: this.ui.signInPageFailed,
 		cancelled: this.ui.signInPageCancelled, adminApproval: this.ui.signInPageAdmin, microsoftSays: this.ui.signInPageMicrosoftSays, endedTitle: this.ui.signInPageEndedTitle, ended: this.ui.signInPageEnded, local: this.ui.signInPageLocal,
 	}));
-	/** The import being set up, running, or finished and not looked at yet. */
+	/** The import being set up (its window open or hidden), running, or finished and not looked at yet. */
 	private session?: ImportSession;
 	private wizard?: ImportWizard;
 	private progress?: ProgressDisplay;
+	/** While the window is hidden before an import: what it is still doing, in the status bar (§11.5 item 83). */
+	private hidden?: { off: () => void, display?: ProgressDisplay };
 	/** The notice that an import ended while the wizard was hidden (gone once the result is seen). */
 	private resultNotice?: Notice;
 	/** Turned off: an import that is still winding down shows nothing more. */
@@ -72,6 +75,7 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 			this.pendingUpdates = this.pendingUpdates.filter(other => other !== root);
 			await this.saveSettings();
 		},
+		stamp: downloadStamp,
 	};
 
 	async onload(): Promise<void> {
@@ -128,6 +132,9 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 	onunload(): void {
 		this.unloaded = true;
 		this.microsoft.cancelSignIn();
+		this.stopShowingHidden();
+		// A window hidden before its import stops reading; an import running is stopped.
+		if (this.session?.phase === 'setup') this.session.dispose();
 		this.session?.requestStop();
 		this.client.stop('unloaded');
 		this.progress?.finish();
@@ -157,18 +164,54 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 		if (this.wizard || this.unloaded) return;
 		this.resultNotice?.hide();
 		this.resultNotice = undefined;
+		this.stopShowingHidden();
+		// The window hidden before its import opens as it was, whichever way it is opened (§11.5 item 83).
+		const hidden = this.session?.phase === 'setup';
 		this.session ??= new ImportSession(this.app, this.client, this.settings, markerLanguageFor(interfaceLanguage()), entry, this.hooks);
 		this.wizard = new ImportWizard(this.app, this, this.session);
 		this.wizard.open();
+		// What it showed may have changed meanwhile: the downloads, OneDrive and the target folder are looked at again.
+		if (hidden) void this.session.refresh();
 	}
 
 	wizardClosed(wizard: ImportWizard): void {
 		if (this.wizard === wizard) this.wizard = undefined;
-		// Closed before the import, or after looking at its result: start afresh next time.
-		if (this.session === wizard.session && this.session.phase !== 'running') {
-			this.session.dispose();
-			this.session = undefined;
+		const session = this.session;
+		if (session !== wizard.session || session.phase === 'running') return;
+		// Closed before the import with something chosen: only hidden, and what it still does shows
+		// in the status bar (§11.5 item 83). With nothing chosen, or after looking at the result of an
+		// import: started afresh next time.
+		if (session.phase === 'setup' && session.downloads.length) {
+			this.showHidden(session);
+			return;
 		}
+		session.dispose();
+		this.session = undefined;
+	}
+
+	/** While the window is hidden: a status bar item for as long as it reads or checks, which opens it again. */
+	private showHidden(session: ImportSession): void {
+		this.stopShowingHidden();
+		const hidden: { off: () => void, display?: ProgressDisplay } = { off: () => undefined };
+		const show = () => {
+			const text = busyLine(session, this.ui);
+			if (text === undefined) {
+				hidden.display?.finish();
+				hidden.display = undefined;
+				return;
+			}
+			hidden.display ??= new ProgressDisplay(this, this.ui, () => this.openWizard());
+			hidden.display.busy(text);
+		};
+		hidden.off = session.onChange(show);
+		this.hidden = hidden;
+		show();
+	}
+
+	private stopShowingHidden(): void {
+		this.hidden?.off();
+		this.hidden?.display?.finish();
+		this.hidden = undefined;
 	}
 
 	startImport(session: ImportSession): void {
@@ -211,7 +254,7 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 	 * with the default options and no wizard, and answers what the wizard would show at the end.
 	 */
 	async importFrom(inputs: string[], root = this.settings.folder) {
-		if (this.session) throw new Error(this.session.phase === 'running' ? this.ui.alreadyRunning : 'Close the import wizard (or open the finished import) first.');
+		if (this.session) throw new Error(this.session.phase === 'running' ? this.ui.alreadyRunning : 'Remove the downloads in the import window (or open the finished import) first.');
 		const session = new ImportSession(this.app, this.client, { ...this.settings, folder: root }, markerLanguageFor(interfaceLanguage()), 'import', this.hooks);
 		this.session = session;
 		try {

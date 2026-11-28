@@ -107,6 +107,31 @@ export function listFolder(root: string): DownloadFile[] {
 	return files;
 }
 
+/**
+ * What a download is like on disk now, so that one changed since it was read is told (§11.5 item
+ * 83): a file's size and time; a folder's sections and tables of contents, each with its size and
+ * time. With `section` (its path in the download), the file it is read from: in a folder, its own;
+ * in a zip or an export, the whole file. Undefined when it is not there any more.
+ */
+export function downloadStamp(input: string, section?: string): string | undefined {
+	const of = (info: { size: number, mtimeMs: number }) => `${info.size}:${info.mtimeMs}`;
+	const stat = statSync(input, { throwIfNoEntry: false });
+	if (!stat) return undefined;
+	if (!stat.isDirectory()) return of(stat);
+	if (section !== undefined) {
+		const file = statSync(join(input, ...section.split('/')), { throwIfNoEntry: false });
+		return file && of(file);
+	}
+	const parts: string[] = [];
+	for (const entry of readdirSync(input, { recursive: true, withFileTypes: true }) as import('node:fs').Dirent[]) {
+		if (!/\.one(toc2)?$/i.test(entry.name)) continue;
+		const path = join(entry.parentPath, entry.name);
+		const info = statSync(path, { throwIfNoEntry: false });
+		if (info?.isFile()) parts.push(`${relative(input, path).split(sep).join('/')}\u0000${of(info)}`);
+	}
+	return parts.sort().join('\n');
+}
+
 /** The first bytes of a compressed zip entry, inflated in memory (enough to tell a password-protected section). */
 async function inflatedHead(path: string, offset: number, compressedSize: number, length: number): Promise<Uint8Array> {
 	const chunks: Buffer[] = [];

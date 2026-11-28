@@ -2,7 +2,8 @@
 // loading ("Loading workspace..."): a status bar item with a short text and a small progress line,
 // using Obsidian's own classes for it (status-bar-item mod-loading, progress-bar-indicator), so it
 // looks the same in every theme. Hovering shows the notebook and section; clicking opens the
-// import window, which has the details and the stop button.
+// import window, which has the details and the stop button. Before an import, the same item says
+// what the hidden window is still doing (reading, checking for updates), and goes once it is done.
 
 import { setTooltip } from 'obsidian';
 import type { Plugin } from 'obsidian';
@@ -49,6 +50,12 @@ export class ProgressDisplay {
 		// The elapsed time moves on between sections too.
 		this.timer = window.setInterval(() => this.render(), 1000);
 		plugin.registerInterval(this.timer);
+	}
+
+	/** What the import window does while it is hidden, before an import (§11.5 item 83): the words, with the line sliding. */
+	busy(text: string): void {
+		this.textEl.setText(text);
+		setTooltip(this.statusEl, `${text}\n${this.ui.statusTooltip}`, { placement: 'top' });
 	}
 
 	update(state: ProgressState): void {

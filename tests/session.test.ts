@@ -1,7 +1,8 @@
 // The import window's state (src/plugin/session.ts), run in Node with a small stand-in for
 // Obsidian (tests/support) and a pretend worker: ticking notebooks and sections, adding sections
-// to a notebook imported before, folders that are not ours, the target folder, and what happens
-// when the window is closed or the import has started. Notebooks are invented.
+// to a notebook imported before, folders that are not ours, the target folder, what happens when
+// the window is closed or the import has started, and what is looked at again when the window opens
+// after being hidden. Notebooks are invented.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -73,8 +74,11 @@ class FakeClient {
 	pages: Record<string, ScannedPage[]> = {};
 	failing = new Set<string>();
 	scanned = 0;
+	/** Downloads let go of because they changed on disk. */
+	forgotten: string[] = [];
 	private readonly waiting = new Set<(error: Error) => void>();
-	private readonly downloads: Record<string, DownloadNotebook[]>;
+	/** What each download holds, by its path (a test changes it as the files change). */
+	readonly downloads: Record<string, DownloadNotebook[]>;
 	constructor(downloads: Record<string, DownloadNotebook[]>) {
 		this.downloads = downloads;
 	}
@@ -117,22 +121,30 @@ class FakeClient {
 			return structuredClone(this.pages[`${input}:${section.path}`] ?? this.pages[section.path] ?? []);
 		});
 	}
+	forget(input: string) {
+		this.forgotten.push(input);
+		return this.answer(() => undefined);
+	}
 	close() {
 		return this.answer(() => undefined);
 	}
 }
+
+/** How each download (`input`) and each of its sections (`input:path`) is on disk; a test changes it as the files change, `undefined` for gone. */
+type Disk = Record<string, string | undefined>;
+const stampOn = (disk: Disk) => ({ stamp: (input: string, section?: string) => disk[section === undefined ? input : `${input}:${section}`] });
 
 const DEFAULTS = { folder: 'T', boxMarkers: true, imageAltText: false };
 
 /** A table of contents of ours, with how far its import got (§11.5 item 47). */
 const toc = (status: 'importing' | 'complete' | 'failed', name = 'Tides') => `---\ntitle: "${name}"\nonenote-import: ${status}\n---\n\n# ${name}\n`;
 
-async function session(files: Record<string, string>, downloads: Record<string, DownloadNotebook[]>, options: { folders?: string[], folder?: string, locked?: Record<string, string[]>, failRead?: boolean, pages?: Record<string, ScannedPage[]>, failing?: string[], mtimes?: Record<string, number> } = {}) {
+async function session(files: Record<string, string>, downloads: Record<string, DownloadNotebook[]>, options: { folders?: string[], folder?: string, locked?: Record<string, string[]>, failRead?: boolean, pages?: Record<string, ScannedPage[]>, failing?: string[], mtimes?: Record<string, number>, disk?: Disk } = {}) {
 	const client = new FakeClient(downloads);
 	client.lockedPaths = options.locked ?? {};
 	client.pages = options.pages ?? {};
 	client.failing = new Set(options.failing ?? []);
-	const s = new ImportSession(fakeApp(files, options.folders, options.failRead, options.mtimes), client as never, { ...DEFAULTS, folder: options.folder ?? 'T' }, 'zh-Hans');
+	const s = new ImportSession(fakeApp(files, options.folders, options.failRead, options.mtimes), client as never, { ...DEFAULTS, folder: options.folder ?? 'T' }, 'zh-Hans', 'import', options.disk ? stampOn(options.disk) : {});
 	await s.add(Object.keys(downloads));
 	await settled(s);
 	return { s, client };
@@ -635,10 +647,10 @@ function fakeOneDrive(notebooks: { id: string, name: string, files: string[] }[]
 	return { access, copies };
 }
 
-async function oneDriveSession(files: Record<string, string>, drive: ReturnType<typeof fakeOneDrive>, pages: Record<string, ScannedPage[]> = {}) {
+async function oneDriveSession(files: Record<string, string>, drive: ReturnType<typeof fakeOneDrive>, pages: Record<string, ScannedPage[]> = {}, disk?: Disk) {
 	const client = new FakeClient({});
 	client.pages = pages;
-	const s = new ImportSession(fakeApp(files), client as never, DEFAULTS, 'zh-Hans');
+	const s = new ImportSession(fakeApp(files), client as never, DEFAULTS, 'zh-Hans', 'import', disk ? stampOn(disk) : {});
 	await s.addOneDrive(drive.access as never);
 	await settled(s);
 	return { s, client };
@@ -847,4 +859,211 @@ test('OneDrive: a folder of its name tagged by another account, or not tagged, i
 		assert.ok(!choice.byTag);
 		assert.ok(!choice.taken);
 	}
+});
+
+// The window hidden before the import (§11.5 item 83): what was chosen and read stays, and what it
+// shows is looked at again when it opens (refresh) and when the import starts.
+
+test('opened again, a download changed on disk is read again: what was ticked stays, and only sections that changed are read again', async () => {
+	const { files, tides, pages, mtimes } = importedTides();
+	const disk: Disk = { a: '1', ...Object.fromEntries(tides.sections.map(section => [`a:${section.path}`, '1'])) };
+	const { s, client } = await session(files, { a: [tides] }, { pages, mtimes, disk });
+	const [choice] = s.choices as [typeof s.choices[0]];
+	// The new section is ticked at first; the user unticks it.
+	s.setSections(choice, [choice.notebook.sections[4]!], false);
+	await settled(s);
+	const read = client.scanned;
+	await s.refresh();
+	await settled(s);
+	assert.equal(client.scanned, read, 'nothing changed: nothing is read again');
+	assert.deepEqual(client.forgotten, []);
+	// Downloaded again into the same folder: Spring changed in OneNote meanwhile, the rest did not.
+	disk.a = '2';
+	disk['a:Tides/Spring.one'] = '2';
+	client.pages['Tides/Spring.one'] = [scanned('{0A}', 'One', T2), scanned('{0B}', 'Two', T2)];
+	await s.refresh();
+	await settled(s);
+	assert.deepEqual(client.forgotten, ['a'], 'the worker lets go of it as it was');
+	assert.equal(client.scanned, read + 1, 'only the section that changed is read again');
+	const [again] = s.choices as [typeof s.choices[0]];
+	assert.notEqual(again.notebook, choice.notebook, 'its notebooks are read anew');
+	assert.equal(s.isChosen(again, again.notebook.sections[4]!), false, 'what the user unticked stays unticked');
+	assert.equal(s.isChosen(again, again.notebook.sections[0]!), true);
+	assert.equal(s.itemOf(again, again.notebook.sections[0]!)!.modified.length, 2, 'what changed meanwhile shows');
+});
+
+test('opened again, a download gone from disk says so and nothing starts until it is removed; back again, it is read again, with what was ticked in it', async () => {
+	const disk: Disk = { a: '1', b: '1' };
+	const { s } = await session({}, { a: [notebook('Tides', ['A', 'B'])], b: [notebook('Ferry log')] }, { disk });
+	assert.equal(s.ready, true);
+	s.setSections(s.choices[0]!, [s.choices[0]!.notebook.sections[1]!], false);
+	await settled(s);
+	disk.a = undefined;
+	await s.refresh();
+	await settled(s);
+	const a = s.downloads[0]!;
+	assert.equal(a.missing, true);
+	assert.deepEqual(names(s), ['Ferry log']);
+	assert.equal(s.ready, false, 'not with a download gone');
+	disk.a = '2';
+	await s.refresh();
+	await settled(s);
+	assert.equal(a.missing, undefined);
+	assert.deepEqual(names(s), ['Tides', 'Ferry log']);
+	assert.deepEqual(s.choices[0]!.notebook.sections.map(section => s.isChosen(s.choices[0]!, section)), [true, false], 'what was unticked in it stays unticked');
+	assert.equal(s.ready, true);
+	// Gone again, and removed: the rest can start.
+	disk.a = undefined;
+	await s.refresh();
+	await settled(s);
+	s.remove(a);
+	await settled(s);
+	assert.equal(s.ready, true);
+});
+
+test('a download changed on disk when the import starts is read again instead: what is imported is what the window shows', async () => {
+	const disk: Disk = { a: '1' };
+	const { s, client } = await session({}, { a: [notebook('Tides', ['A'])] }, { disk });
+	client.downloads.a = [notebook('Tides', ['A', 'B'])];
+	disk.a = '2';
+	await s.start();
+	await settled(s);
+	assert.equal(s.phase, 'setup', 'not started');
+	assert.deepEqual(s.choices[0]!.notebook.sections.map(section => section.label), ['A', 'B']);
+	assert.equal(s.ready, true, 'it can be started now');
+});
+
+test('OneDrive, opened again: OneDrive is asked again, a notebook imported before is brought up to date in the copy, and only sections that changed are read again', async () => {
+	const { files, pages } = importedTides();
+	const sections = ['Spring', 'Summer', 'Autumn', 'Older', 'Fresh', 'Skipped', 'Lost'];
+	const drive = fakeOneDrive([{ id: 'n1', name: 'Tides', files: [...sections.map(name => `${name}.one`), 'Open Notebook.onetoc2'] }]);
+	const oneDrivePages = Object.fromEntries(Object.entries(pages).map(([path, list]) => [`n1/${path}`, list]));
+	const disk: Disk = Object.fromEntries(sections.map(name => [`/copy:n1/Tides/${name}.one`, '1']));
+	const { s, client } = await oneDriveSession(files, drive, oneDrivePages, disk);
+	assert.equal(drive.copies.length, 1);
+	const read = client.scanned;
+	// OneNote changed Spring: the copy gets it when brought up to date.
+	disk['/copy:n1/Tides/Spring.one'] = '2';
+	await s.refresh();
+	await settled(s);
+	assert.equal(drive.copies.length, 2, 'brought up to date again');
+	assert.equal(client.scanned, read + 1, 'only the section that changed is read again');
+});
+
+test('OneDrive: when the import starts, the notebooks chosen are asked again, so that what comes down is OneNote as it is then', async () => {
+	const drive = fakeOneDrive([{ id: 'n1', name: 'Atlas', files: ['A.one'] }]);
+	const { s } = await oneDriveSession({}, drive);
+	s.selectAll(true);
+	await settled(s);
+	// OneNote changed A after the list was read.
+	const list = drive.access.files;
+	(drive.access as any).files = async (id: string) => (await list(id)).map(file => ({ ...file, eTag: '"2"' }));
+	const copy = drive.access.copy;
+	let given: { eTag: string }[] = [];
+	(drive.access as any).copy = async (notebook: { name: string }, files: { path: string, id: string, eTag: string }[], only?: ReadonlySet<string>) => {
+		given = files;
+		return copy(notebook, files, only);
+	};
+	await (s as any).freshenChosen();
+	await (s as any).fetchChosen(s.choices, new Set(s.choices.flatMap(choice => choice.notebook.sections)));
+	assert.deepEqual(given.map(file => file.eTag), ['"2"']);
+});
+
+// New notebooks ticked under one name in more than one source (§11.5 item 84): they would be imported twice.
+
+test('a new notebook ticked under one name in two sources is said to be imported twice; unticked in one, it is not', async () => {
+	const { s } = await session({}, { a: [notebook('Tides')], b: [notebook('Tides'), notebook('Atlas')] });
+	assert.deepEqual(names(s), ['Tides', 'Tides (2)', 'Atlas']);
+	assert.deepEqual(s.tickedTwice(), ['Tides']);
+	s.setSections(s.choices[1]!, s.choices[1]!.notebook.sections, false);
+	await settled(s);
+	assert.deepEqual(s.tickedTwice(), []);
+});
+
+test('two notebooks of one name in one source, or one imported before found in two sources, are not said to be imported twice', async () => {
+	// One download holding two notebooks of one name, in two folders: two notebooks.
+	const one = await session({}, { a: [notebook('Tides', ['A'], 'x/Tides'), notebook('Tides', ['B'], 'y/Tides')] });
+	assert.equal(one.s.included().length, 2);
+	assert.deepEqual(one.s.tickedTwice(), []);
+	// Imported before: only the newer copy updates it, nothing is imported twice.
+	const { files, tides, pages, mtimes } = importedTides();
+	const both = await session(files, { a: [tides], b: [structuredClone(tides)] }, { pages, mtimes });
+	assert.equal(both.s.included().length, 1);
+	assert.deepEqual(both.s.tickedTwice(), []);
+});
+
+test('OneDrive and a download holding a notebook of one name: said once both are ticked', async () => {
+	const drive = fakeOneDrive([{ id: 'n1', name: 'Atlas', files: ['A.one'] }]);
+	const { s, client } = await oneDriveSession({}, drive);
+	client.downloads.z = [notebook('Atlas')];
+	await s.add(['z']);
+	await settled(s);
+	// OneDrive's is not ticked unasked.
+	assert.deepEqual(s.tickedTwice(), []);
+	s.selectAll(true);
+	await settled(s);
+	assert.deepEqual(s.tickedTwice(), ['Atlas']);
+});
+
+test('one name imported twice before (by name from a download, by its OneDrive notebook as "Name (2)"): each updates its own folder, not said to be imported twice', async () => {
+	const files = {
+		'T/Tides/_目录.md': toc('complete', 'Tides'),
+		'T/Tides/Spring/_目录.md': sectionToc('Spring', ['One']),
+		'T/Tides/Spring/One.md': pageFile('{0A}', 'One', T1, 1),
+		'T/Tides (2)/_目录.md': tagged('Tides', 'copy/n1'),
+		'T/Tides (2)/Spring/_目录.md': sectionToc('Spring', ['One']),
+		'T/Tides (2)/Spring/One.md': pageFile('{0A}', 'One', T1, 1),
+	};
+	const pages = {
+		'Tides/Spring.one': [scanned('{0A}', 'One', T1)], 'Tides/Summer.one': [scanned('{10}', 'New', T1)],
+		'n1/Tides/Spring.one': [scanned('{0A}', 'One', T1)], 'n1/Tides/Summer.one': [scanned('{10}', 'New', T1)],
+	};
+	const { s } = await session(files, { z: [notebook('Tides', ['Spring', 'Summer'])] }, { pages });
+	await s.addOneDrive(fakeOneDrive([{ id: 'n1', name: 'Tides', files: ['Spring.one', 'Summer.one'] }]).access as never);
+	await settled(s);
+	assert.deepEqual(s.included().map(choice => choice.dir), ['Tides', 'Tides (2)']);
+	assert.deepEqual(s.tickedTwice(), []);
+});
+
+// A source's box in the tree (§11.5 item 85): select all, for one source's notebooks only.
+
+test('a source\'s box ticks and unticks its own notebooks only', async () => {
+	const { s } = await session({}, { a: [notebook('Tides')], b: [notebook('Tides'), notebook('Atlas')] });
+	const [a, b] = s.downloads as [typeof s.downloads[0], typeof s.downloads[0]];
+	assert.equal(s.allChosenIn(b), true);
+	s.selectAll(false, b);
+	await settled(s);
+	assert.deepEqual(s.included().map(choice => choice.notebook.name), ['Tides']);
+	assert.equal(s.allChosenIn(a), true);
+	assert.equal(s.allChosenIn(b), false);
+	assert.deepEqual(s.tickedTwice(), [], 'the same name ticked in one source only now');
+	s.selectAll(true, b);
+	await settled(s);
+	assert.equal(s.included().length, 3);
+	assert.equal(s.allChosen, true);
+});
+
+test('a source with nothing to do: its box converts its sections without changes again, as select all does; the other source is left as it is', async () => {
+	const files = {
+		'T/Tides/_目录.md': toc('complete', 'Tides'),
+		'T/Tides/Spring/_目录.md': sectionToc('Spring', ['One']),
+		'T/Tides/Spring/One.md': pageFile('{0A}', 'One', T1, 1),
+	};
+	const { s } = await session(files, { a: [notebook('Tides', ['Spring'])], b: [notebook('Atlas')] }, { pages: { 'a:Tides/Spring.one': [scanned('{0A}', 'One', T1)] } });
+	const [a, b] = s.downloads as [typeof s.downloads[0], typeof s.downloads[0]];
+	const [tides, atlas] = s.choices as [typeof s.choices[0], typeof s.choices[0]];
+	assert.deepEqual(states(s, 0), ['same']);
+	assert.deepEqual(s.included(), [], 'a new notebook next to one imported before is not ticked unasked');
+	s.selectAll(true, a);
+	await settled(s);
+	assert.equal(s.reconverts(tides, tides.notebook.sections[0]!), true);
+	assert.equal(s.isChosen(atlas, atlas.notebook.sections[0]!), false);
+	assert.equal(s.allChosenIn(a), true);
+	s.selectAll(true, b);
+	await settled(s);
+	assert.equal(s.isChosen(atlas, atlas.notebook.sections[0]!), true);
+	s.selectAll(false, a);
+	await settled(s);
+	assert.equal(s.reconverts(tides, tides.notebook.sections[0]!), false);
+	assert.equal(s.isChosen(atlas, atlas.notebook.sections[0]!), true, 'the other source is left as it is');
 });

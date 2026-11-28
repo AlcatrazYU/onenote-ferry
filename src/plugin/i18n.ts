@@ -42,6 +42,8 @@ export interface UiStrings {
 	notebooksFound(count: number): string;
 	noNotebooks: string;
 	cannotRead(error: string): string;
+	/** A download gone from disk since it was read (§11.5 item 83). */
+	sourceMissing: string;
 	converterStopped: string;
 	incompleteZip: string;
 	remove: string;
@@ -130,6 +132,8 @@ export interface UiStrings {
 	/** `folder`: where the versions replaced go (said when sections are updated). */
 	willUpdate(updated: number, added: number, restored: number, reconverted: number, folder: string): string;
 	bothEditedWarning(count: number, folder: string): string;
+	/** New notebooks of one name ticked in more than one source chosen: what is done, and what to do (§11.5 item 84). One line. */
+	tickedTwice: string;
 	noUpdates: string;
 	noUpdatesReconvert: string;
 	startUpdate: string;
@@ -297,6 +301,7 @@ const en: UiStrings = {
 	notebooksFound: count => plural(count, 'notebook', 'notebooks'),
 	noNotebooks: 'No OneNote notebooks here.',
 	cannotRead: error => `Could not read this: ${error}`,
+	sourceMissing: 'No longer found. Remove it before starting.',
 	converterStopped: 'the converter stopped unexpectedly',
 	incompleteZip: 'This download is incomplete: only the parts it contains can be imported. Download it again to import everything.',
 	remove: 'Remove',
@@ -368,6 +373,7 @@ const en: UiStrings = {
 		return `Will ${parts.join(', ')}.${updated || reconverted ? ` The current versions go to "${folder}".` : ''}`;
 	},
 	bothEditedWarning: (count, folder) => `${plural(count, 'page', 'pages')} also edited in Obsidian: your ${count === 1 ? 'version goes' : 'versions go'} to "${folder}" too.`,
+	tickedTwice: 'Same-name notebooks are each imported, one as "(2)". If the same, tick one.',
 	noUpdates: 'No updates found.',
 	noUpdatesReconvert: 'No updates found. Click a section to convert it again with the settings chosen now.',
 	startUpdate: 'Start update',
@@ -517,6 +523,7 @@ const zh: UiStrings = {
 	notebooksFound: count => `${n(count)} 本笔记本`,
 	noNotebooks: '这里没有 OneNote 笔记本。',
 	cannotRead: error => `无法读取：${error}`,
+	sourceMissing: '已找不到。请移除这一行后再开始。',
 	converterStopped: '转换程序意外停止',
 	incompleteZip: 'zip 文件不完整，只能导入其中已有的部分。如需全部导入，请重新下载。',
 	remove: '移除',
@@ -588,6 +595,7 @@ const zh: UiStrings = {
 		return `将${parts.join('、')}${updated || reconverted ? `，更新前的版本会放进“${folder}”` : ''}。`;
 	},
 	bothEditedWarning: (count, folder) => `其中 ${n(count)} 页在 Obsidian 中也已修改，你的版本同样会放进“${folder}”。`,
+	tickedTwice: '不同来源中有同名笔记本，将分别导入并加“(2)”区分；如为同一本，请只勾选一处。',
 	noUpdates: '没有发现更新。',
 	noUpdatesReconvert: '没有发现更新。点击分区可以按现在的设置重新转换。',
 	startUpdate: '开始更新',
@@ -739,6 +747,7 @@ const ja: UiStrings = {
 	notebooksFound: count => `ノートブック ${n(count)} 冊`,
 	noNotebooks: 'ここに OneNote のノートブックはありません。',
 	cannotRead: error => `読み込めません：${error}`,
+	sourceMissing: '見つからなくなりました。開始する前に、リストから削除してください。',
 	converterStopped: '変換処理が予期せず停止しました',
 	incompleteZip: 'ダウンロードが不完全なため、含まれている部分だけをインポートできます。すべてをインポートするには、もう一度ダウンロードしてください。',
 	remove: 'リストから削除',
@@ -810,6 +819,7 @@ const ja: UiStrings = {
 		return `${parts.join('、')}予定です。${updated || reconverted ? `更新前の版は「${folder}」に移します。` : ''}`;
 	},
 	bothEditedWarning: (count, folder) => `うち ${n(count)} ページは Obsidian でも編集済みです。あなたの版も「${folder}」に移します。`,
+	tickedTwice: '同名のノートブックは「(2)」を付けて両方インポート。同じなら1つ選んでください。',
 	noUpdates: '更新はありません。',
 	noUpdatesReconvert: '更新はありません。セクションをクリックすると、現在の設定で変換し直せます。',
 	startUpdate: '更新を開始',
@@ -960,6 +970,7 @@ const ko: UiStrings = {
 	notebooksFound: count => `전자 필기장 ${n(count)}개`,
 	noNotebooks: '여기에는 OneNote 전자 필기장이 없습니다.',
 	cannotRead: error => `읽을 수 없습니다: ${error}`,
+	sourceMissing: '더 이상 찾을 수 없습니다. 시작하기 전에 이 항목을 제거하세요.',
 	converterStopped: '변환이 예기치 않게 중지되었습니다',
 	incompleteZip: '다운로드가 완전하지 않아 포함된 부분만 가져올 수 있습니다. 전부 가져오려면 다시 다운로드하세요.',
 	remove: '제거',
@@ -1031,6 +1042,7 @@ const ko: UiStrings = {
 		return `${parts.join(', ')} 예정입니다.${updated || reconverted ? ` 업데이트 전 버전은 "${folder}"(으)로 옮깁니다.` : ''}`;
 	},
 	bothEditedWarning: (count, folder) => `그중 ${n(count)}페이지는 Obsidian에서도 수정되었습니다. 사용자의 버전도 "${folder}"(으)로 옮깁니다.`,
+	tickedTwice: '이름이 같은 전자 필기장은 따로 가져오고 "(2)"를 붙입니다. 같은 것이라면 한 곳만 선택하세요.',
 	noUpdates: '업데이트가 없습니다.',
 	noUpdatesReconvert: '업데이트가 없습니다. 섹션을 클릭하면 현재 설정으로 다시 변환할 수 있습니다.',
 	startUpdate: '업데이트 시작',

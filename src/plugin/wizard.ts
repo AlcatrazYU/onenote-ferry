@@ -58,6 +58,28 @@ function showTip(el: HTMLElement, tip: string | undefined): void {
 	else el.removeAttribute('title');
 }
 
+/**
+ * What the import being set up is busy with, in a few words: the window's bottom line, and the
+ * status bar while the window is hidden (§11.5 item 83). Undefined when it waits for the user.
+ */
+export function busyLine(session: ImportSession, ui: UiStrings): string | undefined {
+	const updating = session.updating;
+	const reading = session.downloads.find(download => download.onedrive && download.state === 'reading')?.onedrive?.reading;
+	if (reading) return reading.total ? ui.oneDriveReadingCount(reading.done, reading.total) : ui.oneDriveFinding;
+	// OneDrive's list first, then the notebooks imported before: one check for the user, so one line.
+	if (session.downloads.some(download => download.onedrive?.refreshing)) {
+		return updating || session.entry === 'update' ? ui.checkingUpdates(session.checkProgress.done, session.checkProgress.total) : ui.oneDriveRefreshing;
+	}
+	if (session.folderError) return undefined;
+	// One check, one line: what it does on the way (downloads, a look at the target folder) does
+	// not change the words; the OneDrive row's line shows the downloads.
+	if (session.checkingUpdates || (updating && (session.checking || session.findingLocked))) return ui.checkingUpdates(session.checkProgress.done, session.checkProgress.total);
+	if (session.reading) return ui.reading;
+	if (session.checking || session.findingLocked) return ui.checking;
+	if (session.downloading) return ui.downloadingFiles(session.downloading.files, session.downloading.totalFiles, formatBytes(session.downloading.bytes), formatBytes(session.downloading.totalBytes));
+	return undefined;
+}
+
 /** An icon at the start of a setting row, the way Obsidian's own rows have one. */
 function rowIcon(setting: Setting, icon: string): void {
 	setIcon(setting.settingEl.createDiv({ cls: 'setting-item-icon', prepend: true }), icon);
@@ -148,8 +170,6 @@ export class ImportWizard extends Modal {
 	private refresh?: () => void;
 	/** An open dialog is showing (another click does nothing meanwhile). */
 	private choosing = false;
-	/** Tree rows that are open, by download, notebook and place. */
-	private readonly expanded = new Set<string>();
 	/** The rows of the downloads, where the keyboard's focus goes back after a download is added. */
 	private sourceList?: HTMLElement;
 	/** The thin line along the bottom of the OneDrive row: set as things move, without drawing the row again. */
@@ -309,6 +329,8 @@ export class ImportWizard extends Modal {
 			const folder = session.oldVersionsFolder;
 			const will = [
 				counts.sections ? ui.willImport(counts.notebooks, counts.sections, formatBytes(counts.bytes), counts.unreadable) : '',
+				// New notebooks of one name ticked in more than one source: imported each, said in a line, plainly (§11.5 item 84).
+				counts.sections && session.tickedTwice().length ? ui.tickedTwice : '',
 				changes.updated || changes.added || changes.restored || changes.reconverted ? ui.willUpdate(changes.updated, changes.added, changes.restored, changes.reconverted, folder) : '',
 				// Why the settings do not reach sections updated because OneNote changed them: said once, where the plan is.
 				updating && session.ownSettingsKept ? ui.ownSettingsKept : '',
@@ -316,19 +338,9 @@ export class ImportWizard extends Modal {
 			// Nothing differs in the notebooks imported before.
 			const noChange = updating && !session.choices.some(choice => choice.earlier && choice.notebook.sections.some(section => STRONG.has(session.sectionState(choice, section))));
 			summary.empty();
-			const reading = session.downloads.find(download => download.onedrive && download.state === 'reading')?.onedrive?.reading;
-			if (reading) summary.setText(reading.total ? ui.oneDriveReadingCount(reading.done, reading.total) : ui.oneDriveFinding);
-			// OneDrive's list first, then the notebooks imported before: one check for the user, so one line.
-			else if (session.downloads.some(download => download.onedrive?.refreshing)) {
-				summary.setText(updating || session.entry === 'update' ? ui.checkingUpdates(session.checkProgress.done, session.checkProgress.total) : ui.oneDriveRefreshing);
-			}
+			const busy = busyLine(session, ui);
+			if (busy) summary.setText(busy);
 			else if (session.folderError) summary.setText(ui.folderUnreadable(session.folderError));
-			// One check, one line: what it does on the way (downloads, a look at the target folder) does
-			// not change the words; the OneDrive row's line shows the downloads.
-			else if (session.checkingUpdates || (updating && (session.checking || session.findingLocked))) summary.setText(ui.checkingUpdates(session.checkProgress.done, session.checkProgress.total));
-			else if (session.reading) summary.setText(ui.reading);
-			else if (session.checking || session.findingLocked) summary.setText(ui.checking);
-			else if (session.downloading) summary.setText(ui.downloadingFiles(session.downloading.files, session.downloading.totalFiles, formatBytes(session.downloading.bytes), formatBytes(session.downloading.totalBytes)));
 			else if (will.length) for (const line of will) summary.createDiv({ text: line });
 			// Nothing to update: a click converts a section again (§11.5 item 65), said where the user looks.
 			else summary.setText(noChange ? session.selectable ? ui.noUpdatesReconvert : ui.noUpdates
@@ -381,6 +393,7 @@ export class ImportWizard extends Modal {
 			rowIcon(row, /\.(zip|onepkg)$/i.test(download.input) ? 'lucide-file-archive' : /\.one$/i.test(download.input) ? 'lucide-file' : 'lucide-folder');
 			row.settingEl.setAttr('title', download.input);
 			row.setDesc(download.state === 'reading' ? ui.reading
+				: download.missing ? ui.sourceMissing
 				: download.state === 'failed' ? ui.cannotRead(download.stopped ? ui.converterStopped : download.error ?? '')
 				: download.notebooks.length ? ui.notebooksFound(download.notebooks.length) : ui.noNotebooks);
 			if (download.state === 'failed' || (download.state === 'ready' && !download.notebooks.length)) row.descEl.addClass('onenote-ferry-warning');
@@ -563,12 +576,12 @@ export class ImportWizard extends Modal {
 		const oneDriveReading = session.downloads.some(download => download.onedrive && download.state === 'reading');
 		if (!session.choices.length) listEl.createDiv({ cls: 'onenote-ferry-tree-placeholder', text: oneDriveReading ? this.ui.oneDriveTreeWaiting : this.ui.treeEmpty });
 		// One notebook in all: open from the start.
-		if (session.choices.length === 1) this.expanded.add(this.rowId(session.choices[0]!, ''));
+		if (session.choices.length === 1) this.session.expanded.add(this.rowId(session.choices[0]!, ''));
 		const many = session.downloads.filter(download => download.notebooks.length).length > 1;
 		for (const download of session.downloads) {
 			const choices = session.choices.filter(choice => choice.download === download);
 			if (!choices.length) continue;
-			if (many) listEl.createDiv({ cls: 'onenote-ferry-tree-heading', text: this.downloadLabel(download) });
+			if (many) this.sourceHeading(listEl, download, rows);
 			for (const choice of choices) {
 				// Sections of ours the download does not have: shown where they are, never ticked.
 				const gone = new Map(session.gone(choice).map(item => [{ path: `\u0000gone\u0000${item.old}`, notebook: choice.notebook.name, groups: item.groups, label: item.label, size: 0 } as DownloadSection, item]));
@@ -576,6 +589,27 @@ export class ImportWizard extends Modal {
 			}
 		}
 		return rows;
+	}
+
+	/**
+	 * With several sources, the name above each one's notebooks, with a box that ticks or unticks all
+	 * of them as select all does for the whole tree (§11.5 item 85). The name is its label: clicking
+	 * it ticks too, and screen readers read it with the box.
+	 */
+	private sourceHeading(listEl: HTMLElement, download: ChosenDownload, rows: (() => void)[]): void {
+		const session = this.session;
+		const heading = listEl.createEl('label', { cls: 'onenote-ferry-tree-heading' });
+		const box = heading.createEl('input', { type: 'checkbox', cls: 'file-tree-item-checkbox' });
+		heading.createSpan({ text: this.downloadLabel(download) });
+		box.addEventListener('change', () => session.selectAll(!session.allChosenIn(download), download));
+		rows.push(() => {
+			const selectable = session.selectableIn(download);
+			const all = selectable && session.allChosenIn(download);
+			box.disabled = !selectable;
+			box.checked = all;
+			box.indeterminate = !all && session.included().some(choice => choice.download === download);
+			box.setAttr('data-indeterminate', String(box.indeterminate));
+		});
 	}
 
 	private rowId(choice: NotebookChoice, path: string): string {
@@ -620,7 +654,7 @@ export class ImportWizard extends Modal {
 		const flair = self.createDiv('tree-item-flair-outer').createSpan('tree-item-flair');
 		const children = treeItem.createDiv('tree-item-children');
 
-		const open = () => this.expanded.has(id);
+		const open = () => this.session.expanded.has(id);
 		const showOpen = () => {
 			arrow?.toggleClass('is-collapsed', !open());
 			arrow?.setAttr('aria-expanded', String(open()));
@@ -628,8 +662,8 @@ export class ImportWizard extends Modal {
 			children.toggle(open());
 		};
 		const toggleOpen = () => {
-			if (open()) this.expanded.delete(id);
-			else this.expanded.add(id);
+			if (open()) this.session.expanded.delete(id);
+			else this.session.expanded.add(id);
 			showOpen();
 		};
 		if (arrow) {

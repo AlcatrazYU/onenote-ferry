@@ -1,6 +1,7 @@
 // One import from start to end: the downloads chosen, their notebooks and sections and which of
 // them are chosen, the settings, and then the import itself. The import window shows it and
-// changes it; the import goes on when the window is closed.
+// changes it; closing the window only hides it (§11.5 item 83): before the import, what was chosen
+// and read stays, and is looked at again when it opens; the import goes on.
 //
 // A notebook an earlier import wrote into the target folder is updated (§11.5 item 49): its
 // sections are read again (page ids, titles and times only) and compared with what is in the
@@ -106,6 +107,8 @@ export interface ChosenDownload {
 	locked?: Set<string>;
 	/** The user's OneDrive, read through the Microsoft account. */
 	onedrive?: OneDriveSource;
+	/** Gone from disk since it was read (moved or deleted): nothing starts until it is removed (§11.5 item 83). */
+	missing?: boolean;
 }
 
 export interface NotebookChoice {
@@ -177,6 +180,12 @@ export type Entry = 'import' | 'update';
 export interface SessionHooks {
 	/** Resolves once updates cut off before (finished when Obsidian started) are done with. */
 	beforeRun?(): Promise<void>;
+	/**
+	 * What a download (with `section`, the file that section is read from) is like on disk now, to
+	 * tell one changed since it was read (see downloadStamp); undefined when it is gone. Without it,
+	 * downloads are not looked at again.
+	 */
+	stamp?(input: string, section?: string): string | undefined;
 	/** An update of the folder is about to write: it is to be finished at the next start if cut off. */
 	updateStarting?(root: string): Promise<void>;
 	/** The update of the folder ended (its journal is closed). */
@@ -187,6 +196,8 @@ export interface SessionHooks {
 interface Scan {
 	pages?: ScannedPage[];
 	error?: string;
+	/** The file it was read from, as it was then (see SessionHooks.stamp). */
+	stamp?: string;
 }
 
 /** What an update of the chosen notebooks imported before would do, counted for the window. */
@@ -273,6 +284,12 @@ export class ImportSession {
 	private taggedFolders = new Map<string, string[]>();
 	/** Sections read for an update, by download and section path (they do not depend on the target folder). */
 	private readonly scans = new Map<string, Map<string, Scan>>();
+	/** Each download as it was on disk when it was read (see SessionHooks.stamp). */
+	private readonly stamps = new Map<ChosenDownload, string | undefined>();
+	/** What was ticked in a download while it is gone from disk: it comes back with it. */
+	private readonly goneChoices = new Map<ChosenDownload, NotebookChoice[]>();
+	/** Rows of the tree open in the window, by download, notebook and place: kept while it is hidden. */
+	readonly expanded = new Set<string>();
 	/** What the target folder holds of a notebook imported before (read once per folder), by folder and notebook folder. */
 	private readonly archives = new Map<string, { archive?: Archive, entry?: ReportNotebook }>();
 	/** The comparison running now, and whether it is to run again once done (something changed meanwhile). */
@@ -324,23 +341,127 @@ export class ImportSession {
 		this.changed();
 		for (const download of added) {
 			if (!this.open) return;
-			try {
-				const opened = await (await this.worker()).open(download.input);
-				if (!this.open) return;
-				download.notebooks = opened.notebooks;
-				download.incomplete = opened.incomplete;
-				download.state = 'ready';
-			}
-			catch (error) {
-				if (!this.open) return;
-				download.state = 'failed';
-				download.error = message(error);
-				download.stopped = error instanceof ConverterStopped;
-			}
+			await this.readDownload(download);
+			if (!this.open) return;
 			this.rebuild();
 			this.changed();
 		}
 		void this.findLocked();
+	}
+
+	/** Reads what a download holds (in the worker), noting how it is on disk then. */
+	private async readDownload(download: ChosenDownload): Promise<void> {
+		this.stamps.set(download, this.hooks.stamp?.(download.input));
+		try {
+			const opened = await (await this.worker()).open(download.input);
+			if (!this.open) return;
+			download.notebooks = opened.notebooks;
+			download.incomplete = opened.incomplete;
+			download.state = 'ready';
+		}
+		catch (error) {
+			if (!this.open) return;
+			download.state = 'failed';
+			download.error = message(error);
+			download.stopped = error instanceof ConverterStopped;
+		}
+	}
+
+	/**
+	 * Looks again at what the window shows, when it opens after being hidden (§11.5 item 83): a
+	 * download changed on disk is read again (what was ticked stays), one gone says so; OneDrive is
+	 * asked again, and its notebooks imported before are brought up to date in the copy (only changed
+	 * files come down, only changed sections are read again); then the target folder, as it is now.
+	 */
+	async refresh(): Promise<void> {
+		if (!this.open) return;
+		await this.recheckDownloads();
+		const drive = this.downloads.find(download => download.onedrive);
+		if (this.open && drive && drive.state !== 'reading' && !drive.onedrive!.refreshing) {
+			drive.onedrive!.refreshed.clear();
+			void this.addOneDrive(drive.onedrive!.access);
+		}
+		if (!this.open) return;
+		this.archives.clear();
+		await this.lookUp();
+	}
+
+	/**
+	 * Reads again each download that changed on disk since it was read, keeping what was ticked in
+	 * it and what was read of its sections that did not change; one no longer there says so.
+	 * Answers whether any changed.
+	 */
+	private async recheckDownloads(): Promise<boolean> {
+		const stamp = this.hooks.stamp;
+		if (!stamp) return false;
+		let changed = false;
+		for (const download of [...this.downloads]) {
+			if (!this.open) return changed;
+			if (download.onedrive || download.state === 'reading' || !this.downloads.includes(download)) continue;
+			const now = stamp(download.input);
+			if (now === this.stamps.get(download)) continue;
+			changed = true;
+			// The worker has it open as it was (a zip keeps being read as it was): let go first.
+			if (this.client.running) await this.client.forget(download.input).catch(() => undefined);
+			if (!this.open) return changed;
+			download.error = undefined;
+			download.stopped = undefined;
+			download.incomplete = undefined;
+			if (now === undefined) {
+				this.stamps.set(download, undefined);
+				this.goneChoices.set(download, this.choices.filter(choice => choice.download === download));
+				download.missing = true;
+				download.state = 'failed';
+				download.notebooks = [];
+				download.locked = new Set();
+			}
+			else {
+				download.missing = undefined;
+				download.locked = undefined;
+				download.state = 'reading';
+				this.changed();
+				await this.readDownload(download);
+				if (!this.open) return changed;
+				this.dropStale(download, download.notebooks.flatMap(notebook => notebook.sections));
+			}
+			this.rebuild();
+			this.changed();
+		}
+		if (changed) void this.findLocked();
+		return changed;
+	}
+
+	/** Forgets what was read of the sections whose file changed on disk since: they are read again when compared next. */
+	private dropStale(download: ChosenDownload, sections: DownloadSection[]): void {
+		const stamp = this.hooks.stamp;
+		const scans = this.scans.get(download.input);
+		if (!stamp || !scans) return;
+		for (const section of sections) {
+			const scan = scans.get(section.path);
+			if (scan && scan.stamp !== stamp(download.input, section.path)) scans.delete(section.path);
+		}
+	}
+
+	/**
+	 * The OneDrive notebooks chosen, asked again just before the import (§11.5 item 83): their files
+	 * as OneDrive has them now, so that the sections downloaded, and the notebooks imported before
+	 * brought up to date in the copy, are OneNote as it is when the import starts. One that cannot
+	 * be asked (offline) stays as listed.
+	 */
+	private async freshenChosen(): Promise<void> {
+		const chosen = this.included().filter(choice => choice.download.onedrive);
+		await eachLimited(chosen, 10, async choice => {
+			const source = choice.download.onedrive!;
+			const entry = source.notebooks.get(choice.notebook.path);
+			if (!entry || !this.open) return;
+			try {
+				entry.files = await source.access.files(entry.notebook.id);
+			}
+			catch {
+				return;
+			}
+			source.refreshed.delete(entry.notebook.id);
+		});
 	}
 
 	remove(download: ChosenDownload): void {
@@ -348,6 +469,7 @@ export class ImportSession {
 		download.onedrive?.controller.abort();
 		const index = this.downloads.indexOf(download);
 		if (index >= 0) this.downloads.splice(index, 1);
+		this.goneChoices.delete(download);
 		this.rebuild();
 		this.changed();
 	}
@@ -522,6 +644,11 @@ export class ImportSession {
 		const entry = source?.notebooks.get(choice.notebook.path);
 		if (!source || !entry || source.refreshed.has(entry.notebook.id)) return;
 		source.refreshed.add(entry.notebook.id);
+		// Brought up to date again (the window opened again, or the import starts): told afresh.
+		for (const section of choice.notebook.sections) {
+			source.failed.delete(section.path);
+			choice.download.locked?.delete(section.path);
+		}
 		try {
 			const result = await source.access.copy(entry.notebook, entry.files, undefined, source.controller.signal, progress => {
 				// Only when there is something to download (a copy already up to date reports nothing to fetch).
@@ -538,6 +665,8 @@ export class ImportSession {
 			this.downloading = undefined;
 		}
 		await this.lookForPasswords(choice.download, choice.notebook.sections);
+		// Sections OneNote changed since they were read are read again.
+		this.dropStale(choice.download, choice.notebook.sections);
 	}
 
 	/**
@@ -602,13 +731,18 @@ export class ImportSession {
 	/** The notebooks of every download, in order; earlier choices kept, new ones with their defaults. */
 	private rebuild(): void {
 		const earlier = new Map(this.choices.map(choice => [choice.notebook, choice]));
+		// A download read again (it changed on disk) has its notebooks anew: what was ticked in each stays.
+		const place = (download: ChosenDownload, notebook: DownloadNotebook) => `${download.input}\u0000${notebook.path}`;
+		const before = new Map([...this.choices, ...[...this.goneChoices.values()].flat()].map(choice => [place(choice.download, choice.notebook), choice]));
 		const choices: NotebookChoice[] = [];
 		for (const download of this.downloads) {
 			for (const notebook of download.notebooks) {
-				choices.push(earlier.get(notebook) ?? { download, notebook, originalName: notebook.sourceName ?? notebook.name, ticks: new Map(), reconvert: new Set(), restore: new Map() });
+				const was = earlier.has(notebook) ? undefined : before.get(place(download, notebook));
+				choices.push(earlier.get(notebook) ?? { download, notebook, originalName: notebook.sourceName ?? notebook.name, ticks: was?.ticks ?? new Map(), reconvert: was?.reconvert ?? new Set(), restore: was?.restore ?? new Map() });
 			}
 		}
 		this.choices = choices;
+		for (const download of this.downloads) if (download.notebooks.length) this.goneChoices.delete(download);
 		this.renameAll();
 	}
 
@@ -871,6 +1005,8 @@ export class ImportSession {
 	/** Reads one section's pages in the worker. */
 	private async read(download: ChosenDownload, section: DownloadSection): Promise<void> {
 		let scan: Scan;
+		// Noted before it is read: a change while it is read shows next time.
+		const stamp = this.hooks.stamp?.(download.input, section.path);
 		const notDownloaded = download.onedrive?.failed.get(section.path);
 		if (section.incomplete) scan = { error: 'incomplete' };
 		else if (notDownloaded !== undefined) scan = { error: notDownloaded };
@@ -884,6 +1020,7 @@ export class ImportSession {
 				scan = { error: error instanceof ConverterStopped ? error.detail ?? error.message : message(error) };
 			}
 		}
+		if (stamp !== undefined) scan.stamp = stamp;
 		if (!this.scans.has(download.input)) this.scans.set(download.input, new Map());
 		this.scans.get(download.input)!.set(section.path, scan);
 	}
@@ -1102,30 +1239,46 @@ export class ImportSession {
 		return this.sectionState(choice, section) === 'same' && choice.reconvert.has(section.path);
 	}
 
+	/** The notebooks of one download (a source's box in the tree, §11.5 item 85), or of all. */
+	private of(download?: ChosenDownload): NotebookChoice[] {
+		return download ? this.choices.filter(choice => choice.download === download) : this.choices;
+	}
+
 	/** Some section has something to do (new, changed, left out before): select all takes those. */
-	private get anythingToDo(): boolean {
-		return this.choices.some(choice => this.choosable(choice).length > 0);
+	private anythingToDo(download?: ChosenDownload): boolean {
+		return this.of(download).some(choice => this.choosable(choice).length > 0);
 	}
 
 	/** Select all has something to take: what there is to do or, with nothing, the sections without changes. */
 	get selectable(): boolean {
-		return this.anythingToDo || this.choices.some(choice => this.unchanged(choice).length > 0);
+		return this.selectableIn();
 	}
 
 	/** Everything select all takes is chosen. */
 	get allChosen(): boolean {
-		if (!this.anythingToDo) return this.selectable && this.choices.every(choice => this.unchanged(choice).every(section => this.reconverts(choice, section)));
-		return this.choices.every(choice => this.choosable(choice).every(section => this.ticked(choice, section) === true));
+		return this.allChosenIn();
+	}
+
+	/** As selectable, for one download's notebooks only (all of them without one). */
+	selectableIn(download?: ChosenDownload): boolean {
+		return this.anythingToDo(download) || this.of(download).some(choice => this.unchanged(choice).length > 0);
+	}
+
+	/** As allChosen, for one download's notebooks only (all of them without one). */
+	allChosenIn(download?: ChosenDownload): boolean {
+		if (!this.anythingToDo(download)) return this.selectableIn(download) && this.of(download).every(choice => this.unchanged(choice).every(section => this.reconverts(choice, section)));
+		return this.of(download).every(choice => this.choosable(choice).every(section => this.ticked(choice, section) === true));
 	}
 
 	/**
 	 * Ticks what there is to do; with nothing to do, every section without changes, to convert it
-	 * again (as a notebook's row does, §11.5 item 65). Or unticks everything.
+	 * again (as a notebook's row does, §11.5 item 65). Or unticks everything. With `download`, only
+	 * in its notebooks (its box in the tree, §11.5 item 85).
 	 */
-	selectAll(value: boolean): void {
+	selectAll(value: boolean, download?: ChosenDownload): void {
 		if (!this.open) return;
-		const toDo = this.anythingToDo;
-		for (const choice of this.choices) {
+		const toDo = this.anythingToDo(download);
+		for (const choice of this.of(download)) {
 			for (const section of choice.notebook.sections) {
 				if (!value) choice.restore.delete(section.path);
 				if (this.sectionState(choice, section) === 'same') {
@@ -1161,6 +1314,24 @@ export class ImportSession {
 	/** The notebooks the import or update will write into: with a section chosen (which also means allowed in the target folder). */
 	included(): NotebookChoice[] {
 		return this.choices.filter(choice => choice.notebook.sections.some(section => this.isChosen(choice, section)));
+	}
+
+	/**
+	 * Notebooks new to the target folder ticked in more than one source under one name (by its name
+	 * in OneNote): each would be imported again as "Name (2)". Whether they are one notebook cannot
+	 * be told before the import (a download carries no OneDrive ID, and OneDrive's are not downloaded
+	 * yet), so the window only says so (§11.5 item 84). Two of one source are two notebooks there
+	 * (OneDrive's have IDs of their own; a download keeps them in two folders), so they do not count.
+	 */
+	tickedTwice(): string[] {
+		const sources = new Map<string, { name: string, downloads: Set<ChosenDownload> }>();
+		for (const choice of this.included()) {
+			if (choice.earlier) continue;
+			const name = key(choice.originalName);
+			if (!sources.has(name)) sources.set(name, { name: choice.originalName, downloads: new Set() });
+			sources.get(name)!.downloads.add(choice.download);
+		}
+		return [...sources.values()].filter(entry => entry.downloads.size > 1).map(entry => entry.name);
 	}
 
 	/**
@@ -1240,7 +1411,7 @@ export class ImportSession {
 		// Never two notebooks into one folder (see updaterOf; new ones get " (2)").
 		const folders = included.map(choice => key(choice.dir ?? notebookFolder(choice.notebook.name, STRINGS[this.language])));
 		return this.open && !this.starting && !this.reading && !this.checking && !this.findingLocked && !this.checkingUpdates
-			&& !this.folderError && !folderProblem(this.folder) && included.length > 0 && new Set(folders).size === folders.length;
+			&& !this.downloads.some(download => download.missing) && !this.folderError && !folderProblem(this.folder) && included.length > 0 && new Set(folders).size === folders.length;
 	}
 
 	/** Runs the import, the update, or both. Resolves when it ends (finished, stopped or failed). */
@@ -1251,11 +1422,19 @@ export class ImportSession {
 		// folder removed, renamed, added, or a section finished meanwhile).
 		this.starting = true;
 		this.changed();
+		// What was read may have changed since (§11.5 item 83): a download changed on disk is read
+		// again and nothing starts, so that what is imported is what the window shows; the OneDrive
+		// notebooks chosen are asked again, so that what comes down is OneNote as it is now.
+		let changedOnDisk = false;
 		try {
-			await this.hooks.beforeRun?.();
-			await finishCutOff(this.app, this.folder);
-			this.archives.clear();
-			await this.lookUp();
+			changedOnDisk = await this.recheckDownloads();
+			if (!changedOnDisk) {
+				await this.freshenChosen();
+				await this.hooks.beforeRun?.();
+				await finishCutOff(this.app, this.folder);
+				this.archives.clear();
+				await this.lookUp();
+			}
 		}
 		catch (error) {
 			if (this.open) this.folderError = message(error);
@@ -1263,7 +1442,7 @@ export class ImportSession {
 		finally {
 			this.starting = false;
 		}
-		if (!this.ready) {
+		if (changedOnDisk || !this.ready) {
 			this.changed();
 			return;
 		}

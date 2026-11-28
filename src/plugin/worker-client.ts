@@ -178,6 +178,11 @@ export class WorkerClient {
 		return this.request({ type: 'convert', input, section, dir, language, options, ...(staging ? { staging: staging.path, names } : {}) });
 	}
 
+	/** Closes one download that changed on disk (with its temporary copies): the next request naming it reads it as it is now. */
+	forget(input: string): Promise<void> {
+		return this.request({ type: 'forget', input });
+	}
+
 	/** Closes every open download (removing the worker's temporary copies). */
 	close(): Promise<void> {
 		return this.request({ type: 'close' });

@@ -83,16 +83,19 @@ async function opened(input: string): Promise<Download> {
 	}
 }
 
-function closeAll(): void {
-	for (const { download, scratch } of downloads.values()) {
+/** Closes the open downloads of these paths (all of them when none are given), with their temporary copies. */
+function closeAll(inputs?: string[]): void {
+	for (const input of inputs ?? [...downloads.keys()]) {
+		const open = downloads.get(input);
+		if (!open) continue;
+		downloads.delete(input);
 		try {
-			download.close();
+			open.download.close();
 		}
 		finally {
-			rmSync(scratch, { recursive: true, force: true });
+			rmSync(open.scratch, { recursive: true, force: true });
 		}
 	}
-	downloads.clear();
 }
 
 /** An update's section goes straight into its staging folder outside the vault; an import's into the vault, through the window. */
@@ -139,6 +142,9 @@ async function handle(message: ToWorker): Promise<unknown> {
 			const names = message.names ? { names: new Map(message.names.names), taken: new Set(message.names.taken) } : undefined;
 			return convertSection(message.section as DownloadSection, message.dir, STRINGS[message.language as Language], hostFor(download, message.staging), message.options as SectionOptions, names);
 		}
+		case 'forget':
+			closeAll([message.input]);
+			return null;
 		case 'close':
 			closeAll();
 			return null;

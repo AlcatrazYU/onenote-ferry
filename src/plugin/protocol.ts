@@ -27,6 +27,8 @@ export type ToWorker =
 	 * straight into that folder outside the vault; `names` keeps the file names an earlier import gave.
 	 */
 	| { type: 'convert', id: number, input: string, section: unknown, dir: string, language: string, options: unknown, staging?: string, names?: WireNames }
+	/** Closes one download, which changed on disk: the next request naming it opens it again. */
+	| { type: 'forget', id: number, input: string }
 	/** Closes every open download. */
 	| { type: 'close', id: number };
 
