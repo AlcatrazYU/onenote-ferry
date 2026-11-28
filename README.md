@@ -83,6 +83,8 @@ The page in the browser is shown only once. If the browser later says it cannot 
 
 On Windows and Linux, the window shows `Choose files` and `Choose folders` instead of `Choose files or folders`. When the folder you import into already holds some of these notebooks, the sections you tick are added to them.
 
+If you close the import window before starting, what you chose is kept until you quit Obsidian, and anything still being read or checked carries on, with its progress in the status bar. When you open the window again, it first checks whether your sources or your vault changed meanwhile. To start afresh, remove the sources with their ×.
+
 ## Keeping Notes Up to Date
 
 If you keep using OneNote, open the import window the same way you did to import, and choose the same source: `Import from OneDrive`, or a newer download or export of your notebooks. The window compares each notebook you imported before with your vault and ticks the sections that changed or are new. Click `Start update`. (The command `Check for OneNote updates` opens the same window, ready to check OneDrive.)
@@ -260,6 +262,8 @@ OneNote Ferry 直接读取笔记本本身的文件（来自你的 OneDrive，或
 3. 勾选需要的部分，点击 `开始导入`。
 
 在 Windows 和 Linux 上，窗口中显示的是 `选择文件` 和 `选择文件夹` 两个按钮，而不是 `选择文件或文件夹`。如果要导入到的文件夹里已经有这些笔记本，勾选的分区会加到原来的笔记本中。
+
+开始之前关掉导入窗口，已经选好的内容会保留到退出 Obsidian 为止，还没读完或没检查完的会在后台继续，进度显示在状态栏中。再次打开窗口时，会先核对来源和库中的内容是否有变化。如需从头开始，点来源那一行的 × 将它移除即可。
 
 ### 保持同步
 
@@ -443,6 +447,8 @@ OneNote からノートを移す方法は、すでにいくつもあります。
 
 Windows と Linux では、`ファイルまたはフォルダーを選択` の代わりに `ファイルを選択` と `フォルダーを選択` が表示されます。インポート先のフォルダーにこれらのノートブックがすでにある場合、チェックを入れたセクションはそのノートブックに追加されます。
 
+開始する前にインポート画面を閉じても、選んだ内容は Obsidian を終了するまで残り、読み込みや確認の途中だったものはそのまま続いて、進行状況はステータスバーに表示されます。もう一度開くと、まず取り込み元と保管庫に変化がないかを確認します。最初からやり直すには、取り込み元の行の × で削除してください。
+
 ### 最新の状態に保つ
 
 OneNote を使い続ける場合は、インポートしたときと同じようにインポート画面を開き、同じ取り込み元を選びます。`OneDrive からインポート` を選ぶか、新しくダウンロードしたファイルや書き出したファイルを選びます。画面は以前にインポートした各ノートブックを保管庫の内容と比べ、変更や追加のあったセクションにチェックを入れます。`更新を開始` をクリックします。（コマンドパレットの `OneNote の更新を確認` でも同じ画面が開き、そのまま OneDrive を確認できます。）
@@ -624,6 +630,8 @@ OneNote에서 노트를 옮기는 방법은 이미 여러 가지가 있습니다
 3. 필요한 것을 선택하고 `가져오기 시작`을 클릭합니다.
 
 Windows와 Linux에서는 `파일 또는 폴더 선택` 대신 `파일 선택`과 `폴더 선택`이 표시됩니다. 가져올 위치의 폴더에 이 전자 필기장이 이미 있으면, 선택한 섹션은 그 전자 필기장에 추가됩니다.
+
+시작하기 전에 가져오기 창을 닫아도 선택한 내용은 Obsidian을 종료할 때까지 남아 있고, 읽거나 확인하던 작업은 계속되며 진행 상황은 상태 표시줄에 나옵니다. 창을 다시 열면 먼저 가져올 곳과 보관함에 바뀐 것이 있는지 확인합니다. 처음부터 다시 하려면 가져올 곳 행의 ×로 제거하세요.
 
 ### 최신 상태로 유지하기
 
