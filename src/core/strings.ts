@@ -34,7 +34,6 @@ export interface Strings {
 	tocTitle(name: string): string;
 	/** Heading in a section's contents page above the pages OneNote no longer has (they stay, §11.5 item 51). */
 	noLongerInOneNote: string;
-	sectionOrderNote: string;
 	conversionFailedSuffix: string;
 	/** After a section that is password protected (in the notebook's table of contents). */
 	passwordProtectedSuffix: string;
@@ -210,7 +209,6 @@ export const en: Strings = {
 	conflictPageSuffix: ' (conflict)',
 	tocTitle: name => `${name} contents`,
 	noLongerInOneNote: 'Pages no longer in OneNote',
-	sectionOrderNote: '> Sections are sorted by name (files downloaded from OneDrive do not record the section order in OneNote).',
 	conversionFailedSuffix: ' (conversion failed)',
 	passwordProtectedSuffix: ' (password protected, not converted)',
 	cancelledSuffix: ' (not converted: the import was cancelled)',
@@ -321,7 +319,6 @@ export const zhHans: Strings = {
 	conflictPageSuffix: '（冲突版本）',
 	tocTitle: name => `${name} 目录`,
 	noLongerInOneNote: 'OneNote 中已移除的页面',
-	sectionOrderNote: '> 分区按名称排序（OneDrive 下载的文件里没有 OneNote 中的分区顺序）。',
 	conversionFailedSuffix: '（转换失败）',
 	passwordProtectedSuffix: '（有密码保护，未转换）',
 	cancelledSuffix: '（未转换：导入已取消）',
@@ -432,7 +429,6 @@ export const zhHant: Strings = {
 	conflictPageSuffix: '（衝突版本）',
 	tocTitle: name => `${name} 目錄`,
 	noLongerInOneNote: 'OneNote 中已移除的頁面',
-	sectionOrderNote: '> 節按名稱排序（OneDrive 下載的檔案裡沒有 OneNote 中的節順序）。',
 	conversionFailedSuffix: '（轉換失敗）',
 	passwordProtectedSuffix: '（有密碼保護，未轉換）',
 	cancelledSuffix: '（未轉換：匯入已取消）',
@@ -543,7 +539,6 @@ export const ja: Strings = {
 	conflictPageSuffix: '（競合）',
 	tocTitle: name => `${name} 目次`,
 	noLongerInOneNote: 'OneNote にはもうないページ',
-	sectionOrderNote: '> セクションは名前順です（OneDrive からダウンロードしたファイルには、OneNote でのセクションの並び順が含まれていません）。',
 	conversionFailedSuffix: '（変換失敗）',
 	passwordProtectedSuffix: '（パスワード保護のため未変換）',
 	cancelledSuffix: '（未変換：インポートを中止しました）',
@@ -654,7 +649,6 @@ export const ko: Strings = {
 	conflictPageSuffix: ' (충돌 버전)',
 	tocTitle: name => `${name} 목차`,
 	noLongerInOneNote: 'OneNote에 더 이상 없는 페이지',
-	sectionOrderNote: '> 섹션은 이름순으로 정렬됩니다 (OneDrive에서 다운로드한 파일에는 OneNote의 섹션 순서가 들어 있지 않습니다).',
 	conversionFailedSuffix: ' (변환 실패)',
 	passwordProtectedSuffix: ' (암호로 보호되어 변환하지 않음)',
 	cancelledSuffix: ' (가져오기를 취소하여 변환하지 않음)',

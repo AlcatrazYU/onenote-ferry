@@ -99,14 +99,13 @@ test('invariants: writes stay in the section folder; every attachment is linked 
 	assert.deepEqual([...linked].sort(), [...written].sort());
 });
 
-test('notebook table of contents lists sections and groups, marks failures', () => {
+test('notebook table of contents lists sections and groups, marks failures; no note on their order (§11.5 item 104)', () => {
 	const toc = notebookToc('Notebook', [
 		{ groups: [], section: 'Intro' },
 		{ groups: ['Group'], section: 'Inner: part', failed: true },
 	], zhHans);
 	assert.equal(toc, [
 		'---', 'title: "Notebook 目录"', 'onenote-import: complete', '---', '', '# Notebook', '',
-		'> 分区按名称排序（OneDrive 下载的文件里没有 OneNote 中的分区顺序）。', '',
 		'- [Intro](<Intro/_目录.md>)',
 		'- Group',
 		'\t- [Inner: part](<Group/Inner： part/_目录.md>)（转换失败）',
@@ -171,7 +170,8 @@ test('the notebook table of contents names section groups above their sections a
 		{ groups: ['Pier'], section: 'After' },
 		{ groups: ['Harbour'], section: 'Other' },
 	], zhHans);
-	assert.equal(toc.split('\n').slice(9).join('\n'), [
+	// The head is the properties and the notebook's name (§11.5 item 104: no note after it).
+	assert.equal(toc.split('\n').slice(7).join('\n'), [
 		'- [Top](<Top/_目录.md>)',
 		'- [Locked](<Locked/_目录.md>)（有密码保护，未转换）',
 		'- Pier',

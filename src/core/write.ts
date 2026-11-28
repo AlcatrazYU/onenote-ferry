@@ -355,7 +355,7 @@ export function failedSectionToc(label: string, reason: string, strings: Strings
  */
 export function notebookToc(notebookName: string, entries: NotebookTocEntry[], strings: Strings, status: 'importing' | 'complete' = 'complete', oneDrive?: string): string {
 	const name = composedText(notebookName);
-	const lines = [...tocHead(name, strings, status, oneDrive), strings.sectionOrderNote, ''];
+	const lines = tocHead(name, strings, status, oneDrive);
 	// Sections come group by group; each group's name is a line above its sections. Names are text:
 	// whatever Markdown or Obsidian would read as structure in them is escaped.
 	let open: string[] = [];

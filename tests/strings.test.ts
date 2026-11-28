@@ -92,7 +92,6 @@ test('notices and titles include what they are about', () => {
 		const s = STRINGS[language];
 		assert.ok(s.missingAttachment('Sample.pdf').includes('Sample.pdf'), language);
 		assert.ok(s.tocTitle('Sample notebook').includes('Sample notebook'), language);
-		assert.ok(s.sectionOrderNote.startsWith('> '), language);
 	}
 });
 
@@ -100,7 +99,6 @@ test('the Simplified Chinese column is the one the existing output uses', () => 
 	assert.equal(zhHans.boxMarker(2, 12, '22.2', '3.7'), '<!-- 第2块（共12块） 页面位置：左 22.2 cm，上 3.7 cm -->');
 	assert.equal(zhHans.missingAttachment('a.pdf'), '〔附件缺失：a.pdf（OneDrive 上的笔记本文件里没有这个文件的数据）〕');
 	assert.equal(zhHans.tocTitle('X'), 'X 目录');
-	assert.equal(zhHans.sectionOrderNote, '> 分区按名称排序（OneDrive 下载的文件里没有 OneNote 中的分区顺序）。');
 	assert.deepEqual(
 		[zhHans.attachmentsFolder, zhHans.tocFileName, zhHans.oldVersionsFolder, zhHans.updateLogFolder, zhHans.reportName, zhHans.imageWord, zhHans.inkWord, zhHans.untitledPage, zhHans.unnamedFile, zhHans.conflictPageSuffix, zhHans.conversionFailedSuffix],
 		['_附件', '_目录', '_旧版本', '_更新记录', '_转换报告', '图', '手写', '无标题', '未命名文件', '（冲突版本）', '（转换失败）'],
