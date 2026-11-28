@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { register } from 'node:module';
 import type { DownloadNotebook, DownloadSection } from '../src/core/download.ts';
 import type { ScannedPage } from '../src/core/sync.ts';
+import type { KeptScan } from '../src/node/scan-store.ts';
 
 register('./support/hooks.mjs', import.meta.url);
 const { ImportSession } = await import('../src/plugin/session.ts');
@@ -134,17 +135,27 @@ class FakeClient {
 type Disk = Record<string, string | undefined>;
 const stampOn = (disk: Disk) => ({ stamp: (input: string, section?: string) => disk[section === undefined ? input : `${input}:${section}`] });
 
+/** What checks read, kept across sessions (§11.5 item 90), held in memory: by download, by section path. */
+type KeptStore = Map<string, Map<string, KeptScan>>;
+const keptIn = (store: KeptStore) => ({
+	keptScans: async (input: string) => new Map(store.get(input) ?? []),
+	keepScans: async (input: string, scans: ReadonlyMap<string, KeptScan>) => {
+		store.set(input, new Map(scans));
+	},
+});
+
 const DEFAULTS = { folder: 'T', boxMarkers: true, imageAltText: false };
 
 /** A table of contents of ours, with how far its import got (§11.5 item 47). */
 const toc = (status: 'importing' | 'complete' | 'failed', name = 'Tides') => `---\ntitle: "${name}"\nonenote-import: ${status}\n---\n\n# ${name}\n`;
 
-async function session(files: Record<string, string>, downloads: Record<string, DownloadNotebook[]>, options: { folders?: string[], folder?: string, locked?: Record<string, string[]>, failRead?: boolean, pages?: Record<string, ScannedPage[]>, failing?: string[], mtimes?: Record<string, number>, disk?: Disk } = {}) {
+async function session(files: Record<string, string>, downloads: Record<string, DownloadNotebook[]>, options: { folders?: string[], folder?: string, locked?: Record<string, string[]>, failRead?: boolean, pages?: Record<string, ScannedPage[]>, failing?: string[], mtimes?: Record<string, number>, disk?: Disk, kept?: KeptStore } = {}) {
 	const client = new FakeClient(downloads);
 	client.lockedPaths = options.locked ?? {};
 	client.pages = options.pages ?? {};
 	client.failing = new Set(options.failing ?? []);
-	const s = new ImportSession(fakeApp(files, options.folders, options.failRead, options.mtimes), client as never, { ...DEFAULTS, folder: options.folder ?? 'T' }, 'zh-Hans', 'import', options.disk ? stampOn(options.disk) : {});
+	const hooks = { ...options.disk ? stampOn(options.disk) : {}, ...options.kept ? keptIn(options.kept) : {} };
+	const s = new ImportSession(fakeApp(files, options.folders, options.failRead, options.mtimes), client as never, { ...DEFAULTS, folder: options.folder ?? 'T' }, 'zh-Hans', 'import', hooks);
 	await s.add(Object.keys(downloads));
 	await settled(s);
 	return { s, client };
@@ -647,10 +658,10 @@ function fakeOneDrive(notebooks: { id: string, name: string, files: string[] }[]
 	return { access, copies };
 }
 
-async function oneDriveSession(files: Record<string, string>, drive: ReturnType<typeof fakeOneDrive>, pages: Record<string, ScannedPage[]> = {}, disk?: Disk) {
+async function oneDriveSession(files: Record<string, string>, drive: ReturnType<typeof fakeOneDrive>, pages: Record<string, ScannedPage[]> = {}, disk?: Disk, kept?: KeptStore) {
 	const client = new FakeClient({});
 	client.pages = pages;
-	const s = new ImportSession(fakeApp(files), client as never, DEFAULTS, 'zh-Hans', 'import', disk ? stampOn(disk) : {});
+	const s = new ImportSession(fakeApp(files), client as never, DEFAULTS, 'zh-Hans', 'import', { ...disk ? stampOn(disk) : {}, ...kept ? keptIn(kept) : {} });
 	await s.addOneDrive(drive.access as never);
 	await settled(s);
 	return { s, client };
@@ -948,6 +959,42 @@ test('OneDrive, opened again: OneDrive is asked again, a notebook imported befor
 	await settled(s);
 	assert.equal(drive.copies.length, 2, 'brought up to date again');
 	assert.equal(client.scanned, read + 1, 'only the section that changed is read again');
+});
+
+test('kept across sessions (§11.5 item 90): a new window reads only the sections whose file changed since; one that could not be read is not kept', async () => {
+	const { files, tides, pages, mtimes } = importedTides();
+	const disk: Disk = { a: '1', ...Object.fromEntries(tides.sections.map(section => [`a:${section.path}`, '1'])) };
+	const kept: KeptStore = new Map();
+	const first = await session(files, { a: [tides] }, { pages, mtimes, disk, kept, failing: ['Tides/Autumn.one'] });
+	assert.equal(first.client.scanned, 7);
+	assert.deepEqual([...kept.get('a')!.keys()].sort(), ['Tides/Fresh.one', 'Tides/Lost.one', 'Tides/Older.one', 'Tides/Skipped.one', 'Tides/Spring.one', 'Tides/Summer.one'], 'all but the one that could not be read');
+	// A new window (Obsidian started again): only the section not kept is read, and all compare as if read.
+	const second = await session(files, { a: [tides] }, { pages, mtimes, disk, kept });
+	assert.equal(second.client.scanned, 1);
+	assert.deepEqual(states(second.s), ['changed', 'changed', 'same', 'older', 'new', 'skipped', 'missing']);
+	// Spring changed on disk since: read again, and what changed in it shows.
+	disk['a:Tides/Spring.one'] = '2';
+	const third = await session(files, { a: [tides] }, { pages: { ...pages, 'Tides/Spring.one': [scanned('{0A}', 'One', T2), scanned('{0B}', 'Two', T2)] }, mtimes, disk, kept });
+	assert.equal(third.client.scanned, 1, 'only the section that changed');
+	const [choice] = third.s.choices as [typeof third.s.choices[0]];
+	assert.equal(third.s.itemOf(choice, choice.notebook.sections[0]!)!.modified.length, 2);
+});
+
+test('OneDrive, kept across sessions (§11.5 item 90): used while the copy\'s file is as it was, never for a section that could not be downloaded this time', async () => {
+	const { files, pages } = importedTides();
+	const sections = ['Spring', 'Summer', 'Autumn', 'Older', 'Fresh', 'Skipped', 'Lost'];
+	const notebooks = [{ id: 'n1', name: 'Tides', files: [...sections.map(name => `${name}.one`), 'Open Notebook.onetoc2'] }];
+	const oneDrivePages = Object.fromEntries(Object.entries(pages).map(([path, list]) => [`n1/${path}`, list]));
+	const disk: Disk = Object.fromEntries(sections.map(name => [`/copy:n1/Tides/${name}.one`, '1']));
+	const kept: KeptStore = new Map();
+	const first = await oneDriveSession(files, fakeOneDrive(notebooks), oneDrivePages, disk, kept);
+	assert.equal(first.client.scanned, 7);
+	// A new window: Summer could not be downloaded this time, so the copy still holds it as it was.
+	const { s, client } = await oneDriveSession(files, fakeOneDrive(notebooks, ['Summer.one']), oneDrivePages, disk, kept);
+	assert.equal(client.scanned, 0, 'nothing is read again');
+	const [choice] = s.choices as [typeof s.choices[0]];
+	assert.equal(s.sectionState(choice, choice.notebook.sections.find(section => section.label === 'Summer')!), 'unreadable', 'not taken from what was kept');
+	assert.equal(s.sectionState(choice, choice.notebook.sections.find(section => section.label === 'Spring')!), 'changed');
 });
 
 test('OneDrive: when the import starts, the notebooks chosen are asked again, so that what comes down is OneNote as it is then', async () => {

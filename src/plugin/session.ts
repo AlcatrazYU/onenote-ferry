@@ -27,6 +27,7 @@ import { notebookFolder } from '../core/write.ts';
 import type { IncompleteZip } from '../node/download.ts';
 import { isLockedFile, notebookPath } from '../node/mirror.ts';
 import type { CopyProgress, CopyResult } from '../node/mirror.ts';
+import type { KeptScan } from '../node/scan-store.ts';
 import { AlreadyThereError, downloadName, runImport } from './run-import.ts';
 import type { ImportOutcome } from './run-import.ts';
 import { finishCutOff, runUpdate } from './run-update.ts';
@@ -186,6 +187,13 @@ export interface SessionHooks {
 	 * downloads are not looked at again.
 	 */
 	stamp?(input: string, section?: string): string | undefined;
+	/**
+	 * What a check in an earlier session read from a download, by section path, each with its file's
+	 * stamp then (§11.5 item 90); used only while the file is still like that.
+	 */
+	keptScans?(input: string): Promise<Map<string, KeptScan>>;
+	/** Keeps what was read from a download for the checks of later sessions. */
+	keepScans?(input: string, scans: ReadonlyMap<string, KeptScan>): Promise<void>;
 	/** An update of the folder is about to write: it is to be finished at the next start if cut off. */
 	updateStarting?(root: string): Promise<void>;
 	/** The update of the folder ended (its journal is closed). */
@@ -284,6 +292,8 @@ export class ImportSession {
 	private taggedFolders = new Map<string, string[]>();
 	/** Sections read for an update, by download and section path (they do not depend on the target folder). */
 	private readonly scans = new Map<string, Map<string, Scan>>();
+	/** What earlier sessions read, by download (loaded once, see useKept). */
+	private readonly kept = new Map<string, Map<string, KeptScan>>();
 	/** Each download as it was on disk when it was read (see SessionHooks.stamp). */
 	private readonly stamps = new Map<ChosenDownload, string | undefined>();
 	/** What was ticked in a download while it is gone from disk: it comes back with it. */
@@ -979,12 +989,16 @@ export class ImportSession {
 					for (const choice of this.updatable) {
 						if (choice.download.onedrive?.refreshing) continue;
 						if (choice.download.onedrive && this.open) await this.refreshCopy(choice);
+						await this.useKept(choice);
+						let read = false;
 						for (const section of choice.notebook.sections) {
 							if (!this.open) return;
 							if (!this.downloads.includes(choice.download) || this.scanOf(choice.download, section)) continue;
 							await this.read(choice.download, section);
+							read = true;
 							this.changed();
 						}
+						if (read) await this.keep(choice.download);
 					}
 					if (!this.open) return;
 					await this.planAll();
@@ -1000,6 +1014,47 @@ export class ImportSession {
 			}
 		})();
 		return this.checkRun;
+	}
+
+	/**
+	 * Takes what an earlier session read of a notebook's sections, for those not read in this one
+	 * whose file is as it was then (§11.5 item 90). Never for a section OneDrive could not download
+	 * this time (the copy holds an older file): it is told as before. One that could not be read is
+	 * never kept, so a file cut off is read again.
+	 */
+	private async useKept(choice: NotebookChoice): Promise<void> {
+		const { download } = choice;
+		const stamp = this.hooks.stamp;
+		if (!stamp || !this.hooks.keptScans) return;
+		let kept = this.kept.get(download.input);
+		if (!kept) {
+			kept = await this.hooks.keptScans(download.input).catch(() => new Map<string, KeptScan>());
+			this.kept.set(download.input, kept);
+		}
+		if (!this.open) return;
+		if (!this.scans.has(download.input)) this.scans.set(download.input, new Map());
+		const scans = this.scans.get(download.input)!;
+		for (const section of choice.notebook.sections) {
+			const one = kept.get(section.path);
+			if (!one || scans.has(section.path) || download.onedrive?.failed.has(section.path)) continue;
+			if (one.stamp === stamp(download.input, section.path)) scans.set(section.path, { pages: one.pages, stamp: one.stamp });
+		}
+		this.changed();
+	}
+
+	/**
+	 * Keeps what was read from a download for later sessions (§11.5 item 90): each section read whole,
+	 * with its file's stamp; what was kept for its other sections stays. A failure only costs a read.
+	 */
+	private async keep(download: ChosenDownload): Promise<void> {
+		if (!this.hooks.keepScans) return;
+		const listed = new Set(download.notebooks.flatMap(notebook => notebook.sections.map(section => section.path)));
+		const next = new Map([...this.kept.get(download.input) ?? []].filter(([path]) => listed.has(path)));
+		for (const [path, scan] of this.scans.get(download.input) ?? []) {
+			if (scan.pages && scan.stamp !== undefined && listed.has(path)) next.set(path, { stamp: scan.stamp, pages: scan.pages });
+		}
+		this.kept.set(download.input, next);
+		await this.hooks.keepScans(download.input, next).catch(() => undefined);
 	}
 
 	/** Reads one section's pages in the worker. */

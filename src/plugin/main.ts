@@ -9,6 +9,7 @@ import { markerLanguageFor } from '../core/strings.ts';
 import { findRemoteNotebooks } from '../core/onedrive.ts';
 import { downloadStamp } from '../node/download.ts';
 import { copyRoot, systemCacheFolder, updateCopy } from '../node/mirror.ts';
+import { readScans, scansFolder, writeScans } from '../node/scan-store.ts';
 import { MicrosoftAccount } from './account.ts';
 import { driveOf, graphFor, linkFor, oneDriveAccess, streamingFetch } from './onedrive.ts';
 import type { OneDriveBrowse } from './onedrive.ts';
@@ -76,6 +77,9 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 			await this.saveSettings();
 		},
 		stamp: downloadStamp,
+		// What checks read, kept across sessions in the system's cache folder (§11.5 item 90).
+		keptScans: input => readScans(scansFolder(systemCacheFolder()), input, this.manifest.version),
+		keepScans: (input, scans) => writeScans(scansFolder(systemCacheFolder()), input, this.manifest.version, scans),
 	};
 
 	async onload(): Promise<void> {
