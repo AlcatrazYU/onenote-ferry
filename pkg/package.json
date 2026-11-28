@@ -1,0 +1,13 @@
+{
+  "name": "ferry",
+  "description": "OneNote Ferry's bridge to the OneNote parser: section JSON and attachments, natively and as WebAssembly",
+  "version": "0.1.0",
+  "license": "MPL-2.0",
+  "files": [
+    "ferry_bg.wasm",
+    "ferry.js",
+    "ferry.d.ts"
+  ],
+  "main": "ferry.js",
+  "types": "ferry.d.ts"
+}

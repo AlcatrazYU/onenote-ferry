@@ -25,7 +25,7 @@ let ferry: (WasmParser & { memoryBytes(): number }) | undefined;
 
 /** The parser, started on first use from the WebAssembly bytes the plugin handed over. */
 function parser(): WasmParser & { memoryBytes(): number } {
-	if (!ferry) ferry = require('../../build/parser-wasm/ferry.js');
+	if (!ferry) ferry = require('../../pkg/ferry.js');
 	return ferry!;
 }
 

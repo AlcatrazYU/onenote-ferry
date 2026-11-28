@@ -4,16 +4,23 @@ This page is for people who want to build OneNote Ferry from source, run its tes
 
 ## Building the plugin
 
-You need Node.js 22.18 or later, and, for the parser, Rust with [wasm-pack](https://rustwasm.github.io/wasm-pack/).
+You need Node.js 22.18 or later.
 
 ```bash
 npm install
-npm run build:parser
 npm test
 node scripts/build-plugin.mjs --install "<your vault>/.obsidian/plugins/onenote-ferry"
 ```
 
-`npm run build:parser` compiles the OneNote parser (in `parser/`) to WebAssembly. The last command builds `main.js` and copies the plugin into a vault; reload the plugin in Obsidian afterwards.
+The last command builds `main.js` and copies the plugin into a vault; reload the plugin in Obsidian afterwards. `npm run build:plugin` builds it without copying it anywhere (into `build/plugin/`).
+
+The OneNote parser, written in Rust in `parser/`, comes compiled to WebAssembly in `pkg/`, so that the plugin builds with Node alone. To compile it again after changing the parser, you also need Rust with [wasm-pack](https://rustwasm.github.io/wasm-pack/):
+
+```bash
+npm run build:parser
+```
+
+It writes the same files into `pkg/`: the build leaves your own paths out of them.
 
 ## Command line
 

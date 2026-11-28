@@ -1,5 +1,6 @@
 .DS_Store
 node_modules/
-# Build output (parser WebAssembly, Rust targets when CARGO_TARGET_DIR is not set)
+# Build output (the plugin, Rust targets when CARGO_TARGET_DIR is not set). The compiled parser in
+# pkg/ is kept in the repository: the plugin then builds with Node alone.
 build/
 parser/target/

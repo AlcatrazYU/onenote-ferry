@@ -27,7 +27,7 @@ const UPDATE = process.env.UPDATE === '1';
 interface WasmParser {
 	parseSection(path: string): { takeJson(): string; readAsset(key: string): Uint8Array; free(): void };
 }
-const parserFile = join(ROOT, 'build/parser-wasm/ferry.js');
+const parserFile = join(ROOT, 'pkg/ferry.js');
 const ferry = existsSync(parserFile) ? createRequire(import.meta.url)(parserFile) as WasmParser : undefined;
 
 function sampleFiles(dir: string): string[] {

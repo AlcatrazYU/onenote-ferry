@@ -1,0 +1,20 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const __wbg_parsedsection_free: (a: number, b: number) => void;
+export const memoryBytes: () => number;
+export const parseSection: (a: number, b: number) => [number, number, number];
+export const parsedsection_assetCount: (a: number) => number;
+export const parsedsection_readAsset: (a: number, b: number, c: number) => [number, number, number, number];
+export const parsedsection_rowProfile: (a: number, b: number, c: number) => [number, number];
+export const parsedsection_takeJson: (a: number) => [number, number];
+export const tocNames: (a: number, b: number) => [number, number];
+export const __wbindgen_exn_store: (a: number) => void;
+export const __externref_table_alloc: () => number;
+export const __wbindgen_export_2: WebAssembly.Table;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+export const __externref_table_dealloc: (a: number) => void;
+export const __externref_drop_slice: (a: number, b: number) => void;
+export const __wbindgen_start: () => void;

@@ -9,7 +9,7 @@
 // native `dump` binary when --dump is given (folders only).
 // Options:
 //   --dump <path>        use the native parser binary instead of WebAssembly
-//   --parser-wasm <dir>  where the WebAssembly build is (default: build/parser-wasm)
+//   --parser-wasm <dir>  where the WebAssembly build is (default: pkg, as npm run build:parser writes it)
 //   --tmp <dir>          where to make this run's private scratch folder (default: the system temp
 //                        folder); the scratch folder is removed at the end
 //   --only "A|B"         convert only these notebooks (exact names)
@@ -89,7 +89,7 @@ function parseArgs(argv: string[]) {
 	};
 	const parsed = {
 		dump: option('--dump'),
-		parserWasm: option('--parser-wasm') ?? fileURLToPath(new URL('../../build/parser-wasm', import.meta.url)),
+		parserWasm: option('--parser-wasm') ?? fileURLToPath(new URL('../../pkg', import.meta.url)),
 		tmp: option('--tmp') ?? tmpdir(),
 		only: option('--only')?.split('|').filter(Boolean),
 		language: option('--language') ?? SYSTEM_LANGUAGE,

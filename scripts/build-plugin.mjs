@@ -15,11 +15,13 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const OUT = join(ROOT, 'build/plugin');
-const WASM_DIR = join(ROOT, 'build/parser-wasm');
+// The parser compiled from parser/ (npm run build:parser), kept in the repository so that the
+// plugin builds with Node alone, as the community directory's review builds it (§11.5 item 94).
+const WASM_DIR = join(ROOT, 'pkg');
 const install = process.argv.includes('--install') ? process.argv[process.argv.indexOf('--install') + 1] : undefined;
 
 if (!existsSync(join(WASM_DIR, 'ferry_bg.wasm'))) {
-	console.error('Missing build/parser-wasm: run npm run build:parser first.');
+	console.error('Missing pkg/ferry_bg.wasm: run npm run build:parser.');
 	process.exit(1);
 }
 
@@ -30,7 +32,7 @@ if (!existsSync(join(WASM_DIR, 'ferry_bg.wasm'))) {
 const parserGlue = {
 	name: 'parser-glue',
 	setup(b) {
-		b.onLoad({ filter: /parser-wasm[\\/]ferry\.js$/ }, args => {
+		b.onLoad({ filter: /pkg[\\/]ferry\.js$/ }, args => {
 			let source = readFileSync(args.path, 'utf8');
 			const loading = "const path = require('path').join(__dirname, 'ferry_bg.wasm');\nconst bytes = require('fs').readFileSync(path);";
 			if (!source.includes(loading)) throw new Error('ferry.js: the WebAssembly loading code changed; update scripts/build-plugin.mjs');
