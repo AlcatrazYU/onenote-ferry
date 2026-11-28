@@ -1,6 +1,6 @@
 {
   "name": "onenote-ferry",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
   "description": "Convert OneNote notebooks from OneDrive, folders downloaded from the OneDrive website or OneNote for Windows exports into Markdown for Obsidian, and keep them up to date.",
   "author": "AlcatrazYU",

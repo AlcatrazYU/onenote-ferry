@@ -1,12 +1,11 @@
-# OneNote Ferry 1.1.1
+# OneNote Ferry 1.1.2
 
-A fix for notebooks imported directly from OneDrive. Pages, folders and attachments are converted exactly as with 1.1.0.
+Two fixes to notebooks' contents pages. Pages and attachments are converted exactly as with 1.1.1.
 
-## Fix
+## Fixes
 
-- When you import notebooks directly from OneDrive, or check them for updates, each notebook's contents page now lists its sections in the order OneNote shows them. Before, it listed them by name. Imports from a folder downloaded from the OneDrive website, a zip or a `.onepkg` already used OneNote's order.
-- A notebook you imported from OneDrive before gets the new order the next time a check for updates updates or reconverts one of its sections. Nothing else in it changes.
-- The import window still lists OneDrive sections by name.
+- A check for updates that updated or reconverted some sections of a notebook no longer drops what the notebook's contents page and the conversion report said about its sections that could not be converted: a password protected section, one whose conversion failed, or one that did not download completely. Before, they were then listed as if they had been imported. A notebook an earlier version updated gets these marks back the next time a check for updates updates or reconverts one of its sections.
+- A notebook's contents page no longer begins with a note saying that sections are sorted by name. They have been listed in the order OneNote shows them since 1.0.0 (since 1.1.1 for notebooks imported directly from OneDrive). A contents page you already have loses the note the next time a check for updates rewrites it.
 
 ## Requirements
 
