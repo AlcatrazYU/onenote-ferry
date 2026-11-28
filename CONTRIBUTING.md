@@ -20,7 +20,7 @@ For anything larger than a small fix, open an issue first, so that we can agree 
 
 How to build the plugin, run the tests and use the command line version is described in [docs/development.md](docs/development.md). Before you send a pull request:
 
-- run `npm run typecheck` and `npm test`, and add a test for what you changed;
+- run `npm run typecheck`, `npm test` and `npm run test:samples`, and add a test for what you changed;
 - use made-up text in tests, never text from real notes;
 - keep interface text in all four interface languages (`src/plugin/i18n.ts`), and text written into notes in all five note languages (`src/core/strings.ts`);
 - do not use dash characters (U+2013, U+2014, U+2015) in public text: a test checks for them;

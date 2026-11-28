@@ -32,7 +32,7 @@ Which tool suits which situation:
 
 ## Quick Start
 
-1. Install and enable OneNote Ferry from Obsidian's Community plugins. It works in Obsidian on a computer, not on phones or tablets.
+1. Install and enable OneNote Ferry from Obsidian's Community plugins. It needs Obsidian 1.13 or later on a computer, and does not work on phones or tablets.
 2. Click the paper boat icon ![OneNote Ferry ribbon icon](docs/assets/ribbon-icon.svg) in the left ribbon, or run `Import OneNote notes` from the command palette, to open the import window.
 3. Choose where your notebooks come from:
    - `Import from OneDrive`: the first time, your browser opens for you to sign in to your Microsoft account. The plugin asks only to read your files.
@@ -89,6 +89,8 @@ On Windows and Linux, the window shows `Choose files` and `Choose folders` inste
 
 If you close the import window before starting, what you chose is kept until you quit Obsidian, and anything still being read or checked carries on, with its progress in the status bar. When you open the window again, it first checks whether your sources or your vault changed meanwhile. To start afresh, remove the sources with their ×.
 
+To stop an import or update, click `Stop` in the window, or run `Stop the OneNote import or update after the current section` from the command palette. The section being converted is finished first. Import again, or check for updates again, to convert the rest.
+
 ## Keeping Notes Up to Date
 
 If you keep using OneNote, open the import window the same way you did to import, and choose the same source: `Import from OneDrive`, the folder downloaded again from the OneDrive website, or a new export from OneNote for Windows. The window compares each notebook you imported before with your vault and ticks the sections that changed or are new. Click `Start update`. (The command `Check for OneNote updates` opens the same window, where the OneDrive row reads `Check OneDrive for updates`.)
@@ -118,6 +120,7 @@ The import window shows these settings for each import. Their defaults are in th
 ```
 OneNote/                        the folder you import into
 ├── _conversion report.md       what was imported, and what could not be
+├── _conversion report.json     what later updates read; leave it in place
 ├── _previous versions/         pages that updates replaced
 ├── _sync log/                  what each update changed
 └── My notebook/
@@ -145,7 +148,7 @@ Inside a notebook, the names follow the language it was imported with, for examp
 - The sign-in is kept in Obsidian's secret storage, not in the plugin's settings file. `Sign out` in the plugin's settings forgets it on this device.
 - To withdraw the plugin's access, go to [account.live.com/consent/Manage](https://account.live.com/consent/Manage) for a personal account, or [myapps.microsoft.com](https://myapps.microsoft.com) for a work or school account.
 
-**Cache.** Outside your vault, in `~/Library/Caches/onenote-ferry` on macOS, `%LOCALAPPDATA%\onenote-ferry` on Windows and `~/.cache/onenote-ferry` on Linux, the plugin keeps two things. In `onedrive`: the notebooks downloaded from OneDrive, so that later only changes are downloaded. In `scans`: what each check for updates read of your sections (page titles and times), so that a check after Obsidian restarts reads only the sections that changed. `Download cache` in the plugin's settings shows how much space the downloads take, and its `Clear` button removes both; your notes in the vault are not affected. Before you uninstall the plugin, clear the cache, or delete the `onenote-ferry` folder above.
+**Cache.** Outside your vault, in `~/Library/Caches/onenote-ferry` on macOS, `%LOCALAPPDATA%\onenote-ferry` on Windows and `~/.cache/onenote-ferry` on Linux (`$XDG_CACHE_HOME/onenote-ferry` when that is set), the plugin keeps two things. In `onedrive`: the notebooks downloaded from OneDrive, so that later only changes are downloaded. In `scans`: what each check for updates read of your sections (page titles and times), so that a check after Obsidian restarts reads only the sections that changed. `Download cache` in the plugin's settings shows how much space the downloads take, and its `Clear` button removes both; your notes in the vault are not affected. Before you uninstall the plugin, clear the cache, or delete the `onenote-ferry` folder above.
 
 OneNote Ferry is an independent project, not made or endorsed by Microsoft. OneNote and OneDrive are trademarks of Microsoft.
 
@@ -216,7 +219,7 @@ OneNote Ferry 在 Obsidian 里运行，把 OneNote 笔记本的每一页转换�
 
 ### 快速开始
 
-1. 在 Obsidian 的社区插件中安装并启用 OneNote Ferry。它只能在电脑上的 Obsidian 中使用，手机和平板上不能用。
+1. 在 Obsidian 的社区插件中安装并启用 OneNote Ferry。它需要电脑上的 Obsidian 1.13 或更高版本，手机和平板上不能用。
 2. 点击左侧功能区的纸船图标 ![OneNote Ferry 功能区图标](docs/assets/ribbon-icon.svg)，或在命令面板中运行 `导入 OneNote 笔记`，打开导入窗口。
 3. 选择笔记本的来源：
    - `从 OneDrive 导入`：第一次使用时会打开浏览器，请登录你的微软账号。插件只申请读取你的文件。
@@ -273,6 +276,8 @@ OneNote Ferry 在 Obsidian 里运行，把 OneNote 笔记本的每一页转换�
 
 开始之前关掉导入窗口，已经选好的内容会保留到退出 Obsidian 为止，还没读完或没检查完的会在后台继续，进度显示在状态栏中。再次打开窗口时，会先核对来源和仓库中的内容是否有变化。如需从头开始，点来源那一行的 × 将它移除即可。
 
+要停止导入或更新，点击窗口里的 `停止`，或在命令面板中运行 `在当前分区完成后停止 OneNote 导入或更新`。正在转换的分区会先写完。之后再导入一次，或再检查一次更新，就能补齐其余部分。
+
 ### 保持同步
 
 如果你还在继续使用 OneNote，像导入时一样再次打开导入窗口，选择原来的来源即可：`从 OneDrive 导入`；或者选择在 OneDrive 网页上重新下载的文件夹、Windows 版 OneNote 重新导出的文件。窗口会把以前导入过的每本笔记本与仓库中的内容逐一比较，有改动或新增的分区会自动勾选。然后点击 `开始更新`。（在命令面板中运行 `检查 OneNote 更新`，打开的也是这个窗口，其中 OneDrive 那一行显示为 `从 OneDrive 检查更新`。）
@@ -302,6 +307,7 @@ OneNote Ferry 在 Obsidian 里运行，把 OneNote 笔记本的每一页转换�
 ```
 OneNote/                   导入到的文件夹
 ├── _转换报告.md           导入了什么，哪些没能转换
+├── _转换报告.json         以后更新时要读，请保留
 ├── _旧版本/               更新时被替换的页面
 ├── _更新记录/             每次更新改了什么
 └── 我的笔记本/
@@ -329,7 +335,7 @@ OneNote/                   导入到的文件夹
 - 登录状态保存在 Obsidian 的安全存储中，不在插件的设置文件里。在插件设置中点击 `退出登录`，即可在这台设备上清除。
 - 要撤销插件的访问权限：个人账号请前往 [account.live.com/consent/Manage](https://account.live.com/consent/Manage)，工作或学校账号请前往 [myapps.microsoft.com](https://myapps.microsoft.com)。
 
-**缓存。** 插件在仓库外的缓存文件夹里保存两样东西，位置是：macOS 上 `~/Library/Caches/onenote-ferry`，Windows 上 `%LOCALAPPDATA%\onenote-ferry`，Linux 上 `~/.cache/onenote-ferry`。`onedrive` 里是从 OneDrive 下载的笔记本，以便以后只下载改动；`scans` 里是每次检查更新读到的各分区页面清单（页面标题和时间），以便重启 Obsidian 后再检查时，只读有改动的分区。插件设置中的 `下载缓存` 一栏显示下载占用的空间，点击旁边的 `清除` 会把这两样一起清除；仓库中的笔记不受影响。卸载插件之前，请先清除缓存，或直接删掉上面的 `onenote-ferry` 文件夹。
+**缓存。** 插件在仓库外的缓存文件夹里保存两样东西，位置是：macOS 上 `~/Library/Caches/onenote-ferry`，Windows 上 `%LOCALAPPDATA%\onenote-ferry`，Linux 上 `~/.cache/onenote-ferry`（设了 `XDG_CACHE_HOME` 时是 `$XDG_CACHE_HOME/onenote-ferry`）。`onedrive` 里是从 OneDrive 下载的笔记本，以便以后只下载改动；`scans` 里是每次检查更新读到的各分区页面清单（页面标题和时间），以便重启 Obsidian 后再检查时，只读有改动的分区。插件设置中的 `下载缓存` 一栏显示下载占用的空间，点击旁边的 `清除` 会把这两样一起清除；仓库中的笔记不受影响。卸载插件之前，请先清除缓存，或直接删掉上面的 `onenote-ferry` 文件夹。
 
 OneNote Ferry 是独立项目，并非由微软制作或认可。OneNote 和 OneDrive 是微软的商标。
 
@@ -404,7 +410,7 @@ OneNote からノートを移す方法は、すでにいくつもあります。
 
 ### クイックスタート
 
-1. Obsidian のコミュニティプラグインから OneNote Ferry をインストールし、有効にします。パソコンの Obsidian で使えます。スマートフォンやタブレットでは使えません。
+1. Obsidian のコミュニティプラグインから OneNote Ferry をインストールし、有効にします。パソコンの Obsidian 1.13 以降で使えます。スマートフォンやタブレットでは使えません。
 2. 左のリボンにある紙の船のアイコン ![OneNote Ferry のリボンアイコン](docs/assets/ribbon-icon.svg) をクリックするか、コマンドパレットで `OneNote のノートをインポート` を実行して、インポート画面を開きます。
 3. ノートブックの取り込み元を選びます。
    - `OneDrive からインポート`：初回はブラウザーが開くので、Microsoft アカウントにサインインします。プラグインが求めるのはファイルの読み取りだけです。
@@ -461,6 +467,8 @@ Windows と Linux では、`ファイルまたはフォルダーを選択` の�
 
 開始する前にインポート画面を閉じても、選んだ内容は Obsidian を終了するまで残り、読み込みや確認の途中だったものはそのまま続いて、進行状況はステータスバーに表示されます。もう一度開くと、まず取り込み元と保管庫に変化がないかを確認します。最初からやり直すには、取り込み元の行の × で削除してください。
 
+インポートや更新を止めるには、画面の `停止` をクリックするか、コマンドパレットで `現在のセクションが終わったら OneNote のインポートまたは更新を停止` を実行します。変換中のセクションは最後まで書き込んでから止まります。残りは、もう一度インポートするか、更新をもう一度確認すると変換されます。
+
 ### 最新の状態に保つ
 
 OneNote を使い続ける場合は、インポートしたときと同じようにインポート画面を開き、同じ取り込み元を選びます。`OneDrive からインポート` を選ぶか、OneDrive の Web サイトで新しくダウンロードしたフォルダーや、Windows 版 OneNote で新しくエクスポートしたファイルを選びます。画面は以前にインポートした各ノートブックを保管庫の内容と比べ、変更や追加のあったセクションにチェックを入れます。`更新を開始` をクリックします。（コマンドパレットの `OneNote の更新を確認` でも同じ画面が開きます。そこでは OneDrive の行が `OneDrive で更新を確認` と表示されます。）
@@ -490,6 +498,7 @@ OneDrive のノートブックは OneDrive の ID で識別されるため、One
 ```
 OneNote/                   インポート先のフォルダー
 ├── _変換レポート.md       インポートした内容と、変換できなかった内容
+├── _変換レポート.json     更新のときに読むので残しておく
 ├── _旧バージョン/         更新で置き換えたページ
 ├── _更新記録/             各更新で変えた内容
 └── マイノートブック/
@@ -517,7 +526,7 @@ OneNote/                   インポート先のフォルダー
 - サインインの状態は Obsidian の安全な保存領域に保存され、プラグインの設定ファイルには入りません。プラグインの設定で `サインアウト` をクリックすると、このデバイスから消去されます。
 - プラグインへのアクセス許可を取り消すには、個人用アカウントは [account.live.com/consent/Manage](https://account.live.com/consent/Manage)、職場または学校のアカウントは [myapps.microsoft.com](https://myapps.microsoft.com) で行います。
 
-**キャッシュ。** プラグインは保管庫の外のキャッシュフォルダーに 2 つのものを保存します。場所は macOS では `~/Library/Caches/onenote-ferry`、Windows では `%LOCALAPPDATA%\onenote-ferry`、Linux では `~/.cache/onenote-ferry` です。`onedrive` には OneDrive からダウンロードしたノートブックがあり、あとで変更分だけをダウンロードするのに使います。`scans` には更新の確認で読み取った各セクションのページの一覧（ページのタイトルと時刻）があり、Obsidian を再起動したあとの確認で、変更のあったセクションだけを読むのに使います。プラグインの設定の `ダウンロードキャッシュ` でダウンロードが使っている容量を確認でき、その横の `クリア` で両方を消去します。保管庫のノートには影響しません。プラグインをアンインストールする前にキャッシュをクリアするか、上の `onenote-ferry` フォルダーを削除してください。
+**キャッシュ。** プラグインは保管庫の外のキャッシュフォルダーに 2 つのものを保存します。場所は macOS では `~/Library/Caches/onenote-ferry`、Windows では `%LOCALAPPDATA%\onenote-ferry`、Linux では `~/.cache/onenote-ferry`（`XDG_CACHE_HOME` を設定している場合は `$XDG_CACHE_HOME/onenote-ferry`） です。`onedrive` には OneDrive からダウンロードしたノートブックがあり、あとで変更分だけをダウンロードするのに使います。`scans` には更新の確認で読み取った各セクションのページの一覧（ページのタイトルと時刻）があり、Obsidian を再起動したあとの確認で、変更のあったセクションだけを読むのに使います。プラグインの設定の `ダウンロードキャッシュ` でダウンロードが使っている容量を確認でき、その横の `クリア` で両方を消去します。保管庫のノートには影響しません。プラグインをアンインストールする前にキャッシュをクリアするか、上の `onenote-ferry` フォルダーを削除してください。
 
 OneNote Ferry は独立したプロジェクトであり、Microsoft が作成または承認したものではありません。OneNote と OneDrive は Microsoft の商標です。
 
@@ -592,7 +601,7 @@ OneNote에서 노트를 옮기는 방법은 이미 여러 가지가 있습니다
 
 ### 빠른 시작
 
-1. Obsidian의 커뮤니티 플러그인에서 OneNote Ferry를 설치하고 활성화합니다. 컴퓨터의 Obsidian에서 쓸 수 있고, 휴대폰이나 태블릿에서는 쓸 수 없습니다.
+1. Obsidian의 커뮤니티 플러그인에서 OneNote Ferry를 설치하고 활성화합니다. 컴퓨터의 Obsidian 1.13 이상에서 쓸 수 있고, 휴대폰이나 태블릿에서는 쓸 수 없습니다.
 2. 왼쪽 리본의 종이배 아이콘 ![OneNote Ferry 리본 아이콘](docs/assets/ribbon-icon.svg)을 클릭하거나, 명령 팔레트에서 `OneNote 노트 가져오기`를 실행해 가져오기 창을 엽니다.
 3. 전자 필기장을 가져올 곳을 고릅니다.
    - `OneDrive에서 가져오기`: 처음에는 브라우저가 열리니 Microsoft 계정으로 로그인합니다. 플러그인은 파일 읽기 권한만 요청합니다.
@@ -649,6 +658,8 @@ Windows와 Linux에서는 `파일 또는 폴더 선택` 대신 `파일 선택`�
 
 시작하기 전에 가져오기 창을 닫아도 선택한 내용은 Obsidian을 종료할 때까지 남아 있고, 읽거나 확인하던 작업은 계속되며 진행 상황은 상태 표시줄에 나옵니다. 창을 다시 열면 먼저 가져올 곳과 보관함에 바뀐 것이 있는지 확인합니다. 처음부터 다시 하려면 가져올 곳 행의 ×로 제거하세요.
 
+가져오기나 업데이트를 멈추려면 창의 `중지`를 클릭하거나, 명령 팔레트에서 `현재 섹션을 마친 뒤 OneNote 가져오기 또는 업데이트 중지`를 실행합니다. 변환 중인 섹션은 끝까지 쓴 뒤 멈춥니다. 나머지는 다시 가져오거나 업데이트를 다시 확인하면 변환됩니다.
+
 ### 최신 상태로 유지하기
 
 OneNote를 계속 쓴다면, 가져올 때와 같은 방법으로 가져오기 창을 다시 열고 같은 곳을 고르면 됩니다. `OneDrive에서 가져오기`를 선택하거나, OneDrive 웹사이트에서 새로 다운로드한 폴더나 Windows용 OneNote에서 새로 내보낸 파일을 고릅니다. 창은 전에 가져온 전자 필기장을 하나하나 보관함의 내용과 비교하고, 바뀌었거나 새로 생긴 섹션을 선택해 둡니다. `업데이트 시작`을 클릭합니다. (명령 팔레트의 `OneNote 업데이트 확인`도 같은 창을 엽니다. 그 창에서는 OneDrive 행이 `OneDrive에서 업데이트 확인`으로 표시됩니다.)
@@ -678,6 +689,7 @@ OneDrive의 전자 필기장은 OneDrive의 ID로 알아보므로, OneNote에서
 ```
 OneNote/                   가져올 위치의 폴더
 ├── _변환 보고서.md        가져온 내용과 변환하지 못한 내용
+├── _변환 보고서.json      업데이트할 때 읽으므로 그대로 두기
 ├── _이전 버전/            업데이트로 바뀐 페이지
 ├── _업데이트 기록/        업데이트마다 바꾼 내용
 └── 내 전자 필기장/
@@ -705,7 +717,7 @@ OneNote/                   가져올 위치의 폴더
 - 로그인 상태는 Obsidian의 보안 저장소에 보관되며, 플러그인 설정 파일에는 들어가지 않습니다. 플러그인 설정에서 `로그아웃`을 클릭하면 이 기기에서 지워집니다.
 - 플러그인의 접근 권한을 철회하려면, 개인 계정은 [account.live.com/consent/Manage](https://account.live.com/consent/Manage), 회사 또는 학교 계정은 [myapps.microsoft.com](https://myapps.microsoft.com)에서 하세요.
 
-**캐시.** 플러그인은 보관함 밖의 캐시 폴더에 두 가지를 둡니다. 위치는 macOS에서는 `~/Library/Caches/onenote-ferry`, Windows에서는 `%LOCALAPPDATA%\onenote-ferry`, Linux에서는 `~/.cache/onenote-ferry`입니다. `onedrive`에는 OneDrive에서 다운로드한 전자 필기장이 있어, 나중에 바뀐 부분만 다운로드하는 데 씁니다. `scans`에는 업데이트 확인에서 읽은 각 섹션의 페이지 목록(페이지 제목과 시각)이 있어, Obsidian을 다시 시작한 뒤 확인할 때 바뀐 섹션만 읽는 데 씁니다. 플러그인 설정의 `다운로드 캐시`에서 다운로드가 차지하는 크기를 확인할 수 있고, 그 옆의 `지우기`로 둘 다 지웁니다. 보관함의 노트에는 영향이 없습니다. 플러그인을 제거하기 전에 캐시를 지우거나, 위의 `onenote-ferry` 폴더를 삭제해 주세요.
+**캐시.** 플러그인은 보관함 밖의 캐시 폴더에 두 가지를 둡니다. 위치는 macOS에서는 `~/Library/Caches/onenote-ferry`, Windows에서는 `%LOCALAPPDATA%\onenote-ferry`, Linux에서는 `~/.cache/onenote-ferry`(`XDG_CACHE_HOME`을 설정했다면 `$XDG_CACHE_HOME/onenote-ferry`)입니다. `onedrive`에는 OneDrive에서 다운로드한 전자 필기장이 있어, 나중에 바뀐 부분만 다운로드하는 데 씁니다. `scans`에는 업데이트 확인에서 읽은 각 섹션의 페이지 목록(페이지 제목과 시각)이 있어, Obsidian을 다시 시작한 뒤 확인할 때 바뀐 섹션만 읽는 데 씁니다. 플러그인 설정의 `다운로드 캐시`에서 다운로드가 차지하는 크기를 확인할 수 있고, 그 옆의 `지우기`로 둘 다 지웁니다. 보관함의 노트에는 영향이 없습니다. 플러그인을 제거하기 전에 캐시를 지우거나, 위의 `onenote-ferry` 폴더를 삭제해 주세요.
 
 OneNote Ferry는 독립 프로젝트이며, Microsoft가 만들거나 보증한 것이 아닙니다. OneNote와 OneDrive는 Microsoft의 상표입니다.
 
