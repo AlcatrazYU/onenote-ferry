@@ -8,6 +8,7 @@
 // is never touched.
 
 import { createHash } from 'node:crypto';
+import { readdirSync, statSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ScannedPage } from '../core/sync.ts';
@@ -46,6 +47,16 @@ export async function readScans(folder: string, input: string, version: string):
 		if (typeof scan?.stamp === 'string' && Array.isArray(scan.pages)) kept.set(path, { stamp: scan.stamp, pages: scan.pages });
 	}
 	return kept;
+}
+
+/** How many bytes the kept reads take on disk (0 when there are none), for the settings page. */
+export function scansSize(folder: string): number {
+	try {
+		return readdirSync(folder, { withFileTypes: true }).filter(entry => entry.isFile()).reduce((n, entry) => n + statSync(join(folder, entry.name)).size, 0);
+	}
+	catch {
+		return 0;
+	}
 }
 
 /** Removes every kept read (cleared with the download cache on the settings page). */

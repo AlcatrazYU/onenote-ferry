@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readScans, scansFolder, writeScans } from '../src/node/scan-store.ts';
+import { readScans, removeScans, scansFolder, scansSize, writeScans } from '../src/node/scan-store.ts';
 import type { KeptScan } from '../src/node/scan-store.ts';
 
 const spring: KeptScan = { stamp: '10:1700000000000', pages: [{ id: '{0A}', title: 'Tides', modified: '2024-01-02T03:04:05.000Z', level: 0, fingerprint: 'f1' }] };
@@ -18,6 +18,7 @@ test('kept for one download and read back; another download, version or format h
 		const folder = scansFolder(root);
 		assert.equal(folder, join(root, 'onenote-ferry', 'scans'));
 		assert.deepEqual(await readScans(folder, '/drive/Harbour.zip', '1.0.0'), new Map(), 'nothing kept yet');
+		assert.equal(scansSize(folder), 0, 'no folder yet');
 		await writeScans(folder, '/drive/Harbour.zip', '1.0.0', new Map([['Tides/Spring.one', spring], ['Tides/Summer.one', summer]]));
 		assert.deepEqual(await readScans(folder, '/drive/Harbour.zip', '1.0.0'), new Map([['Tides/Spring.one', spring], ['Tides/Summer.one', summer]]));
 		assert.deepEqual(await readScans(folder, '/drive/Other.zip', '1.0.0'), new Map(), 'another download');
@@ -35,6 +36,10 @@ test('kept for one download and read back; another download, version or format h
 		// A section kept without its stamp or pages is left out, the others are read.
 		writeFileSync(join(folder, file!), JSON.stringify({ format: 1, version: '1.0.0', input: '/drive/Harbour.zip', sections: { 'Tides/Spring.one': { pages: [] }, 'Tides/Summer.one': summer } }));
 		assert.deepEqual(await readScans(folder, '/drive/Harbour.zip', '1.0.0'), new Map([['Tides/Summer.one', summer]]));
+		// What the settings page shows and clears.
+		assert.ok(scansSize(folder) > 0);
+		await removeScans(folder);
+		assert.equal(scansSize(folder), 0);
 	}
 	finally {
 		rmSync(root, { recursive: true, force: true });

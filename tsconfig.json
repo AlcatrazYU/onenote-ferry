@@ -16,5 +16,5 @@
     "skipLibCheck": true
   },
   "include": ["src", "tests"],
-  "exclude": ["src/plugin", "tests/session.test.ts", "tests/busy-line.test.ts"]
+  "exclude": ["src/plugin", "tests/session.test.ts", "tests/busy-line.test.ts", "tests/settings.test.ts"]
 }

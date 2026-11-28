@@ -2,10 +2,10 @@
 
 import { homedir } from 'node:os';
 import { AbstractInputSuggest, ButtonComponent, Modal, normalizePath, Notice, PluginSettingTab, Setting, TFolder } from 'obsidian';
-import type { App, Plugin } from 'obsidian';
+import type { App, Plugin, SettingDefinitionItem } from 'obsidian';
 import type { SectionOptions } from '../core/importer.ts';
 import { allCopies, copiesFolder, removeCopies, systemCacheFolder } from '../node/mirror.ts';
-import { removeScans, scansFolder } from '../node/scan-store.ts';
+import { removeScans, scansFolder, scansSize } from '../node/scan-store.ts';
 import type { MicrosoftAccount } from './account.ts';
 import { formatBytes } from './i18n.ts';
 import type { UiStrings } from './i18n.ts';
@@ -76,64 +76,75 @@ export class FerrySettingTab extends PluginSettingTab {
 		this.host = host;
 	}
 
-	display(): void {
-		const { containerEl } = this;
+	/**
+	 * The settings as Obsidian lists them (from 1.13), which also puts them in its settings search.
+	 * The rows that show how things are on this computer (the account, the download cache) are
+	 * filled each time they are shown.
+	 */
+	getSettingDefinitions(): SettingDefinitionItem[] {
 		const ui = this.host.ui;
+		return [
+			{
+				name: ui.settingsImport,
+				desc: ui.settingsImportDesc,
+				render: setting => {
+					setting.addButton(button => button.setButtonText(ui.startImport).setCta().onClick(() => {
+						// Opened from here, the import window would sit in the settings window while the file
+						// dialog comes up over the main one and hides it: the settings close first.
+						(this.app as App & { setting?: { close?(): void } }).setting?.close?.();
+						this.host.openWizard();
+					}));
+				},
+			},
+			{
+				type: 'group',
+				heading: ui.settingsDefaults,
+				items: [
+					// Empty means the top of the vault, so that is what the empty field says.
+					{ name: ui.folder, desc: ui.folderDesc, control: { type: 'folder', key: 'folder', placeholder: ui.vaultTop, validate: value => (folderProblem(cleanFolder(value)) ? ui.badFolder : undefined) } },
+					{ name: ui.boxMarkers, desc: ui.boxMarkersDesc, control: { type: 'toggle', key: 'boxMarkers' } },
+					{ name: ui.pictureText, desc: ui.pictureTextDesc, control: { type: 'toggle', key: 'imageAltText' } },
+				],
+			},
+			// Importing from OneDrive (§11.5 item 61): the Microsoft account, and the download cache.
+			{
+				type: 'group',
+				heading: ui.settingsOneDrive,
+				items: [
+					{ name: ui.settingsAccount, render: setting => this.accountRow(setting) },
+					{ name: ui.settingsCopy, render: setting => this.cacheRow(setting) },
+				],
+			},
+		];
+	}
+
+	/** Stored through the plugin, which keeps more than these settings in its data; a folder as a vault path. */
+	async setControlValue(key: string, value: unknown): Promise<void> {
 		const settings = this.host.settings;
-		containerEl.empty();
+		if (key === 'folder' && typeof value === 'string') settings.folder = cleanFolder(value);
+		else if ((key === 'boxMarkers' || key === 'imageAltText') && typeof value === 'boolean') settings[key] = value;
+		else return;
+		await this.host.saveSettings();
+	}
 
-		new Setting(containerEl)
-			.setName(ui.settingsImport)
-			.setDesc(ui.settingsImportDesc)
-			.addButton(button => button.setButtonText(ui.startImport).setCta().onClick(() => {
-				// Opened from here, the import window would sit in the settings window while the file
-				// dialog comes up over the main one and hides it: the settings close first.
-				(this.app as App & { setting?: { close?(): void } }).setting?.close?.();
-				this.host.openWizard();
-			}));
-
-		new Setting(containerEl).setName(ui.settingsDefaults).setHeading();
-		const folder = new Setting(containerEl)
-			.setName(ui.folder)
-			.setDesc(ui.folderDesc);
-		const warning = folder.descEl.createDiv({ cls: 'onenote-ferry-warning' });
-		folder.addText(text => {
-			// Empty means the top of the vault, so that is what the empty field says.
-			text.setPlaceholder(ui.vaultTop).setValue(settings.folder).onChange(async value => {
-				const clean = cleanFolder(value);
-				warning.setText(folderProblem(clean) ? ui.badFolder : '');
-				if (folderProblem(clean)) return;
-				settings.folder = clean;
-				await this.host.saveSettings();
-			});
-			new FolderSuggest(this.app, text.inputEl);
-		});
-		const toggle = (name: string, desc: string, key: keyof SectionOptions) => new Setting(containerEl)
-			.setName(name)
-			.setDesc(desc)
-			.addToggle(t => t.setValue(!!settings[key]).onChange(async value => {
-				settings[key] = value;
-				await this.host.saveSettings();
-			}));
-		toggle(ui.boxMarkers, ui.boxMarkersDesc, 'boxMarkers');
-		toggle(ui.pictureText, ui.pictureTextDesc, 'imageAltText');
-
-		// Importing from OneDrive (§11.5 item 61): the Microsoft account, and the download cache.
-		new Setting(containerEl).setName(ui.settingsOneDrive).setHeading();
-		// The account: signed in or not, and while signed in, where its access is withdrawn (Microsoft's
-		// own page: signing out here only forgets the sign-in on this device).
+	/**
+	 * The account: signed in or not, and while signed in, where its access is withdrawn (Microsoft's
+	 * own page: signing out here only forgets the sign-in on this device).
+	 */
+	private accountRow(setting: Setting): void {
+		const ui = this.host.ui;
 		const account = this.host.microsoft;
-		const status = new Setting(containerEl).setName(ui.settingsAccount).setDesc(!account.signedIn ? ui.accountNone : createFragment(fragment => {
+		setting.setDesc(!account.signedIn ? ui.accountNone : createFragment(fragment => {
 			const organization = account.kind === 'organization';
 			fragment.appendText(`${organization ? ui.accountOrganization : ui.accountPersonal}${ui.accountRevoke.before}`);
 			fragment.createEl('a', { text: ui.accountRevoke.link, href: organization ? 'https://myapps.microsoft.com' : 'https://account.live.com/consent/Manage' });
 			fragment.appendText(ui.accountRevoke.after);
 		}));
-		if (account.signedIn) status.addButton(button => button.setButtonText(ui.signOut).onClick(() => {
+		if (account.signedIn) setting.addButton(button => button.setButtonText(ui.signOut).onClick(() => {
 			account.signOut();
-			this.display();
+			this.update();
 		}));
-		else status.addButton(button => button.setButtonText(ui.signIn).onClick(async () => {
+		else setting.addButton(button => button.setButtonText(ui.signIn).onClick(async () => {
 			button.setDisabled(true);
 			try {
 				await account.signIn();
@@ -141,22 +152,29 @@ export class FerrySettingTab extends PluginSettingTab {
 			catch (error) {
 				new Notice(oneDriveMessage(error, ui));
 			}
-			this.display();
+			this.update();
 		}));
+	}
 
-		// The download cache (the notebooks downloaded from OneDrive, outside the vault): what it is for,
-		// how much it takes on this computer and where, and clearing it.
-		const folder2 = copiesFolder(systemCacheFolder());
-		const copies = allCopies(folder2);
+	/**
+	 * The download cache (the notebooks downloaded from OneDrive, outside the vault): what it is for,
+	 * how much it takes on this computer and where, and clearing it. What checks for updates kept of
+	 * the sections (§11.5 item 90) is cleared with it: it holds page titles, also for downloads that
+	 * did not come from OneDrive, so the button is there while either is (§11.5 item 99).
+	 */
+	private cacheRow(setting: Setting): void {
+		const ui = this.host.ui;
+		const folder = copiesFolder(systemCacheFolder());
+		const scans = scansFolder(systemCacheFolder());
+		const copies = allCopies(folder);
 		const bytes = copies.reduce((n, copy) => n + copy.bytes, 0);
-		const kept = new Setting(containerEl).setName(ui.settingsCopy).setDesc(copies.length ? ui.copyDesc(formatBytes(bytes), shownPath(folder2)) : ui.copyNone);
-		// setWarning(), not setDestructive(): that needs Obsidian 1.13, and the plugin supports 1.11.5.
-		if (copies.length) kept.addButton(button => button.setButtonText(ui.deleteCopy).setWarning().onClick(() => {
-			new ConfirmModal(this.app, ui.deleteCopyTitle, ui.deleteCopyConfirm(formatBytes(bytes)), ui.deleteCopy, ui.cancel, async () => {
+		const keptBytes = scansSize(scans);
+		setting.setDesc(copies.length ? ui.copyDesc(formatBytes(bytes), shownPath(folder)) : keptBytes ? ui.copyChecksOnly : ui.copyNone);
+		if (copies.length || keptBytes) setting.addButton(button => button.setButtonText(ui.deleteCopy).setDestructive().onClick(() => {
+			new ConfirmModal(this.app, ui.deleteCopyTitle, ui.deleteCopyConfirm(formatBytes(bytes + keptBytes)), ui.deleteCopy, ui.cancel, async () => {
 				await removeCopies(copies.map(copy => copy.dir));
-				// What checks read of the sections goes too (§11.5 item 90): it holds page titles.
-				await removeScans(scansFolder(systemCacheFolder())).catch(() => undefined);
-				this.display();
+				await removeScans(scans).catch(() => undefined);
+				this.update();
 			}).open();
 		}));
 	}
@@ -176,8 +194,8 @@ class ConfirmModal extends Modal {
 		this.contentEl.createEl('p', { text });
 		const footer = this.contentEl.createDiv('modal-button-container');
 		new ButtonComponent(footer).setButtonText(cancel).onClick(() => this.close());
-		// setWarning(), not setDestructive(): that needs Obsidian 1.13, and the plugin supports 1.11.5.
-		new ButtonComponent(footer).setButtonText(confirm).setWarning().onClick(async () => {
+		// Destructive, and the action the window is for.
+		new ButtonComponent(footer).setButtonText(confirm).setDestructive().setCta().onClick(async () => {
 			this.close();
 			await onConfirm();
 		});

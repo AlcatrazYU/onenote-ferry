@@ -261,6 +261,8 @@ export interface UiStrings {
 	/** The download cache: what it is for, how much it takes and where it is (`path` as shown, `~` for the home folder). */
 	copyDesc(size: string, path: string): string;
 	copyNone: string;
+	/** No notebook downloaded from OneDrive, but what checks for updates kept of the sections is there. */
+	copyChecksOnly: string;
 	deleteCopy: string;
 	deleteCopyTitle: string;
 	deleteCopyConfirm(size: string): string;
@@ -489,6 +491,7 @@ const en: UiStrings = {
 	settingsCopy: 'Download cache',
 	copyDesc: (size, path) => `Original files downloaded from OneDrive, so that checking for updates downloads only what changed. Currently ${size}, in ${path}.`,
 	copyNone: 'Original files downloaded from OneDrive, so that checking for updates downloads only what changed. Empty.',
+	copyChecksOnly: 'Original files downloaded from OneDrive, so that checking for updates downloads only what changed. None downloaded now; only what checks for updates kept of your sections (page titles and times) is here.',
 	deleteCopy: 'Clear',
 	deleteCopyTitle: 'Clear download cache',
 	deleteCopyConfirm: size => `Clear the download cache (${size}), with what checks for updates kept of your sections? Notes in the vault are not affected; files are downloaded and read again when needed.`,
@@ -712,10 +715,11 @@ const zh: UiStrings = {
 	accountPersonal: '已用个人账号登录。',
 	accountOrganization: '已用工作或学校账号登录。',
 	accountNone: '未登录。登录后可直接从 OneDrive 导入笔记本。',
-	accountRevoke: { before: '如需撤销授权，请前往 ', link: 'Microsoft 账户的应用权限页面', after: '。' },
+	accountRevoke: { before: '如需撤销授权，请前往 ', link: '微软账号的应用权限页面', after: '。' },
 	settingsCopy: '下载缓存',
 	copyDesc: (size, path) => `从 OneDrive 下载的原始文件，用于检查更新时只下载有变化的部分。当前占用 ${size}，位于 ${path}。`,
 	copyNone: '从 OneDrive 下载的原始文件，用于检查更新时只下载有变化的部分。目前为空。',
+	copyChecksOnly: '从 OneDrive 下载的原始文件，用于检查更新时只下载有变化的部分。目前没有下载的文件，只有检查更新时存下的分区记录（页面标题和时间）。',
 	deleteCopy: '清除',
 	deleteCopyTitle: '清除下载缓存',
 	deleteCopyConfirm: size => `清除 ${size} 的下载缓存，以及检查更新时存下的分区记录？仓库里的笔记不受影响，以后需要时会重新下载、重新读取。`,
@@ -942,6 +946,7 @@ const ja: UiStrings = {
 	settingsCopy: 'ダウンロードキャッシュ',
 	copyDesc: (size, path) => `OneDrive からダウンロードした元のファイルで、更新の確認で変更された部分だけをダウンロードするために使います。現在 ${size}、場所は ${path} です。`,
 	copyNone: 'OneDrive からダウンロードした元のファイルで、更新の確認で変更された部分だけをダウンロードするために使います。現在は空です。',
+	copyChecksOnly: 'OneDrive からダウンロードした元のファイルで、更新の確認で変更された部分だけをダウンロードするために使います。ダウンロードしたファイルは今はなく、更新の確認で保存したセクションの記録（ページのタイトルと日時）だけがあります。',
 	deleteCopy: 'クリア',
 	deleteCopyTitle: 'ダウンロードキャッシュをクリア',
 	deleteCopyConfirm: size => `ダウンロードキャッシュ（${size}）と、更新の確認で保存したセクションの記録をクリアしますか？保管庫のノートには影響しません。必要なときに再びダウンロードし、読み取ります。`,
@@ -1168,6 +1173,7 @@ const ko: UiStrings = {
 	settingsCopy: '다운로드 캐시',
 	copyDesc: (size, path) => `OneDrive에서 다운로드한 원본 파일로, 업데이트를 확인할 때 바뀐 부분만 다운로드하는 데 쓰입니다. 현재 ${size}, 위치는 ${path}입니다.`,
 	copyNone: 'OneDrive에서 다운로드한 원본 파일로, 업데이트를 확인할 때 바뀐 부분만 다운로드하는 데 쓰입니다. 현재 비어 있습니다.',
+	copyChecksOnly: 'OneDrive에서 다운로드한 원본 파일로, 업데이트를 확인할 때 바뀐 부분만 다운로드하는 데 쓰입니다. 지금은 다운로드한 파일이 없고, 업데이트 확인에서 저장한 섹션 기록(페이지 제목과 시간)만 있습니다.',
 	deleteCopy: '지우기',
 	deleteCopyTitle: '다운로드 캐시 지우기',
 	deleteCopyConfirm: size => `다운로드 캐시(${size})와 업데이트 확인에서 저장한 섹션 기록을 지울까요? 보관함의 노트에는 영향이 없으며, 필요할 때 다시 다운로드하고 읽습니다.`,

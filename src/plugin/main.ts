@@ -26,7 +26,7 @@ import type { WizardHost } from './wizard.ts';
 import { VaultSink } from './vault-sink.ts';
 import { WorkerClient } from './worker-client.ts';
 
-/** Obsidian's interface language (getLanguage() is there from 1.8.7; the plugin needs 1.11.5). */
+/** Obsidian's interface language (getLanguage() is there from 1.8.7; the plugin needs 1.13.0). */
 function interfaceLanguage(): string {
 	return getLanguage();
 }
