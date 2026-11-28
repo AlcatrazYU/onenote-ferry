@@ -264,3 +264,35 @@ test('written: a sure picture in a cell drawn with its strokes in the cell; an u
 	const unsure = await render(page, undefined);
 	assert.equal(unsure.markdown, '| Pier | Notes |\n| --- | --- |\n| North | ![](<_附件/img1.png>) |\n\n> [!info]- 笔迹（位置为估算）\n> *第 2 行第 2 列*\n> ![](<_附件/ink2.svg>)');
 });
+
+test('a box the user sized, with a picture in a table cell: its stored height is not believed (the table\'s rows are counted a line each), so not sure', async () => {
+	const tall = picture(4, 6);
+	const above = Array.from({ length: 10 }, (_, i) => text(`Line ${i}`));
+	const below = Array.from({ length: 50 }, (_, i) => text(`Tail ${i}`));
+	const table = grid([[[text('Pier')], [tall, text('')]]]);
+	const top = 2 + 10 * LINE + TABLE_TOP + CELL_TOP;
+	const height = 10 * LINE + TABLE_TOP + CELL_TOP + 6 + LINE + CELL_BOTTOM + 50 * LINE;
+	const strokes = Array.from({ length: 9 }, (_, i) => across(top + (25 + 100 * i) / 150, SECOND + 0.5, SECOND + 3.5));
+	const rows = readProfile(raw(900, 50, 25));
+	const [placed] = await placeOnPictures([box([...above, table, ...below], { x: 2, y: 2, width: 13, height }, true)], strokes, async image => (image === tall ? rows : undefined));
+	assert.equal(placed?.image, tall);
+	assert.equal(placed.sure, false);
+});
+
+test('a picture indented past its cell\'s width: where it is cannot be told, and nothing fails', async () => {
+	const deep: Paragraph = { ...text('a'), children: [{ ...text('b'), children: [picture(2, 10)] }] };
+	const placed = await placeOnPictures([box([grid([[[deep]]], [1])], { x: 2, y: 2, width: 13 })], [across(2.5, 2, 3)], async () => undefined);
+	assert.ok(placed.every(one => !one.sure));
+});
+
+test('written: the copies below a table name which picture of a cell holding several they are', async () => {
+	const top = 2 + TABLE_TOP + ROW + CELL_TOP;
+	const page: Page = {
+		id: '{P}', title: 'Sample', level: 0, isConflictPage: false, isDeleted: false,
+		// Strokes on the second of the cell's two pictures only.
+		outlines: [box([grid([[[text('Pier')], [text('Notes')]], [[text('North')], [picture(4, 2), picture(4, 2)]]])], { x: 2, y: 2, width: 13 })], directContent: [],
+		highlighterInk: [{ kind: 'ink', strokes: onCellShot(top + 2) }],
+	};
+	const { markdown } = await render(page, undefined);
+	assert.match(markdown, /> \*第 2 行第 2 列，第 2 张图\*\n/);
+});

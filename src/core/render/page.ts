@@ -563,11 +563,12 @@ class PageWriter {
 		const rendered: string[][] = [];
 		// Copies of pictures in cells with the writing on them where it was estimated to be: a folded
 		// box cannot go into a cell, so they come below the table, each named by its cell (§11.5 item 86).
-		const folded: { row: number, column: number, link: string }[] = [];
+		const folded: FoldedInCell[] = [];
 		for (const [r, row] of table.rows.entries()) {
 			const cells: string[] = [];
 			for (let index = 0; index < columns; index++) {
-				const text = await this.renderCell(row.cells[index]?.children ?? [], { row: r + 1, column: index + 1, folded });
+				const children = row.cells[index]?.children ?? [];
+				const text = await this.renderCell(children, { row: r + 1, column: index + 1, folded, pictures: picturesIn(children), seen: 0 });
 				cells.push(text.replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim());
 			}
 			rendered.push(cells);
@@ -581,11 +582,7 @@ class PageWriter {
 		];
 		this.push(lines.join('\n'));
 		if (folded.length) {
-			const several = (one: { row: number, column: number }) => folded.filter(other => other.row === one.row && other.column === one.column).length > 1;
-			const entries = folded.map((one, i) => {
-				const picture = several(one) ? folded.slice(0, i + 1).filter(other => other.row === one.row && other.column === one.column).length : undefined;
-				return `> ${renderRuns([{ text: this.options.strings.tableCell(one.row, one.column, picture), italic: true }], this.options)}\n> ${one.link}`;
-			});
+			const entries = folded.map(one => `> ${renderRuns([{ text: this.options.strings.tableCell(one.row, one.column, one.picture), italic: true }], this.options)}\n> ${one.link}`);
 			this.push(`> [!info]- ${this.options.strings.inkEstimated}\n${entries.join('\n>\n')}`);
 		}
 	}
@@ -828,7 +825,7 @@ class PageWriter {
 	 * it when its place is sure; otherwise it stays as it is and its estimated copy goes into `cell`'s
 	 * list, written below the table.
 	 */
-	private async renderCell(children: Element[], cell?: { row: number, column: number, folded: { row: number, column: number, link: string }[] }): Promise<string> {
+	private async renderCell(children: Element[], cell?: CellContext): Promise<string> {
 		const parts: string[] = [];
 		for (const child of children) {
 			switch (child.kind) {
@@ -843,6 +840,7 @@ class PageWriter {
 					parts.push(await this.renderCell(child.children, cell));
 					break;
 				case 'image': {
+					const number = cell ? ++cell.seen : 0;
 					if (!hasData(child.data)) {
 						this.options.onSkipped?.(describe(imageHint(child)), 'no-data');
 						parts.push(renderRuns([{ text: missingNotice(missingRunOf(child), this.options.strings), italic: true }], this.options));
@@ -854,7 +852,7 @@ class PageWriter {
 					const folded = this.folded.get(child);
 					const underlay = folded && underlayOf(folded.picture);
 					const link = underlay && await this.drawingLink(folded.pieces, { underlays: [underlay] }, { role: 'ink' });
-					if (link && cell) cell.folded.push({ row: cell.row, column: cell.column, link });
+					if (link && cell) cell.folded.push({ row: cell.row, column: cell.column, link, ...(cell.pictures > 1 ? { picture: number } : {}) });
 					break;
 				}
 				case 'embedded-file': {
@@ -872,6 +870,29 @@ class PageWriter {
 		}
 		return parts.filter(part => part !== '').join(' ');
 	}
+}
+
+/** A picture's estimated copy, written below its table and named by its cell (and which picture of it, when it holds several). */
+interface FoldedInCell {
+	row: number;
+	column: number;
+	link: string;
+	picture?: number;
+}
+
+/** A table cell being written: where it is, the copies its pictures leave, and its pictures counted. */
+interface CellContext {
+	row: number;
+	column: number;
+	folded: FoldedInCell[];
+	/** Pictures in the cell, and those passed so far. */
+	pictures: number;
+	seen: number;
+}
+
+/** The pictures in a cell, at any depth. */
+function picturesIn(children: Element[]): number {
+	return children.reduce((n, child) => n + (child.kind === 'image' ? 1 : child.kind === 'paragraph' || child.kind === 'outline' ? picturesIn(child.children) : 0), 0);
 }
 
 interface Positioned {

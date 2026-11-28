@@ -182,20 +182,25 @@ function walk(elements: Element[], level: number, visit: (element: Element, leve
 /**
  * The line height (times the font size) a text box's stored height gives, when it can be believed:
  * the user sized the box, it holds enough text to tell, and the result is a line height text has.
+ * Not with a table whose cells hold more than a line (a picture, several paragraphs): its rows are
+ * counted a line each here, so the stored height would give too tall a line.
  */
 function pinnedFactor(outline: Outline, aspects: Map<Image, number>): number | undefined {
 	const height = outline.place?.height, width = outline.place?.width;
 	if (!outline.sizedByUser || !height || !width) return undefined;
-	let em = 0, pictures = 0;
+	let em = 0, pictures = 0, tall = false;
 	walk(outline.children, 1, (element, level) => {
 		if (element.kind === 'paragraph') {
 			const size = element.layout?.fontSize ?? DEFAULT_FONT_SIZE;
 			em += lineCount(element.runs.map(run => run.text).join(''), size, (width - (level - 1) * INDENT) * PT) * size;
 		}
 		else if (element.kind === 'image') pictures += pictureSize(element, aspects)?.height ?? 0;
-		else if (element.kind === 'table') em += element.rows.length * DEFAULT_FONT_SIZE;
+		else if (element.kind === 'table') {
+			em += element.rows.length * DEFAULT_FONT_SIZE;
+			if (holdsMore(element)) tall = true;
+		}
 	});
-	if (em < 33 || height <= pictures) return undefined;
+	if (tall || em < 33 || height <= pictures) return undefined;
 	const factor = (height - pictures) * PT / em;
 	return factor >= 1.1 && factor <= 2 ? factor : undefined;
 }
@@ -265,8 +270,13 @@ function flow(elements: Element[], level: number, left: number, width: number, t
 				above.unknown = true;
 				continue;
 			}
-			// In a cell, a picture wider than the cell is shrunk to its width.
+			// In a cell, a picture wider than the cell is shrunk to its width; indented past the cell's
+			// width, where it is cannot be told.
 			const room = width - (level - 1) * INDENT;
+			if (inCell && room <= 0) {
+				above.unknown = true;
+				continue;
+			}
 			const size = inCell && stored.width > room ? { width: room, height: stored.height * room / stored.width } : stored;
 			at.pictures.push({ image: element, box: { left: x, top: y, right: x + size.width, bottom: y + size.height }, emAbove: above.em, pinned: at.pinned, unknownAbove: above.unknown, wrapRisk: above.wrapRisk });
 			y += size.height;
@@ -315,15 +325,20 @@ function layOutTable(table: Table, left: number, top: number, at: Flow, above: A
 			const spread = at.pinned ? PINNED_SPREAD : FREE_SPREAD;
 			const off = (cell: { above: Above }) => (cell.above.em - inside.em) * spread + cell.above.wrapRisk - inside.wrapRisk;
 			const could = cells.filter(cell => cell.height * PT + off(cell) >= highest * PT);
-			const worst = could.reduce((a, b) => (off(b) > off(a) ? b : a));
+			const worst = (could.length ? could : cells).reduce((a, b) => (off(b) > off(a) ? b : a));
 			inside.unknown = cells.some(cell => cell.above.unknown);
 			inside.em = worst.above.em;
 			inside.wrapRisk = worst.above.wrapRisk + CELL_SPREAD;
 		}
 	}
 	above.em += table.rows.length * DEFAULT_FONT_SIZE;
-	if (table.rows.some(row => row.cells.some(cell => cell.children.length > 1 || cell.children.some(child => child.kind !== 'paragraph')))) above.unknown = true;
+	if (holdsMore(table)) above.unknown = true;
 	return top + table.rows.length * line / PT;
+}
+
+/** Whether a cell of the table holds more than a line of text: several things, or not a paragraph. */
+function holdsMore(table: Table): boolean {
+	return table.rows.some(row => row.cells.some(cell => cell.children.length > 1 || cell.children.some(child => child.kind !== 'paragraph')));
 }
 
 /** Where the pictures inside the text boxes (and their tables) sit, with a line height for boxes that do not give their own. */
