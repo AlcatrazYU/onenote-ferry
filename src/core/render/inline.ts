@@ -82,10 +82,12 @@ function splitSpace(text: string): [string, string, string] {
  * Escapes text written in HTML. The reading view still reads Markdown there, the editing view does
  * not (it shows a backslash as it is), so only what the reading view would take as Markdown is
  * escaped: brackets that make a link, wikilink or footnote (`[[`, `[^`, `^[`, `](`, `][`), doubled `=`
- * and `~`, and every `*`, `_`, `` ` ``, `$` and backslash (§11.5 item 88).
+ * and `~`, and every `*`, `_`, `` ` ``, `$` and backslash (§11.5 item 88). In a link's text every
+ * bracket is escaped: one would end the text, or start another.
  */
-function escapeInHtml(text: string): string {
-	return text.replace(/[\\*_`$]|\[(?=[[^])|(?<=\^)\[|\](?=[([])|={2,}|~{2,}/g, match => match.replace(/./g, '\\$&'));
+function escapeInHtml(text: string, inLink: boolean): string {
+	const special = inLink ? /[\\*_`$[\]]|={2,}|~{2,}/g : /[\\*_`$]|\[(?=[[^])|(?<=\^)\[|\](?=[([])|={2,}|~{2,}/g;
+	return text.replace(special, match => match.replace(/./g, '\\$&'));
 }
 
 /** A run written in HTML: a colour (always kept, §11.5 item 68), an underline (not a link's), a script. */
@@ -111,7 +113,7 @@ function renderLeaf(run: TextRun, options: InlineOptions, escapeStars: boolean):
 		return leading + (escapeStars ? text.replace(/\*/g, '\\*') : text) + trailing;
 	}
 
-	let html = escapeInHtml(htmlEscape(core));
+	let html = escapeInHtml(htmlEscape(core), !!run.hyperlinkUrl);
 	if (run.superscript) html = `<sup>${html}</sup>`;
 	if (run.subscript) html = `<sub>${html}</sub>`;
 	if (run.underline && !run.hyperlinkUrl) html = `<u>${html}</u>`;
@@ -174,6 +176,8 @@ function wrapLayer(layer: Layer, value: string, content: string, options: Inline
 const WHITESPACE = /\s/u, PUNCTUATION = /[\p{P}\p{S}]/u;
 /** The tags written here: those of text written in HTML. */
 const TAG = /^<\/?(?:b|i|s|u|sup|sub|span)(?: [^<>]*)?>$/;
+/** What a backslash escapes: ASCII punctuation. Before anything else it is a character of its own. */
+const ESCAPABLE = /^[!-/:-@[-`{-~]$/;
 
 /**
  * Writes the bold and italic delimiters the stand-ins hold, as `**` and `*`. Where one would not
@@ -197,6 +201,8 @@ function placeDelimiters(text: string, delimiters: Delimiters): string {
 		while (i - n - 1 >= 0 && chars[i - n - 1] === '\\') n++;
 		return n % 2 === 1;
 	};
+	// A backslash that is not itself escaped: a delimiter written right after it would be escaped.
+	const bare = (i: number) => chars[i] === '\\' && !escaped(i);
 	// Whether the `>` at i ends one of the tags written here (the text's own `<` is always escaped, its `>` is not).
 	const tagEnd = (i: number) => {
 		const from = chars.lastIndexOf('<', i);
@@ -219,7 +225,10 @@ function placeDelimiters(text: string, delimiters: Delimiters): string {
 				if (!space(after) && (!punct(after) || space(before) || punct(before))) break;
 				// A `<` after it starts a tag (the text's own are escaped, and it never splits an escape).
 				if (!movable(after) || after === '<') break;
-				const step = after === '\\' && !escaped(j) && j + 1 < chars.length ? 2 : 1;
+				// A backslash moves with the punctuation it escapes. Before anything else it stays a
+				// character of its own, and the delimiter cannot go after it: it stops there.
+				const step = bare(j) ? 2 : 1;
+				if (step === 2 && !ESCAPABLE.test(chars[j + 1] ?? '')) break;
 				chars.splice(i, 0, ...chars.splice(j, step));
 				i += step;
 				j += step;
@@ -231,6 +240,9 @@ function placeDelimiters(text: string, delimiters: Delimiters): string {
 				if (!space(last) && (!punct(last) || space(next) || punct(next))) break;
 				if (!movable(last) || (last === '<' && !escaped(i - 1)) || (last === '>' && tagEnd(i - 1))) break;
 				const step = escaped(i - 1) ? 2 : 1;
+				// Never right after a backslash of the text (one there already escapes it; leave it), and
+				// never between a backslash and punctuation it does not escape.
+				if (bare(i - 1) || bare(i - step - 1) || (step === 2 && !ESCAPABLE.test(last))) break;
 				chars.splice(j - step, 0, ...chars.splice(i - step, step));
 				i -= step;
 				j -= step;
@@ -311,6 +323,7 @@ export function renderRuns(runs: TextRun[], options: InlineOptions): string {
 	const delimiters: Delimiters = { kinds: [], escapeStars: merged.some(run => (run.bold || run.italic) && !run.math && !inHtml(run)) };
 	return placeDelimiters(renderLayers(merged, 0, options, delimiters), delimiters)
 		// Two different highlights (or two bold spans) side by side need a break to parse.
-		.replace(/(==|\*\*|~~)(?=\1[^\s=*~])/g, (m, d, offset, all) => all[offset - 1] && all[offset - 1] !== ' ' ? `${d}${ZERO_WIDTH_SPACE}` : m)
+		// Not from an escaped character (a typed `\*` beside a delimiter is no `**`).
+		.replace(/(?<!\\)(==|\*\*|~~)(?=\1[^\s=*~])/g, (m, d, offset, all) => all[offset - 1] && all[offset - 1] !== ' ' ? `${d}${ZERO_WIDTH_SPACE}` : m)
 		.replace(/\r\n?/g, '\n').trim();
 }

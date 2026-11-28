@@ -122,6 +122,8 @@ test('punctuation at the edge of bold beside a letter outside is left out of it,
 	assert.equal(render([{ text: '）--晚點', bold: true, highlight: '#ffff00' }, { text: '開船' }]), '==🟡）**--晚點**==開船');
 	// Never between a backslash and what it escapes.
 	assert.equal(render([{ text: '船期' }, { text: '[北港]', bold: true }, { text: '開船' }]), '船期\\[**北港**\\]開船');
+	// A backslash before a letter is a character of its own: no delimiter goes right after it.
+	assert.equal(render([{ text: '公式' }, { text: '\\alpha', bold: true }, { text: '表示' }]), '公式**\\alpha**表示');
 	// Spaces in the way move out too; a > of the text is passed like other punctuation.
 	assert.equal(render([{ text: '船期' }, { text: '北港 (', bold: true }, { text: '開船' }]), '船期**北港** (開船');
 	assert.equal(render([{ text: '船期' }, { text: 'A->B>', bold: true }, { text: '開船' }]), '船期**A->B**>開船');
@@ -140,6 +142,10 @@ test('asterisks typed in the text are escaped where the paragraph has bold or it
 	assert.equal(render([{ text: '*晚*', bold: true, color: '#ff0000' }]), `${RED}<b>\\*晚\\*</b></span>`);
 });
 
+test('a typed asterisk escaped beside our delimiters is not taken for a delimiter when two are spaced apart', () => {
+	assert.equal(render([{ text: '注意*', bold: true, italic: true }, { text: '，下一句' }]), '***注意\\****，下一句');
+});
+
 test('coloured text carries its own bold, italic and strikethrough; Markdown around it never touches its tags', () => {
 	assert.equal(render([{ text: '船期' }, { text: '晚點', bold: true, color: '#ff0000' }, { text: '開船' }]), `船期${RED}<b>晚點</b></span>開船`);
 	assert.equal(render([{ text: '取消', strikethrough: true, italic: true, color: '#ff0000' }]), `${RED}<i><s>取消</s></i></span>`);
@@ -156,6 +162,9 @@ test('text written in HTML escapes only what the reading view would read as Mark
 	// A wikilink, a footnote, a link, a highlight, a strikethrough would be read.
 	assert.equal(render([{ text: '[[北港]] 見^[註] [港](x) a==b c~~d', color: '#ff0000' }]), String.raw`${RED}\[[北港]] 見^\[註] [港\](x) a\=\=b c\~\~d</span>`);
 	assert.equal(render([{ text: '[潮][汐] [^1]', underline: true }]), String.raw`<u>[潮\][汐] \[^1]</u>`);
+	// In a link's text a bracket would end the text or start another: escaped.
+	assert.equal(render([{ text: 'see 1]', color: '#ff0000', hyperlinkUrl: 'https://example.com/a' }]), String.raw`[${RED}see 1\]</span>](https://example.com/a)`);
+	assert.equal(render([{ text: '港[港', color: '#ff0000', hyperlinkUrl: 'https://example.com/a' }]), String.raw`[${RED}港\[港</span>](https://example.com/a)`);
 	// These are escaped wherever they are.
 	assert.equal(render([{ text: '*潮* _汐_ `表` $x$ \\', color: '#ff0000' }]), `${RED}\\*潮\\* \\_汐\\_ \\\`表\\\` \\$x\\$ \\\\</span>`);
 });
