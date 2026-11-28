@@ -55,7 +55,7 @@ test('object replacement characters are removed; math runs keep their LaTeX', ()
 test('an embedded file without data becomes a visible notice, with no dash in it', () => {
 	const { page } = adapt([outline([element([{ type: 'file', asset: null, fileName: 'missing.pdf', x: null, y: null, w: null }])])]);
 	const notice = page.outlines[0].children[0] as Paragraph;
-	assert.deepEqual(notice.runs, [{ text: '〔附件缺失：missing.pdf（OneDrive 下载包里没有这个文件的数据）〕', italic: true }]);
+	assert.deepEqual(notice.runs, [{ text: '〔附件缺失：missing.pdf（OneDrive 上的笔记本文件里没有这个文件的数据）〕', italic: true }]);
 	assert.ok(!/[\u2013\u2014\u2015]/.test(notice.runs[0].text));
 });
 

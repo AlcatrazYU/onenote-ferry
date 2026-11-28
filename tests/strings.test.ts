@@ -98,7 +98,7 @@ test('notices and titles include what they are about', () => {
 
 test('the Simplified Chinese column is the one the existing output uses', () => {
 	assert.equal(zhHans.boxMarker(2, 12, '22.2', '3.7'), '<!-- 第2块（共12块） 页面位置：左 22.2 cm，上 3.7 cm -->');
-	assert.equal(zhHans.missingAttachment('a.pdf'), '〔附件缺失：a.pdf（OneDrive 下载包里没有这个文件的数据）〕');
+	assert.equal(zhHans.missingAttachment('a.pdf'), '〔附件缺失：a.pdf（OneDrive 上的笔记本文件里没有这个文件的数据）〕');
 	assert.equal(zhHans.tocTitle('X'), 'X 目录');
 	assert.equal(zhHans.sectionOrderNote, '> 分区按名称排序（OneDrive 下载的文件里没有 OneNote 中的分区顺序）。');
 	assert.deepEqual(
@@ -122,7 +122,7 @@ test('a section written in English uses English folder names and marks', async (
 	assert.equal((sink.files.get('NB/Section/Plan.md') as string).split('---\n\n')[1], [
 		'<!-- Box 1 of 2, position on page: left 0.0 cm, top 0.0 cm -->',
 		'left',
-		'*\\[Missing attachment: gone.pdf. The OneDrive download has no data for this file.\\]*',
+		'*\\[Missing attachment: gone.pdf. The notebook\'s files on OneDrive have no data for this file.\\]*',
 		'<!-- Box 2 of 2, position on page: left 12.7 cm, top 0.0 cm -->',
 		'![](<_attachments/Plan - image001.png>)',
 		'',

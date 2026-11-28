@@ -407,7 +407,7 @@ test('a section and a notebook not imported before are added; sections the downl
 	assert.match(textOf(vault, 'Tides/Autumn/Leaves.md')!, /fall/);
 	const toc = textOf(vault, 'Tides/_目录.md')!;
 	assert.match(toc, /- \[Autumn\]\(<Autumn\/_目录\.md>\)\n- \[Spring\]\(<Spring\/_目录\.md>\)\n- \[Summer\]\(<Summer\/_目录\.md>\)\n/);
-	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /下载中没有这些分区，仓库中的保持原样：Tides \/ Summer/);
+	assert.match(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /来源中已没有这些分区，仓库中的保持原样：Tides \/ Summer/);
 	// Nothing was replaced (only a section added): the record does not point to previous versions.
 	assert.doesNotMatch(textOf(vault, '_更新记录/2026-12-01 1430.md')!, /更新前的版本在/);
 

@@ -60,7 +60,7 @@ test('the page: the last import, a table of notebooks linking to their contents,
 	assert.match(page, /\| \[Ferry log\]\(<Ferry log\/_contents\.md>\) \| 2026-11-24 21:05 \| 3 \| 2 \| 0 \| 2 \|/);
 	assert.match(page, /\| \[Tides\]\(<Tides\/_contents\.md>\) \| 2026-11-24 21:05 \| 1 \| 1 \| 0 \| 0 \|/);
 	assert.match(page, /### Ferry log\n\n/);
-	assert.match(page, /- \[Evening boat\]\(<Ferry log\/Crossings\/Evening boat\.md>\): 1 picture or attachment missing \(the download has no data for it\)\n/);
+	assert.match(page, /- \[Evening boat\]\(<Ferry log\/Crossings\/Evening boat\.md>\): 1 picture or attachment missing \(the notebook's files have no data for it\)\n/);
 	assert.match(page, /- Section "Locked": This section is password protected/);
 	assert.match(page, /- Section "Broken": This section could not be converted\. The parser reported: PARSE\\_ERROR: invented failure/);
 	assert.ok(!page.includes('### Tides'), 'a notebook with nothing to note has no heading');

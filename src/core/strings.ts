@@ -189,13 +189,13 @@ const num = (n: number) => n.toLocaleString('en-US');
 
 export const en: Strings = {
 	boxMarker: (index, total, left, top) => `<!-- Box ${index} of ${total}, position on page: left ${left} cm, top ${top} cm -->`,
-	missingAttachment: name => `[Missing attachment: ${name}. The OneDrive download has no data for this file.]`,
+	missingAttachment: name => `[Missing attachment: ${name}. The notebook's files on OneDrive have no data for this file.]`,
 	missingImages: (count, names) => count === 1
-		? `[Missing image${names.length ? `: ${names[0]}` : ''}. The OneDrive download has no data for this image.]`
-		: `[${count} missing images${names.length ? `: ${names.join(', ')}` : ''}. The OneDrive download has no data for these images.]`,
+		? `[Missing image${names.length ? `: ${names[0]}` : ''}. The notebook's files on OneDrive have no data for this image.]`
+		: `[${count} missing images${names.length ? `: ${names.join(', ')}` : ''}. The notebook's files on OneDrive have no data for these images.]`,
 	missingPrintoutPages: (document, first, last) => first === last
-		? `[Missing printout page ${first} of ${document}. The OneDrive download has no data for this page.]`
-		: `[Missing printout pages ${first} to ${last} of ${document}. The OneDrive download has no data for these pages.]`,
+		? `[Missing printout page ${first} of ${document}. The notebook's files on OneDrive have no data for this page.]`
+		: `[Missing printout pages ${first} to ${last} of ${document}. The notebook's files on OneDrive have no data for these pages.]`,
 	printoutNotes: (document, page) => `[Handwriting on page ${page} of ${document}, drawn where it sits on that page.]`,
 	unshownPicture: format => `${format} picture (Obsidian cannot show this format)`,
 	printoutPage: (document, page) => `${document}, page ${page}`,
@@ -209,7 +209,7 @@ export const en: Strings = {
 	passwordProtectedSuffix: ' (password protected, not converted)',
 	cancelledSuffix: ' (not converted: the import was cancelled)',
 	notImportedSuffix: ' (not imported)',
-	passwordProtected: 'This section is password protected and cannot be read. Remove its password protection in OneNote, then download it again.',
+	passwordProtected: 'This section is password protected and cannot be read. Remove its password protection in OneNote, then import it again.',
 	incompleteSection: 'This section did not download completely. Download again to get it.',
 	altTextTitle: 'Alt text',
 	printoutTextTitle: 'Text of the printout',
@@ -242,7 +242,7 @@ export const en: Strings = {
 		notStarted: notebooks => `Notebooks not imported because the import stopped: ${notebooks.join(', ')}. Import again to add them.`,
 		unfinished: 'This import has not finished yet, or Obsidian was closed during it. Import again to add the sections not imported yet.',
 		recordsMissing: 'Some sections have no earlier record (the data of this report was deleted or changed), so the page and attachment counts here may be incomplete.',
-		missingItems: count => `${plural(count, 'picture or attachment', 'pictures or attachments')} missing (the download has no data for ${count === 1 ? 'it' : 'them'})`,
+		missingItems: count => `${plural(count, 'picture or attachment', 'pictures or attachments')} missing (the notebook's files have no data for ${count === 1 ? 'it' : 'them'})`,
 		printoutsNotDrawn: count => `${plural(count, 'printout page', 'printout pages')} not drawn (${count === 1 ? 'its' : 'their'} text could not be checked character by character, or the page uses what is not drawn here); open the original file to see ${count === 1 ? 'it' : 'them'}`,
 		update: record => `This run updated notes imported before; what changed is in ${record}.`,
 	},
@@ -274,9 +274,9 @@ export const en: Strings = {
 		keptAside: (files, folder) => `${plural(files, 'file was', 'files were')} not as the update expected (changed while it was cut off, say), and ${files === 1 ? 'was' : 'were'} copied into "${folder}" before being written over. Look at ${files === 1 ? 'it' : 'them'} before you delete the previous versions.`,
 		occupiedNotebook: notebook => `The folder of notebook "${notebook}" holds files the plugin did not write, so nothing was written into it.`,
 		missingSection: name => `Section "${name}" imported again (it was imported before and is not in the vault any more)`,
-		gone: sections => `Not in the new download, left as they were: ${sections.join(', ')}`,
+		gone: sections => `No longer in the source, left as they were: ${sections.join(', ')}`,
 		occupied: sections => `Not written, because their folder holds files the plugin did not write: ${sections.join(', ')}`,
-		different: notebook => `"${notebook}" in the vault has no page in common with the notebook of that name in the download. It is another notebook, so it was left as it was.`,
+		different: notebook => `"${notebook}" in the vault has no page in common with the notebook of that name in the source. It is another notebook, so it was left as it was.`,
 		moved: 'These pages and sections were renamed or moved. Links to them from other notes may need fixing:',
 		changes: 'Changes',
 		section: (name, was) => `Section "${name}"${was ? ` (was "${was}")` : ''}`,
@@ -298,13 +298,13 @@ export const en: Strings = {
 
 export const zhHans: Strings = {
 	boxMarker: (index, total, left, top) => `<!-- 第${index}块（共${total}块） 页面位置：左 ${left} cm，上 ${top} cm -->`,
-	missingAttachment: name => `〔附件缺失：${name}（OneDrive 下载包里没有这个文件的数据）〕`,
+	missingAttachment: name => `〔附件缺失：${name}（OneDrive 上的笔记本文件里没有这个文件的数据）〕`,
 	missingImages: (count, names) => count === 1
-		? `〔图片缺失${names.length ? `：${names[0]}` : ''}（OneDrive 下载包里没有这张图片的数据）〕`
-		: `〔图片缺失 ${count} 张${names.length ? `：${names.join('、')}` : ''}（OneDrive 下载包里没有这些图片的数据）〕`,
+		? `〔图片缺失${names.length ? `：${names[0]}` : ''}（OneDrive 上的笔记本文件里没有这张图片的数据）〕`
+		: `〔图片缺失 ${count} 张${names.length ? `：${names.join('、')}` : ''}（OneDrive 上的笔记本文件里没有这些图片的数据）〕`,
 	missingPrintoutPages: (document, first, last) => first === last
-		? `〔打印页缺失：${document} 第 ${first} 页（OneDrive 下载包里没有这一页的数据）〕`
-		: `〔打印页缺失：${document} 第 ${first} 到 ${last} 页（OneDrive 下载包里没有这些页面的数据）〕`,
+		? `〔打印页缺失：${document} 第 ${first} 页（OneDrive 上的笔记本文件里没有这一页的数据）〕`
+		: `〔打印页缺失：${document} 第 ${first} 到 ${last} 页（OneDrive 上的笔记本文件里没有这些页面的数据）〕`,
 	printoutNotes: (document, page) => `〔${document} 第 ${page} 页上的手写批注（按它在这一页上的位置画出）〕`,
 	unshownPicture: format => `${format} 图片（Obsidian 无法显示这种格式）`,
 	printoutPage: (document, page) => `${document} 第 ${page} 页`,
@@ -318,7 +318,7 @@ export const zhHans: Strings = {
 	passwordProtectedSuffix: '（有密码保护，未转换）',
 	cancelledSuffix: '（未转换：导入已取消）',
 	notImportedSuffix: '（未导入）',
-	passwordProtected: '这个分区设了密码，无法读取。请在 OneNote 里取消它的密码保护，再重新下载。',
+	passwordProtected: '这个分区设了密码，无法读取。请在 OneNote 里取消它的密码保护，再重新导入。',
 	incompleteSection: '这个分区没有下载完整，请重新下载。',
 	altTextTitle: '替换文字',
 	printoutTextTitle: '打印页上的文字',
@@ -351,7 +351,7 @@ export const zhHans: Strings = {
 		notStarted: notebooks => `因中途停止而没有导入的笔记本：${notebooks.join('、')}。再导入一次即可。`,
 		unfinished: '这次导入还没有结束，或者中途退出了 Obsidian。再导入一次，没导入的分区会补进来。',
 		recordsMissing: '有的分区以前的记录不在了（报告的数据被删掉或改动过），这里的页数和附件数可能不全。',
-		missingItems: count => `缺少 ${num(count)} 处图片或附件（下载包里没有数据）`,
+		missingItems: count => `缺少 ${num(count)} 处图片或附件（笔记本文件里没有数据）`,
 		printoutsNotDrawn: count => `${num(count)} 页打印页没有画出（文字无法逐字核对，或页面用了这里画不了的内容），请打开原文件查看`,
 		update: record => `这次更新了已导入的笔记，详见${record}。`,
 	},
@@ -383,9 +383,9 @@ export const zhHans: Strings = {
 		keptAside: (files, folder) => `${num(files)} 个文件与预期不同（可能在更新中断后被修改过），覆盖前已另存到“${folder}”。删除旧版本前请先查看。`,
 		occupiedNotebook: notebook => `笔记本“${notebook}”的文件夹中有不是插件写入的文件，保持原样。`,
 		missingSection: name => `重新导入分区“${name}”（以前导入过，已不在仓库中）`,
-		gone: sections => `下载中没有这些分区，仓库中的保持原样：${sections.join('、')}`,
+		gone: sections => `来源中已没有这些分区，仓库中的保持原样：${sections.join('、')}`,
 		occupied: sections => `这些分区的文件夹中有不是插件写入的文件，保持原样：${sections.join('、')}`,
-		different: notebook => `仓库中的“${notebook}”与下载中的同名笔记本没有相同页面，是另一本笔记本，保持原样。`,
+		different: notebook => `仓库中的“${notebook}”与来源中的同名笔记本没有相同页面，是另一本笔记本，保持原样。`,
 		moved: '以下页面和分区已重命名或移动，其他笔记中指向它们的链接可能需要修改：',
 		changes: '变化',
 		section: (name, was) => `分区“${name}”${was ? `（原为“${was}”）` : ''}`,
@@ -407,13 +407,13 @@ export const zhHans: Strings = {
 
 export const zhHant: Strings = {
 	boxMarker: (index, total, left, top) => `<!-- 第${index}塊（共${total}塊） 頁面位置：左 ${left} cm，上 ${top} cm -->`,
-	missingAttachment: name => `〔附件缺失：${name}（OneDrive 下載包裡沒有這個檔案的資料）〕`,
+	missingAttachment: name => `〔附件缺失：${name}（OneDrive 上的筆記本檔案裡沒有這個檔案的資料）〕`,
 	missingImages: (count, names) => count === 1
-		? `〔圖片缺失${names.length ? `：${names[0]}` : ''}（OneDrive 下載包裡沒有這張圖片的資料）〕`
-		: `〔圖片缺失 ${count} 張${names.length ? `：${names.join('、')}` : ''}（OneDrive 下載包裡沒有這些圖片的資料）〕`,
+		? `〔圖片缺失${names.length ? `：${names[0]}` : ''}（OneDrive 上的筆記本檔案裡沒有這張圖片的資料）〕`
+		: `〔圖片缺失 ${count} 張${names.length ? `：${names.join('、')}` : ''}（OneDrive 上的筆記本檔案裡沒有這些圖片的資料）〕`,
 	missingPrintoutPages: (document, first, last) => first === last
-		? `〔列印頁缺失：${document} 第 ${first} 頁（OneDrive 下載包裡沒有這一頁的資料）〕`
-		: `〔列印頁缺失：${document} 第 ${first} 到 ${last} 頁（OneDrive 下載包裡沒有這些頁面的資料）〕`,
+		? `〔列印頁缺失：${document} 第 ${first} 頁（OneDrive 上的筆記本檔案裡沒有這一頁的資料）〕`
+		: `〔列印頁缺失：${document} 第 ${first} 到 ${last} 頁（OneDrive 上的筆記本檔案裡沒有這些頁面的資料）〕`,
 	printoutNotes: (document, page) => `〔${document} 第 ${page} 頁上的手寫批註（按它在這一頁上的位置畫出）〕`,
 	unshownPicture: format => `${format} 圖片（Obsidian 無法顯示這種格式）`,
 	printoutPage: (document, page) => `${document} 第 ${page} 頁`,
@@ -427,7 +427,7 @@ export const zhHant: Strings = {
 	passwordProtectedSuffix: '（有密碼保護，未轉換）',
 	cancelledSuffix: '（未轉換：匯入已取消）',
 	notImportedSuffix: '（未匯入）',
-	passwordProtected: '這個節設了密碼，無法讀取。請在 OneNote 裡取消它的密碼保護，再重新下載。',
+	passwordProtected: '這個節設了密碼，無法讀取。請在 OneNote 裡取消它的密碼保護，再重新匯入。',
 	incompleteSection: '這個節沒有下載完整，請重新下載。',
 	altTextTitle: '替代文字',
 	printoutTextTitle: '列印頁上的文字',
@@ -460,7 +460,7 @@ export const zhHant: Strings = {
 		notStarted: notebooks => `因中途停止而沒有匯入的筆記本：${notebooks.join('、')}。再匯入一次即可。`,
 		unfinished: '這次匯入還沒有結束，或者中途退出了 Obsidian。再匯入一次，沒匯入的節會補進來。',
 		recordsMissing: '有的節以前的紀錄不在了（報告的資料被刪除或改動過），這裡的頁數和附件數可能不全。',
-		missingItems: count => `缺少 ${num(count)} 處圖片或附件（下載包裡沒有資料）`,
+		missingItems: count => `缺少 ${num(count)} 處圖片或附件（筆記本檔案裡沒有資料）`,
 		printoutsNotDrawn: count => `${num(count)} 頁列印頁沒有畫出（文字無法逐字核對，或頁面用了這裡畫不了的內容），請開啟原檔案查看`,
 		update: record => `這次更新了已匯入的筆記，詳見${record}。`,
 	},
@@ -492,9 +492,9 @@ export const zhHant: Strings = {
 		keptAside: (files, folder) => `${num(files)} 個檔案與預期不同（可能在更新中斷後被修改過），覆蓋前已另存到「${folder}」。刪除舊版本前請先查看。`,
 		occupiedNotebook: notebook => `筆記本「${notebook}」的資料夾中有不是外掛寫入的檔案，保持原樣。`,
 		missingSection: name => `重新匯入節「${name}」（以前匯入過，已不在儲存庫中）`,
-		gone: sections => `下載中沒有這些節，儲存庫中的保持原樣：${sections.join('、')}`,
+		gone: sections => `來源中已沒有這些節，儲存庫中的保持原樣：${sections.join('、')}`,
 		occupied: sections => `這些節的資料夾中有不是外掛寫入的檔案，保持原樣：${sections.join('、')}`,
-		different: notebook => `儲存庫中的「${notebook}」與下載中的同名筆記本沒有相同頁面，是另一本筆記本，保持原樣。`,
+		different: notebook => `儲存庫中的「${notebook}」與來源中的同名筆記本沒有相同頁面，是另一本筆記本，保持原樣。`,
 		moved: '以下頁面和節已重新命名或移動，其他筆記中指向它們的連結可能需要修改：',
 		changes: '變化',
 		section: (name, was) => `節「${name}」${was ? `（原為「${was}」）` : ''}`,
@@ -516,13 +516,13 @@ export const zhHant: Strings = {
 
 export const ja: Strings = {
 	boxMarker: (index, total, left, top) => `<!-- 第${index}ブロック（全${total}ブロック） ページ上の位置：左 ${left} cm、上 ${top} cm -->`,
-	missingAttachment: name => `〔添付ファイルなし：${name}（OneDrive のダウンロードにこのファイルのデータがありません）〕`,
+	missingAttachment: name => `〔添付ファイルなし：${name}（OneDrive 上のノートブックのファイルにこのファイルのデータがありません）〕`,
 	missingImages: (count, names) => count === 1
-		? `〔画像なし${names.length ? `：${names[0]}` : ''}（OneDrive のダウンロードにこの画像のデータがありません）〕`
-		: `〔画像なし ${count} 枚${names.length ? `：${names.join('、')}` : ''}（OneDrive のダウンロードにこれらの画像のデータがありません）〕`,
+		? `〔画像なし${names.length ? `：${names[0]}` : ''}（OneDrive 上のノートブックのファイルにこの画像のデータがありません）〕`
+		: `〔画像なし ${count} 枚${names.length ? `：${names.join('、')}` : ''}（OneDrive 上のノートブックのファイルにこれらの画像のデータがありません）〕`,
 	missingPrintoutPages: (document, first, last) => first === last
-		? `〔印刷イメージなし：${document} ${first} ページ目（OneDrive のダウンロードにこのページのデータがありません）〕`
-		: `〔印刷イメージなし：${document} ${first} ページ目から ${last} ページ目（OneDrive のダウンロードにこれらのページのデータがありません）〕`,
+		? `〔印刷イメージなし：${document} ${first} ページ目（OneDrive 上のノートブックのファイルにこのページのデータがありません）〕`
+		: `〔印刷イメージなし：${document} ${first} ページ目から ${last} ページ目（OneDrive 上のノートブックのファイルにこれらのページのデータがありません）〕`,
 	printoutNotes: (document, page) => `〔${document} の ${page} ページへの手書きメモ（そのページ上の位置どおりに描画）〕`,
 	unshownPicture: format => `${format} 画像（Obsidian ではこの形式を表示できません）`,
 	printoutPage: (document, page) => `${document} の ${page} ページ`,
@@ -536,7 +536,7 @@ export const ja: Strings = {
 	passwordProtectedSuffix: '（パスワード保護のため未変換）',
 	cancelledSuffix: '（未変換：インポートを中止しました）',
 	notImportedSuffix: '（未インポート）',
-	passwordProtected: 'このセクションはパスワードで保護されているため読み取れません。OneNote でパスワード保護を解除してから、もう一度ダウンロードしてください。',
+	passwordProtected: 'このセクションはパスワードで保護されているため読み取れません。OneNote でパスワード保護を解除してから、もう一度インポートしてください。',
 	incompleteSection: 'このセクションは最後までダウンロードされていません。もう一度ダウンロードしてください。',
 	altTextTitle: '代替テキスト',
 	printoutTextTitle: '印刷イメージの文字',
@@ -569,7 +569,7 @@ export const ja: Strings = {
 		notStarted: notebooks => `途中で停止したためインポートされなかったノートブック：${notebooks.join('、')}。もう一度インポートすると追加されます。`,
 		unfinished: 'このインポートはまだ終わっていないか、途中で Obsidian が終了しました。もう一度インポートすると、残りのセクションが追加されます。',
 		recordsMissing: '以前の記録が残っていないセクションがあります（このレポートのデータが削除または変更されました）。ここのページ数と添付ファイル数は不完全な場合があります。',
-		missingItems: count => `画像または添付ファイル ${num(count)} 個が欠けています（ダウンロードにデータがありません）`,
+		missingItems: count => `画像または添付ファイル ${num(count)} 個が欠けています（ノートブックのファイルにデータがありません）`,
 		printoutsNotDrawn: count => `印刷イメージ ${num(count)} ページは描画していません（文字を一字ずつ確認できないか、ここでは描けない内容を含みます）。元のファイルを開いてご覧ください`,
 		update: record => `今回はインポート済みのノートを更新しました。変更点は${record}を参照してください。`,
 	},
@@ -601,9 +601,9 @@ export const ja: Strings = {
 		keptAside: (files, folder) => `${num(files)} 個のファイルが更新の想定と違っていたため（更新の中断中に変更した場合など）、上書きする前に「${folder}」にコピーしました。以前のバージョンを削除する前に、これらのファイルを確認してください。`,
 		occupiedNotebook: notebook => `ノートブック「${notebook}」のフォルダーにプラグインが書いていないファイルがあるため、書き込みませんでした。`,
 		missingSection: name => `セクション「${name}」をもう一度インポートしました（以前インポートしたもので、保管庫に見つからなくなっていました）`,
-		gone: sections => `新しいダウンロードにないセクション（保管庫の内容はそのままです）：${sections.join('、')}`,
+		gone: sections => `取り込み元にないセクション（保管庫の内容はそのままです）：${sections.join('、')}`,
 		occupied: sections => `フォルダーにプラグインが書いていないファイルがあるため、書き込まなかったセクション：${sections.join('、')}`,
-		different: notebook => `保管庫の「${notebook}」は、ダウンロードの同じ名前のノートブックと共通するページがありません。別のノートブックなので、そのままにしました。`,
+		different: notebook => `保管庫の「${notebook}」は、取り込み元の同じ名前のノートブックと共通するページがありません。別のノートブックなので、そのままにしました。`,
 		moved: '次のページとセクションは、名前や場所が変わりました。ほかのノートからのリンクは直す必要があるかもしれません：',
 		changes: '変更点',
 		section: (name, was) => `セクション「${name}」${was ? `（以前は「${was}」）` : ''}`,
@@ -625,13 +625,13 @@ export const ja: Strings = {
 
 export const ko: Strings = {
 	boxMarker: (index, total, left, top) => `<!-- ${total}개 중 ${index}번째 블록, 페이지 위치: 왼쪽 ${left} cm, 위 ${top} cm -->`,
-	missingAttachment: name => `〔첨부 파일 없음: ${name} (OneDrive 다운로드에 이 파일의 데이터가 없습니다)〕`,
+	missingAttachment: name => `〔첨부 파일 없음: ${name} (OneDrive에 있는 전자 필기장 파일에 이 파일의 데이터가 없습니다)〕`,
 	missingImages: (count, names) => count === 1
-		? `〔그림 없음${names.length ? `: ${names[0]}` : ''} (OneDrive 다운로드에 이 그림의 데이터가 없습니다)〕`
-		: `〔그림 ${count}개 없음${names.length ? `: ${names.join(', ')}` : ''} (OneDrive 다운로드에 이 그림들의 데이터가 없습니다)〕`,
+		? `〔그림 없음${names.length ? `: ${names[0]}` : ''} (OneDrive에 있는 전자 필기장 파일에 이 그림의 데이터가 없습니다)〕`
+		: `〔그림 ${count}개 없음${names.length ? `: ${names.join(', ')}` : ''} (OneDrive에 있는 전자 필기장 파일에 이 그림들의 데이터가 없습니다)〕`,
 	missingPrintoutPages: (document, first, last) => first === last
-		? `〔인쇄물 페이지 없음: ${document} ${first}페이지 (OneDrive 다운로드에 이 페이지의 데이터가 없습니다)〕`
-		: `〔인쇄물 페이지 없음: ${document} ${first}페이지부터 ${last}페이지까지 (OneDrive 다운로드에 이 페이지들의 데이터가 없습니다)〕`,
+		? `〔인쇄물 페이지 없음: ${document} ${first}페이지 (OneDrive에 있는 전자 필기장 파일에 이 페이지의 데이터가 없습니다)〕`
+		: `〔인쇄물 페이지 없음: ${document} ${first}페이지부터 ${last}페이지까지 (OneDrive에 있는 전자 필기장 파일에 이 페이지들의 데이터가 없습니다)〕`,
 	printoutNotes: (document, page) => `〔${document} ${page}쪽에 쓴 손글씨 메모(그 쪽에서의 위치대로 그림)〕`,
 	unshownPicture: format => `${format} 그림 (Obsidian에서 이 형식을 표시할 수 없음)`,
 	printoutPage: (document, page) => `${document} ${page}쪽`,
@@ -645,7 +645,7 @@ export const ko: Strings = {
 	passwordProtectedSuffix: ' (암호로 보호되어 변환하지 않음)',
 	cancelledSuffix: ' (가져오기를 취소하여 변환하지 않음)',
 	notImportedSuffix: ' (가져오지 않음)',
-	passwordProtected: '이 섹션은 암호로 보호되어 있어 읽을 수 없습니다. OneNote에서 암호 보호를 해제한 뒤 다시 다운로드하세요.',
+	passwordProtected: '이 섹션은 암호로 보호되어 있어 읽을 수 없습니다. OneNote에서 암호 보호를 해제한 뒤 다시 가져오세요.',
 	incompleteSection: '이 섹션은 끝까지 다운로드되지 않았습니다. 다시 다운로드하세요.',
 	altTextTitle: '대체 텍스트',
 	printoutTextTitle: '인쇄물 페이지의 글자',
@@ -678,7 +678,7 @@ export const ko: Strings = {
 		notStarted: notebooks => `가져오기가 중지되어 가져오지 않은 전자 필기장: ${notebooks.join(', ')}. 다시 가져오면 추가됩니다.`,
 		unfinished: '이 가져오기가 아직 끝나지 않았거나 도중에 Obsidian이 종료되었습니다. 다시 가져오면 나머지 섹션이 추가됩니다.',
 		recordsMissing: '이전 기록이 없는 섹션이 있습니다(이 보고서의 데이터가 삭제되었거나 바뀌었습니다). 여기의 페이지 수와 첨부 파일 수는 정확하지 않을 수 있습니다.',
-		missingItems: count => `그림 또는 첨부 파일 ${num(count)}개 없음 (다운로드에 데이터가 없음)`,
+		missingItems: count => `그림 또는 첨부 파일 ${num(count)}개 없음 (전자 필기장 파일에 데이터가 없음)`,
 		printoutsNotDrawn: count => `인쇄 페이지 ${num(count)}쪽을 그리지 않았습니다 (글자를 한 자씩 확인할 수 없거나 여기서 그릴 수 없는 내용이 있음). 원본 파일을 열어 보세요`,
 		update: record => `이번에는 이전에 가져온 노트를 업데이트했습니다. 바뀐 내용은 ${record}에 있습니다.`,
 	},
@@ -710,9 +710,9 @@ export const ko: Strings = {
 		keptAside: (files, folder) => `파일 ${num(files)}개가 업데이트가 예상한 상태와 달라(업데이트가 끊긴 동안 고친 경우 등) 덮어쓰기 전에 "${folder}"에 복사했습니다. 이전 버전을 삭제하기 전에 이 파일들을 먼저 확인하세요.`,
 		occupiedNotebook: notebook => `전자 필기장 "${notebook}"의 폴더에 플러그인이 쓰지 않은 파일이 있어 쓰지 않았습니다.`,
 		missingSection: name => `섹션 "${name}"을(를) 다시 가져옴 (이전에 가져왔지만 보관함에서 찾을 수 없었음)`,
-		gone: sections => `새 다운로드에 없는 섹션 (보관함의 내용은 그대로 둠): ${sections.join(', ')}`,
+		gone: sections => `가져올 곳에 없는 섹션 (보관함의 내용은 그대로 둠): ${sections.join(', ')}`,
 		occupied: sections => `폴더에 플러그인이 쓰지 않은 파일이 있어 쓰지 않은 섹션: ${sections.join(', ')}`,
-		different: notebook => `보관함의 "${notebook}"은(는) 다운로드에 있는 같은 이름의 전자 필기장과 같은 페이지가 하나도 없습니다. 다른 전자 필기장이므로 그대로 두었습니다.`,
+		different: notebook => `보관함의 "${notebook}"은(는) 가져올 곳에 있는 같은 이름의 전자 필기장과 같은 페이지가 하나도 없습니다. 다른 전자 필기장이므로 그대로 두었습니다.`,
 		moved: '다음 페이지와 섹션은 이름이나 위치가 바뀌었습니다. 다른 노트에서 연결한 링크는 고쳐야 할 수 있습니다:',
 		changes: '바뀐 내용',
 		section: (name, was) => `섹션 "${name}"${was ? ` (이전 이름 "${was}")` : ''}`,
