@@ -162,7 +162,8 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 		this.resultNotice = undefined;
 		this.stopShowingHidden();
 		// The window hidden before its import opens as it was, whichever way it is opened (§11.5 item 83).
-		const hidden = this.session?.phase === 'setup';
+		// Not while Start's own looks run: a look again then would call that start off.
+		const hidden = this.session?.phase === 'setup' && !this.session.isStarting;
 		this.session ??= new ImportSession(this.app, this.client, this.settings, markerLanguageFor(interfaceLanguage()), entry, this.hooks);
 		this.wizard = new ImportWizard(this.app, this, this.session);
 		this.wizard.open();
@@ -178,7 +179,8 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 		// in the status bar (§11.5 item 83). With nothing chosen, or after looking at the result of an
 		// import: started afresh next time.
 		if (session.phase === 'setup' && session.downloads.length) {
-			this.showHidden(session);
+			// Start was clicked: the import's own status bar item shows it (startImport), not a second one.
+			if (!session.isStarting) this.showHidden(session);
 			return;
 		}
 		session.dispose();

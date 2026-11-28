@@ -997,6 +997,43 @@ test('OneDrive, kept across sessions (§11.5 item 90): used while the copy\'s fi
 	assert.equal(s.sectionState(choice, choice.notebook.sections.find(section => section.label === 'Spring')!), 'changed');
 });
 
+test('OneDrive, opened again: a section that cannot be downloaded this time is told so, not compared from the older file the copy still holds', async () => {
+	const { files, pages } = importedTides();
+	const sections = ['Spring', 'Summer', 'Autumn', 'Older', 'Fresh', 'Skipped', 'Lost'];
+	const failing: string[] = [];
+	const drive = fakeOneDrive([{ id: 'n1', name: 'Tides', files: [...sections.map(name => `${name}.one`), 'Open Notebook.onetoc2'] }], failing);
+	const oneDrivePages = Object.fromEntries(Object.entries(pages).map(([path, list]) => [`n1/${path}`, list]));
+	const disk: Disk = Object.fromEntries(sections.map(name => [`/copy:n1/Tides/${name}.one`, '1']));
+	const { s } = await oneDriveSession(files, drive, oneDrivePages, disk);
+	const autumn = () => s.choices[0]!.notebook.sections.find(section => section.label === 'Autumn')!;
+	assert.equal(s.sectionState(s.choices[0]!, autumn()), 'same');
+	// OneNote changed Autumn meanwhile, and its download fails: the copy keeps the older file, as it was.
+	failing.push('Autumn.one');
+	await s.refresh();
+	await settled(s);
+	assert.equal(s.sectionState(s.choices[0]!, autumn()), 'unreadable');
+});
+
+test('a download removed and chosen again (another file at the same path) is read anew', async () => {
+	const { files, tides, pages, mtimes } = importedTides();
+	const disk: Disk = { a: '1', ...Object.fromEntries(tides.sections.map(section => [`a:${section.path}`, '1'])) };
+	const { s, client } = await session(files, { a: [tides] }, { pages, mtimes, disk });
+	const older = () => s.choices[0]!.notebook.sections.find(section => section.label === 'Older')!;
+	assert.equal(s.sectionState(s.choices[0]!, older()), 'older');
+	s.remove(s.downloads[0]!);
+	await settled(s);
+	assert.deepEqual(client.forgotten, ['a'], 'the worker lets go of it');
+	// A new download saved under the same name, in which OneNote retitled a page of Older.
+	disk.a = '2';
+	disk['a:Tides/Older.one'] = '2';
+	client.pages['Tides/Older.one'] = [scanned('{0E}', 'Later', T2)];
+	const read = client.scanned;
+	await s.add(['a']);
+	await settled(s);
+	assert.ok(client.scanned > read, 'read again');
+	assert.equal(s.sectionState(s.choices[0]!, older()), 'changed');
+});
+
 test('OneDrive: when the import starts, the notebooks chosen are asked again, so that what comes down is OneNote as it is then', async () => {
 	const drive = fakeOneDrive([{ id: 'n1', name: 'Atlas', files: ['A.one'] }]);
 	const { s } = await oneDriveSession({}, drive);

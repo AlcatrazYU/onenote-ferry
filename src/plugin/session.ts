@@ -281,6 +281,10 @@ export class ImportSession {
 	downloadsCut = false;
 	/** The import is about to start: the target folder is looked at once more. */
 	private starting = false;
+	/** Start was clicked and what is looked at before the import still is (see start()). */
+	get isStarting(): boolean {
+		return this.starting;
+	}
 	/** Names given again after a look at the target folder, since the user last changed anything (see lookUp). */
 	private renamings = 0;
 	private readonly listeners = new Set<() => void>();
@@ -477,6 +481,10 @@ export class ImportSession {
 	remove(download: ChosenDownload): void {
 		if (!this.open) return;
 		download.onedrive?.controller.abort();
+		// Chosen again later, it may be another file at the same path: nothing read of it now is used
+		// then, and the worker lets go of it as it was.
+		this.scans.delete(download.input);
+		if (!download.onedrive && this.client.running) void this.client.forget(download.input).catch(() => undefined);
 		const index = this.downloads.indexOf(download);
 		if (index >= 0) this.downloads.splice(index, 1);
 		this.goneChoices.delete(download);
@@ -674,6 +682,11 @@ export class ImportSession {
 		finally {
 			this.downloading = undefined;
 		}
+		// A section not downloaded this time is told as such, never compared from the older file the
+		// copy still holds: what this session read of it before goes (its file did not change, so
+		// dropStale below would keep it).
+		const scans = this.scans.get(choice.download.input);
+		for (const section of choice.notebook.sections) if (source.failed.has(section.path)) scans?.delete(section.path);
 		await this.lookForPasswords(choice.download, choice.notebook.sections);
 		// Sections OneNote changed since they were read are read again.
 		this.dropStale(choice.download, choice.notebook.sections);
