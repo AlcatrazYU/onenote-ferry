@@ -69,7 +69,7 @@ export interface CabFile {
 }
 
 /** A Cabinet archive of one folder holding the files in order; `lzx` compresses it (window 2^16). */
-export function makeCab(files: CabFile[], options: { lzx?: boolean, damage?: boolean, unflaggedNames?: boolean } = {}): Uint8Array {
+export function makeCab(files: CabFile[], options: { lzx?: boolean, damage?: boolean, unflaggedNames?: boolean, mszip?: boolean } = {}): Uint8Array {
 	const all = new Uint8Array(files.reduce((n, file) => n + file.data.length, 0));
 	let at = 0;
 	for (const file of files) {
@@ -105,7 +105,8 @@ export function makeCab(files: CabFile[], options: { lzx?: boolean, damage?: boo
 	view.setUint16(28, files.length, true);
 	view.setUint32(36, dataOffset, true);
 	view.setUint16(40, blocks.length, true);
-	view.setUint16(42, options.lzx ? 0x0003 | (16 << 8) : 0, true);
+	// MSZIP is only named (its data stays stored): enough to be refused as a compression not read here.
+	view.setUint16(42, options.lzx ? 0x0003 | (16 << 8) : options.mszip ? 0x0001 : 0, true);
 	let offset = filesOffset, folderOffset = 0;
 	files.forEach((file, i) => {
 		view.setUint32(offset, file.data.length, true);

@@ -7,6 +7,8 @@
 //   later syncs depend on them.
 // Page property keys (title, onenote-id, ...) are not here: they are always English.
 
+import type { PackageProblem } from './cab.ts';
+
 export type Language = 'en' | 'zh-Hans' | 'zh-Hant' | 'ja' | 'ko';
 
 export const LANGUAGES: readonly Language[] = ['en', 'zh-Hans', 'zh-Hant', 'ja', 'ko'];
@@ -44,6 +46,10 @@ export interface Strings {
 	passwordProtected: string;
 	/** Why a section the download stopped inside was not converted (its table of contents, report and command line). */
 	incompleteSection: string;
+	/** Why a section of a `.onepkg` was not converted: the package is damaged (its table of contents, report and update window). */
+	packageDamaged: string;
+	/** The same, when the package is compressed in a way that is not read here. */
+	packageUnsupported: string;
 	/** Title of the collapsed callout holding an image's alternative text. */
 	altTextTitle: string;
 	/** Title of the folded box with the text of a printout page as its document gives it (§11.5 item 78). */
@@ -211,6 +217,8 @@ export const en: Strings = {
 	notImportedSuffix: ' (not imported)',
 	passwordProtected: 'This section is password protected and cannot be read. Remove its password protection in OneNote, then import it again.',
 	incompleteSection: 'This section did not download completely. Download again to get it.',
+	packageDamaged: 'This section could not be read: its notebook package is damaged. Export the notebook again from OneNote for Windows, then import it again.',
+	packageUnsupported: 'This section could not be read: its notebook package is compressed in a way OneNote Ferry cannot read yet.',
 	altTextTitle: 'Alt text',
 	printoutTextTitle: 'Text of the printout',
 	recognizedTextTitle: 'Text recognized by OneNote (may contain errors)',
@@ -320,6 +328,8 @@ export const zhHans: Strings = {
 	notImportedSuffix: '（未导入）',
 	passwordProtected: '这个分区设了密码，无法读取。请在 OneNote 里取消它的密码保护，再重新导入。',
 	incompleteSection: '这个分区没有下载完整，请重新下载。',
+	packageDamaged: '这个分区无法读取：它所在的笔记本导出包已损坏。请在 Windows 版 OneNote 里重新导出这个笔记本，再重新导入。',
+	packageUnsupported: '这个分区无法读取：它所在的笔记本导出包用了 OneNote Ferry 暂时还读不了的压缩方式。',
 	altTextTitle: '替换文字',
 	printoutTextTitle: '打印页上的文字',
 	recognizedTextTitle: 'OneNote 识别的文字（可能有错）',
@@ -429,6 +439,8 @@ export const zhHant: Strings = {
 	notImportedSuffix: '（未匯入）',
 	passwordProtected: '這個節設了密碼，無法讀取。請在 OneNote 裡取消它的密碼保護，再重新匯入。',
 	incompleteSection: '這個節沒有下載完整，請重新下載。',
+	packageDamaged: '這個節無法讀取：它所在的筆記本匯出包已損壞。請在 Windows 版 OneNote 裡重新匯出這本筆記本，再重新匯入。',
+	packageUnsupported: '這個節無法讀取：它所在的筆記本匯出包用了 OneNote Ferry 暫時還讀不了的壓縮方式。',
 	altTextTitle: '替代文字',
 	printoutTextTitle: '列印頁上的文字',
 	recognizedTextTitle: 'OneNote 辨識的文字（可能有誤）',
@@ -538,6 +550,8 @@ export const ja: Strings = {
 	notImportedSuffix: '（未インポート）',
 	passwordProtected: 'このセクションはパスワードで保護されているため読み取れません。OneNote でパスワード保護を解除してから、もう一度インポートしてください。',
 	incompleteSection: 'このセクションは最後までダウンロードされていません。もう一度ダウンロードしてください。',
+	packageDamaged: 'このセクションは読み取れません。ノートブックのパッケージが壊れています。Windows 版 OneNote でノートブックをもう一度エクスポートしてから、インポートし直してください。',
+	packageUnsupported: 'このセクションは読み取れません。ノートブックのパッケージが、OneNote Ferry がまだ読めない方式で圧縮されています。',
 	altTextTitle: '代替テキスト',
 	printoutTextTitle: '印刷イメージの文字',
 	recognizedTextTitle: 'OneNote が認識した文字（誤りを含む場合があります）',
@@ -647,6 +661,8 @@ export const ko: Strings = {
 	notImportedSuffix: ' (가져오지 않음)',
 	passwordProtected: '이 섹션은 암호로 보호되어 있어 읽을 수 없습니다. OneNote에서 암호 보호를 해제한 뒤 다시 가져오세요.',
 	incompleteSection: '이 섹션은 끝까지 다운로드되지 않았습니다. 다시 다운로드하세요.',
+	packageDamaged: '이 섹션은 읽을 수 없습니다. 전자 필기장 패키지가 손상되었습니다. Windows용 OneNote에서 전자 필기장을 다시 내보낸 뒤 다시 가져오세요.',
+	packageUnsupported: '이 섹션은 읽을 수 없습니다. 전자 필기장 패키지가 OneNote Ferry가 아직 읽을 수 없는 방식으로 압축되어 있습니다.',
 	altTextTitle: '대체 텍스트',
 	printoutTextTitle: '인쇄물 페이지의 글자',
 	recognizedTextTitle: 'OneNote가 인식한 글자(오류가 있을 수 있음)',
@@ -733,6 +749,11 @@ export const ko: Strings = {
 };
 
 export const STRINGS: Record<Language, Strings> = { 'en': en, 'zh-Hans': zhHans, 'zh-Hant': zhHant, 'ja': ja, 'ko': ko };
+
+/** Why a section of a `.onepkg` could not be read, in the notes' language. */
+export function packageProblemText(problem: PackageProblem, strings: Strings): string {
+	return problem === 'unsupported' ? strings.packageUnsupported : strings.packageDamaged;
+}
 
 export function isLanguage(value: string): value is Language {
 	return (LANGUAGES as readonly string[]).includes(value);

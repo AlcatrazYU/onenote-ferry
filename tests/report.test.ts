@@ -248,13 +248,17 @@ test('a folder with a report in another language keeps that one report, now in t
 	assert.match(sink.files.get('_转换报告.md') as string, /^---\ntitle: "OneNote conversion report"/);
 });
 
-test('an unfinished download is named as such in any reader\'s language, also from older reports', () => {
+test('an unfinished download, or a damaged package, is named as such in any reader\'s language, also from older reports', () => {
 	const section = (extra: Record<string, unknown>) => ({ groups: [], section: 'Spring', failed: true, ...extra });
 	const notebook = (sections: unknown[]) => ({ notebook: 'Tides', dir: 'Tides', language: 'zh-Hans', importedAt: AT.toISOString(), source: 'N.zip', options: OPTIONS, sections });
 	const flagged = updateReport({ format: REPORT_FORMAT, notebooks: [notebook([section({ incomplete: true, error: 'an earlier wording' })])] }, { notebooks: [], cancelled: false, notStarted: [] }, { at: AT, sources: [], options: OPTIONS }, ['Tides']);
 	assert.match(reportMarkdown(flagged, en), /Section "Spring": This section did not download completely\. Download again to get it\./);
 	const matched = updateReport({ format: REPORT_FORMAT, notebooks: [notebook([section({ error: zhHans.incompleteSection })])] }, { notebooks: [], cancelled: false, notStarted: [] }, { at: AT, sources: [], options: OPTIONS }, ['Tides']);
 	assert.match(reportMarkdown(matched, en), /This section did not download completely/);
+	// A damaged .onepkg: the reader's sentence, not the package reader's message.
+	const damaged = updateReport({ format: REPORT_FORMAT, notebooks: [notebook([section({ packageProblem: 'damaged', error: 'The package ends inside its header.' })])] }, { notebooks: [], cancelled: false, notStarted: [] }, { at: AT, sources: [], options: OPTIONS }, ['Tides']);
+	assert.match(reportMarkdown(damaged, en), /Section "Spring": This section could not be read: its notebook package is damaged\./);
+	assert.ok(!reportMarkdown(damaged, en).includes('ends inside'));
 });
 
 test('a folder spelled in another case is the same folder; a copy keeps its OneNote name', () => {

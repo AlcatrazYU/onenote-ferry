@@ -6,6 +6,7 @@ import type * as Os from 'node:os';
 import type * as Path from 'node:path';
 import workerSource from 'onenote-ferry:worker';
 import wasmBase64 from 'onenote-ferry:wasm';
+import { CabFormatError } from '../core/cab.ts';
 import type { DownloadSection } from '../core/download.ts';
 import type { SectionNames, SectionOptions, SectionResult } from '../core/importer.ts';
 import type { Sink } from '../core/io.ts';
@@ -139,7 +140,8 @@ export class WorkerClient {
 		const request = this.pending.get(message.id);
 		if (!request) return;
 		this.pending.delete(message.id);
-		if (message.type === 'error') request.reject(new Error(message.message));
+		// A package that cannot be read keeps its kind of problem, for the window to say why in the reader's language.
+		if (message.type === 'error') request.reject(message.problem ? new CabFormatError(message.message, message.problem) : new Error(message.message));
 		else request.resolve(message.value);
 	}
 

@@ -9,7 +9,18 @@
 
 import type { RandomAccessFile } from './zip.ts';
 
-export class CabFormatError extends Error {}
+/** What is wrong with a package: damaged (or not a package at all), or written in a way this reader does not know. */
+export type PackageProblem = 'damaged' | 'unsupported';
+
+/** A package that cannot be read; the message is for the record, `kind` picks what the user is told. */
+export class CabFormatError extends Error {
+	readonly kind: PackageProblem;
+
+	constructor(message: string, kind: PackageProblem = 'damaged') {
+		super(message);
+		this.kind = kind;
+	}
+}
 
 const COMPRESSION_NONE = 0x0000;
 const COMPRESSION_MSZIP = 0x0001;
@@ -150,8 +161,8 @@ export async function extractCab(file: RandomAccessFile, write: (entry: CabEntry
 		for (const entry of mine) if (entry.size === 0) await write(entry, new Uint8Array(0));
 		const needed = Math.max(...mine.map(entry => entry.offset + entry.size));
 		const kind = folder.compression & COMPRESSION_MASK;
-		if (kind === COMPRESSION_MSZIP) throw new CabFormatError('This package uses MSZIP compression, which is not read here.');
-		if (kind !== COMPRESSION_NONE && kind !== COMPRESSION_LZX) throw new CabFormatError('This package uses a compression this reader does not know.');
+		if (kind === COMPRESSION_MSZIP) throw new CabFormatError('This package uses MSZIP compression, which is not read here.', 'unsupported');
+		if (kind !== COMPRESSION_NONE && kind !== COMPRESSION_LZX) throw new CabFormatError('This package uses a compression this reader does not know.', 'unsupported');
 		const lzx = kind === COMPRESSION_LZX ? new LzxDecoder((folder.compression >> 8) & 0x1f) : undefined;
 		let at = folder.dataOffset, position = 0;
 		for (let block = 0; block < folder.blockCount && position < needed; block++) {
@@ -360,7 +371,7 @@ class LzxDecoder {
 	private paddingPending = false;
 
 	constructor(windowBits: number) {
-		if (windowBits < 15 || windowBits > 21) throw new CabFormatError('The package uses an LZX window size this reader does not know.');
+		if (windowBits < 15 || windowBits > 21) throw new CabFormatError('The package uses an LZX window size this reader does not know.', 'unsupported');
 		this.windowSize = 1 << windowBits;
 		this.mask = this.windowSize - 1;
 		this.window = new Uint8Array(this.windowSize);

@@ -5,6 +5,7 @@
 
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { CabFormatError } from '../core/cab.ts';
 import type { DownloadSection } from '../core/download.ts';
 import { convertSection } from '../core/importer.ts';
 import type { SectionHost, SectionOptions } from '../core/importer.ts';
@@ -163,6 +164,6 @@ self.onmessage = (event: MessageEvent<ToWorker | { type: 'sink-reply', call: num
 	}
 	handle(message).then(
 		value => post({ type: 'reply', id: message.id, value }),
-		error => post({ type: 'error', id: message.id, message: String((error as Error)?.message ?? error) }),
+		error => post({ type: 'error', id: message.id, message: String((error as Error)?.message ?? error), ...(error instanceof CabFormatError ? { problem: error.kind } : {}) }),
 	);
 };

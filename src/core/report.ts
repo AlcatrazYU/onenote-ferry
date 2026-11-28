@@ -8,7 +8,7 @@ import type { ImportResult, SectionOptions, SectionResult } from './importer.ts'
 import type { Sink } from './io.ts';
 import type { LinkStats } from './links.ts';
 import { composedText, joinPath } from './names.ts';
-import { isLanguage, LANGUAGES, STRINGS } from './strings.ts';
+import { isLanguage, LANGUAGES, packageProblemText, STRINGS } from './strings.ts';
 import { importStatusOf, oneDriveTagOf } from './write.ts';
 import type { Language, Strings } from './strings.ts';
 
@@ -227,6 +227,7 @@ function reason(section: SectionResult, strings: Strings): string {
 	if (section.locked) return strings.passwordProtected;
 	// The flag, or (in reports written before it) the wording of the time.
 	if (section.incomplete || Object.values(STRINGS).some(s => s.incompleteSection === section.error)) return strings.incompleteSection;
+	if (section.packageProblem === 'damaged' || section.packageProblem === 'unsupported') return packageProblemText(section.packageProblem, strings);
 	return strings.conversionFailedNote(section.error ?? '');
 }
 

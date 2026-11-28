@@ -7,7 +7,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { register } from 'node:module';
+import { CabFormatError } from '../src/core/cab.ts';
 import type { DownloadNotebook, DownloadSection } from '../src/core/download.ts';
+import { zhHans } from '../src/core/strings.ts';
 import type { ScannedPage } from '../src/core/sync.ts';
 import type { KeptScan } from '../src/node/scan-store.ts';
 
@@ -74,6 +76,8 @@ class FakeClient {
 	/** Pages of each section by its path (none when not given), and sections whose reading fails. */
 	pages: Record<string, ScannedPage[]> = {};
 	failing = new Set<string>();
+	/** Downloads (by path) and sections (by path) in a damaged `.onepkg`. */
+	damaged = new Set<string>();
 	scanned = 0;
 	/** Downloads let go of because they changed on disk. */
 	forgotten: string[] = [];
@@ -109,7 +113,10 @@ class FakeClient {
 		});
 	}
 	open(input: string) {
-		return this.answer(() => ({ notebooks: structuredClone(this.downloads[input] ?? []) }));
+		return this.answer(() => {
+			if (this.damaged.has(input)) throw new CabFormatError('The package ends inside its header.');
+			return { notebooks: structuredClone(this.downloads[input] ?? []) };
+		});
 	}
 	locked(input: string) {
 		return this.answer(() => this.lockedPaths[input] ?? []);
@@ -118,6 +125,7 @@ class FakeClient {
 		this.scanned++;
 		return this.answer(() => {
 			if (this.failing.has(section.path)) throw new Error('cannot parse');
+			if (this.damaged.has(section.path)) throw new CabFormatError('The package ends before the data of its files.');
 			// By download and path (`input:path`), else by path.
 			return structuredClone(this.pages[`${input}:${section.path}`] ?? this.pages[section.path] ?? []);
 		});
@@ -149,11 +157,12 @@ const DEFAULTS = { folder: 'T', boxMarkers: true, imageAltText: false };
 /** A table of contents of ours, with how far its import got (§11.5 item 47). */
 const toc = (status: 'importing' | 'complete' | 'failed', name = 'Tides') => `---\ntitle: "${name}"\nonenote-import: ${status}\n---\n\n# ${name}\n`;
 
-async function session(files: Record<string, string>, downloads: Record<string, DownloadNotebook[]>, options: { folders?: string[], folder?: string, locked?: Record<string, string[]>, failRead?: boolean, pages?: Record<string, ScannedPage[]>, failing?: string[], mtimes?: Record<string, number>, disk?: Disk, kept?: KeptStore } = {}) {
+async function session(files: Record<string, string>, downloads: Record<string, DownloadNotebook[]>, options: { folders?: string[], folder?: string, locked?: Record<string, string[]>, failRead?: boolean, pages?: Record<string, ScannedPage[]>, failing?: string[], damaged?: string[], mtimes?: Record<string, number>, disk?: Disk, kept?: KeptStore } = {}) {
 	const client = new FakeClient(downloads);
 	client.lockedPaths = options.locked ?? {};
 	client.pages = options.pages ?? {};
 	client.failing = new Set(options.failing ?? []);
+	client.damaged = new Set(options.damaged ?? []);
 	const hooks = { ...options.disk ? stampOn(options.disk) : {}, ...options.kept ? keptIn(options.kept) : {} };
 	const s = new ImportSession(fakeApp(files, options.folders, options.failRead, options.mtimes), client as never, { ...DEFAULTS, folder: options.folder ?? 'T' }, 'zh-Hans', 'import', hooks);
 	await s.add(Object.keys(downloads));
@@ -210,6 +219,15 @@ test('a notebook imported before is updated: the section there is compared, one 
 	assert.deepEqual(s.counts(), { notebooks: 0, sections: 0, unreadable: 0, bytes: 0 });
 	assert.deepEqual(s.updateCounts(), { updated: 1, added: 1, restored: 0, bothEdited: 0, reconverted: 0 });
 	assert.equal(s.ready, true);
+});
+
+test('a damaged .onepkg: the download says why in the window\'s words; a section that cannot be unpacked says it in the notebook\'s', async () => {
+	const opened = await session({}, { 'Harbour.onepkg': [] }, { damaged: ['Harbour.onepkg'] });
+	assert.deepEqual([opened.s.downloads[0]!.state, opened.s.downloads[0]!.problem], ['failed', 'damaged']);
+	const vault = { 'T/Tides/_目录.md': toc('complete'), 'T/Tides/Spring/_目录.md': toc('complete', 'Spring'), 'T/Tides/Spring/Tide table.md': 'page' };
+	const { s } = await session(vault, { 'Tides.onepkg': [notebook('Tides', ['Spring'])] }, { damaged: ['Tides/Spring.one'] });
+	assert.deepEqual(states(s), ['unreadable']);
+	assert.equal(s.itemOf(s.choices[0]!, s.choices[0]!.notebook.sections[0]!)?.error, zhHans.packageDamaged);
 });
 
 test('a section without changes is converted again only when clicked; with nothing to do, select all converts them all again', async () => {

@@ -4,6 +4,8 @@
 
 import { pageFingerprint } from './fingerprint.ts';
 import { Adapter } from './adapter.ts';
+import { CabFormatError } from './cab.ts';
+import type { PackageProblem } from './cab.ts';
 import type { DownloadNotebook, DownloadSection } from './download.ts';
 import type { DumpAsset, DumpSection } from './dump.ts';
 import type { SectionSource, Sink } from './io.ts';
@@ -12,7 +14,7 @@ import type { LinkStats, SectionRef } from './links.ts';
 import { joinPath, nameCollator } from './names.ts';
 import { countSection, detectLanguage, emptyCounts } from './language.ts';
 import type { ScriptCounts } from './language.ts';
-import { LANGUAGES, STRINGS } from './strings.ts';
+import { LANGUAGES, packageProblemText, STRINGS } from './strings.ts';
 import type { Language, Strings } from './strings.ts';
 import { failedSectionToc, importStatusOf, notebookFolder, notebookToc, oneDriveTagOf, sectionFolders, sectionKey, tocHeading, writeSection } from './write.ts';
 import type { NotebookTocEntry, SectionReport } from './write.ts';
@@ -107,6 +109,8 @@ export interface SectionResult extends NotebookTocEntry {
 	error?: string;
 	/** Not converted because the download stopped inside it. */
 	incomplete?: true;
+	/** Not converted because its `.onepkg` could not be read (`error` keeps the reader's message). */
+	packageProblem?: PackageProblem;
 	/** Written by an earlier import and kept as it was (this import added other sections). */
 	earlier?: true;
 	/**
@@ -441,6 +445,7 @@ export async function convertSection(section: DownloadSection, dir: string, stri
 		// Password protected (a clear message) or another failure.
 		const message = String((error as Error)?.message ?? error).slice(0, 500);
 		if (await isLocked(host, section)) return failed({ groups, section: label, failed: true, locked: true, error: strings.passwordProtected }, strings.passwordProtected);
+		if (error instanceof CabFormatError) return failed({ groups, section: label, failed: true, packageProblem: error.kind, error: message }, packageProblemText(error.kind, strings));
 		return failed({ groups, section: label, failed: true, error: message }, strings.conversionFailedNote(message));
 	}
 	try {

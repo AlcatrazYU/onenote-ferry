@@ -42,6 +42,10 @@ export interface UiStrings {
 	notebooksFound(count: number): string;
 	noNotebooks: string;
 	cannotRead(error: string): string;
+	/** A `.onepkg` that is damaged, or is not a OneNote export at all. */
+	packageDamaged: string;
+	/** A `.onepkg` compressed in a way that is not read here. */
+	packageUnsupported: string;
 	/** A download gone from disk since it was read (§11.5 item 83). */
 	sourceMissing: string;
 	converterStopped: string;
@@ -303,6 +307,8 @@ const en: UiStrings = {
 	notebooksFound: count => plural(count, 'notebook', 'notebooks'),
 	noNotebooks: 'No OneNote notebooks here.',
 	cannotRead: error => `Could not read this: ${error}`,
+	packageDamaged: 'Could not read this: the file is damaged, or it is not a notebook exported by OneNote. Export the notebook again from OneNote for Windows.',
+	packageUnsupported: 'Could not read this: the notebook package is compressed in a way OneNote Ferry cannot read yet.',
 	sourceMissing: 'No longer found. Remove it before starting.',
 	converterStopped: 'the converter stopped unexpectedly',
 	incompleteZip: 'This download is incomplete: only the parts it contains can be imported. Download it again to import everything.',
@@ -526,6 +532,8 @@ const zh: UiStrings = {
 	notebooksFound: count => `${n(count)} 本笔记本`,
 	noNotebooks: '这里没有 OneNote 笔记本。',
 	cannotRead: error => `无法读取：${error}`,
+	packageDamaged: '无法读取：这个文件已损坏，或不是 OneNote 导出的笔记本。请在 Windows 版 OneNote 里重新导出这个笔记本。',
+	packageUnsupported: '无法读取：这个笔记本导出包用了 OneNote Ferry 暂时还读不了的压缩方式。',
 	sourceMissing: '已找不到。请移除这一行后再开始。',
 	converterStopped: '转换程序意外停止',
 	incompleteZip: 'zip 文件不完整，只能导入其中已有的部分。如需全部导入，请重新下载。',
@@ -751,6 +759,8 @@ const ja: UiStrings = {
 	notebooksFound: count => `ノートブック ${n(count)} 冊`,
 	noNotebooks: 'ここに OneNote のノートブックはありません。',
 	cannotRead: error => `読み込めません：${error}`,
+	packageDamaged: '読み込めません：このファイルは壊れているか、OneNote でエクスポートしたノートブックではありません。Windows 版 OneNote でノートブックをもう一度エクスポートしてください。',
+	packageUnsupported: '読み込めません：このノートブックのパッケージは、OneNote Ferry がまだ読めない方式で圧縮されています。',
 	sourceMissing: '見つからなくなりました。開始する前に、リストから削除してください。',
 	converterStopped: '変換処理が予期せず停止しました',
 	incompleteZip: 'ダウンロードが不完全なため、含まれている部分だけをインポートできます。すべてをインポートするには、もう一度ダウンロードしてください。',
@@ -975,6 +985,8 @@ const ko: UiStrings = {
 	notebooksFound: count => `전자 필기장 ${n(count)}개`,
 	noNotebooks: '여기에는 OneNote 전자 필기장이 없습니다.',
 	cannotRead: error => `읽을 수 없습니다: ${error}`,
+	packageDamaged: '읽을 수 없습니다: 이 파일이 손상되었거나 OneNote에서 내보낸 전자 필기장이 아닙니다. Windows용 OneNote에서 전자 필기장을 다시 내보내세요.',
+	packageUnsupported: '읽을 수 없습니다: 이 전자 필기장 패키지는 OneNote Ferry가 아직 읽을 수 없는 방식으로 압축되어 있습니다.',
 	sourceMissing: '더 이상 찾을 수 없습니다. 시작하기 전에 이 항목을 제거하세요.',
 	converterStopped: '변환이 예기치 않게 중지되었습니다',
 	incompleteZip: '다운로드가 완전하지 않아 포함된 부분만 가져올 수 있습니다. 전부 가져오려면 다시 다운로드하세요.',

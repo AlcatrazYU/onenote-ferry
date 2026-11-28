@@ -1,5 +1,6 @@
 // Messages between the plugin (Obsidian's window) and its worker.
 
+import type { PackageProblem } from '../core/cab.ts';
 import type { DownloadNotebook } from '../core/download.ts';
 import type { IncompleteZip } from '../node/download.ts';
 
@@ -49,5 +50,6 @@ export interface SinkCall {
 /** What the worker sends: answers, and sink calls. */
 export type FromWorker =
 	| { type: 'reply', id: number, value: unknown }
-	| { type: 'error', id: number, message: string }
+	/** `problem`: a `.onepkg` that cannot be read, and why (CabFormatError's kind). */
+	| { type: 'error', id: number, message: string, problem?: PackageProblem }
 	| SinkCall;

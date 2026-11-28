@@ -3,6 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { CabFormatError } from '../src/core/cab.ts';
 import { findNotebooks, renameNotebook } from '../src/core/download.ts';
 import type { DownloadFile, DownloadSection } from '../src/core/download.ts';
 import { earlierNotebook, importNotebooks, scanNotebook } from '../src/core/importer.ts';
@@ -39,7 +40,7 @@ test('a zip of the Documents folder gives the same notebooks as the folder; a do
 
 const page = (title: string, text: string) => pageJson(title, [outline([element([rich([run(text)])])])]);
 
-function host(behaviour: Record<string, 'ok' | 'fail' | 'locked'>, cancelAfter?: number) {
+function host(behaviour: Record<string, 'ok' | 'fail' | 'locked' | 'damaged'>, cancelAfter?: number) {
 	const sink = memorySink();
 	const seen: string[] = [];
 	let converted = 0;
@@ -48,6 +49,7 @@ function host(behaviour: Record<string, 'ok' | 'fail' | 'locked'>, cancelAfter?:
 		async parse(section: DownloadSection) {
 			seen.push(section.path);
 			const kind = behaviour[section.label] ?? 'ok';
+			if (kind === 'damaged') throw new CabFormatError('The package ends inside its header.');
 			if (kind !== 'ok') throw new Error('PARSE_ERROR: invented failure');
 			return { json: sectionJson(section.label, [page(`${section.label} page`, 'invented text')]), source: { async readAsset() { throw new Error('no assets'); } }, release() {} };
 		},
@@ -82,6 +84,16 @@ test('every section is converted in order; a failure and a password-protected se
 	assert.match(toc, /- \[C\]\(<C\/_目录\.md>\)（有密码保护，未转换）/);
 	assert.match(sink.files.get('Ferry log/C/_目录.md') as string, /这个分区设了密码/);
 	assert.ok(sink.files.has('Tides/Spring/Spring page.md'));
+});
+
+test('a section in a damaged .onepkg: its page says so in the notebook\'s language; the reader\'s message stays in the result', async () => {
+	const { host: h, sink } = host({ B: 'damaged' });
+	const result = await importNotebooks(NOTEBOOKS(), h, OPTIONS);
+	const b = result.notebooks[0]!.sections.find(s => s.section === 'B')!;
+	assert.deepEqual([b.failed, b.packageProblem, b.error], [true, 'damaged', 'The package ends inside its header.']);
+	const page = sink.files.get('Ferry log/B/_目录.md') as string;
+	assert.ok(page.includes(zhHans.packageDamaged));
+	assert.ok(!page.includes('The package ends'), 'no English in a Chinese notebook');
 });
 
 test('cancelling stops between sections: what was written is whole, the rest is listed as not converted', async () => {

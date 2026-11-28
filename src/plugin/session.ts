@@ -9,13 +9,15 @@
 // chosen, the new ones are imported first and the others updated after.
 
 import type { App } from 'obsidian';
+import { CabFormatError } from '../core/cab.ts';
+import type { PackageProblem } from '../core/cab.ts';
 import { distinctNames, findNotebooks, renameNotebook } from '../core/download.ts';
 import type { DownloadNotebook, DownloadSection } from '../core/download.ts';
 import { earlierNotebook, oneDriveFolders, sectionKey } from '../core/importer.ts';
 import type { EarlierNotebook, ImportProgress, SectionOptions } from '../core/importer.ts';
 import { reportedEntry, reportedNotebooks } from '../core/report.ts';
 import type { ReportNotebook } from '../core/report.ts';
-import { LANGUAGES, STRINGS } from '../core/strings.ts';
+import { LANGUAGES, packageProblemText, STRINGS } from '../core/strings.ts';
 import type { Language, Strings } from '../core/strings.ts';
 import { planNotebook, readArchive } from '../core/sync.ts';
 import type { Archive, NotebookPlan, PagePlan, PlanItem, ScannedPage, ScannedSection } from '../core/sync.ts';
@@ -104,6 +106,8 @@ export interface ChosenDownload {
 	error?: string;
 	/** It could not be read because the converter stopped (not because of the download). */
 	stopped?: boolean;
+	/** A `.onepkg` that could not be read, and why: the window says so in its own words. */
+	problem?: PackageProblem;
 	/** Paths of its password-protected sections, once looked for. */
 	locked?: Set<string>;
 	/** The user's OneDrive, read through the Microsoft account. */
@@ -204,6 +208,8 @@ export interface SessionHooks {
 interface Scan {
 	pages?: ScannedPage[];
 	error?: string;
+	/** The section's `.onepkg` could not be read, and why (said in the notebook's language). */
+	problem?: PackageProblem;
 	/** The file it was read from, as it was then (see SessionHooks.stamp). */
 	stamp?: string;
 }
@@ -378,6 +384,7 @@ export class ImportSession {
 			download.state = 'failed';
 			download.error = message(error);
 			download.stopped = error instanceof ConverterStopped;
+			download.problem = error instanceof CabFormatError ? error.kind : undefined;
 		}
 	}
 
@@ -420,6 +427,7 @@ export class ImportSession {
 			if (!this.open) return changed;
 			download.error = undefined;
 			download.stopped = undefined;
+			download.problem = undefined;
 			download.incomplete = undefined;
 			if (now === undefined) {
 				this.stamps.set(download, undefined);
@@ -1085,7 +1093,7 @@ export class ImportSession {
 			catch (error) {
 				if (!this.open) return;
 				// The worker failed on it (out of memory, say): the next section gets a fresh one (see worker()).
-				scan = { error: error instanceof ConverterStopped ? error.detail ?? error.message : message(error) };
+				scan = { error: error instanceof ConverterStopped ? error.detail ?? error.message : message(error), ...(error instanceof CabFormatError ? { problem: error.kind } : {}) };
 			}
 		}
 		if (stamp !== undefined) scan.stamp = stamp;
@@ -1100,6 +1108,7 @@ export class ImportSession {
 			const scan = this.scanOf(choice.download, section);
 			if (section.incomplete) return { ...base, error: strings.incompleteSection };
 			if (scan?.pages) return { ...base, pages: scan.pages };
+			if (scan?.problem) return { ...base, error: packageProblemText(scan.problem, strings) };
 			return { ...base, error: choice.download.locked?.has(section.path) ? strings.passwordProtected : scan?.error ?? 'unreadable' };
 		});
 	}

@@ -48,8 +48,10 @@ test('names in UTF-8 without the flag that says so, as OneNote writes them: read
 });
 
 test('a damaged data block, or what is not a package: an error that says so', async () => {
-	await assert.rejects(unpack(makeCab(FILES, { damage: true })), (error: Error) => error instanceof CabFormatError && /checksum/.test(error.message));
-	await assert.rejects(readCabIndex(memory(new Uint8Array(40))), CabFormatError);
+	await assert.rejects(unpack(makeCab(FILES, { damage: true })), (error: Error) => error instanceof CabFormatError && error.kind === 'damaged' && /checksum/.test(error.message));
+	await assert.rejects(readCabIndex(memory(new Uint8Array(40))), (error: Error) => error instanceof CabFormatError && error.kind === 'damaged');
+	// A compression not read here is another kind of problem: exporting again would not help.
+	await assert.rejects(unpack(makeCab(FILES, { mszip: true })), (error: Error) => error instanceof CabFormatError && error.kind === 'unsupported');
 	assert.equal(isCabinet(new Uint8Array([0x50, 0x4b, 3, 4])), false);
 });
 

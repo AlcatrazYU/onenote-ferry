@@ -407,7 +407,7 @@ export class ImportWizard extends Modal {
 			row.settingEl.setAttr('title', download.input);
 			row.setDesc(download.state === 'reading' ? ui.reading
 				: download.missing ? ui.sourceMissing
-				: download.state === 'failed' ? ui.cannotRead(download.stopped ? ui.converterStopped : download.error ?? '')
+				: download.state === 'failed' ? download.problem === 'damaged' ? ui.packageDamaged : download.problem === 'unsupported' ? ui.packageUnsupported : ui.cannotRead(download.stopped ? ui.converterStopped : download.error ?? '')
 				: download.notebooks.length ? ui.notebooksFound(download.notebooks.length) : ui.noNotebooks);
 			if (download.state === 'failed' || (download.state === 'ready' && !download.notebooks.length)) row.descEl.addClass('onenote-ferry-warning');
 			if (download.incomplete) row.descEl.createDiv({ text: ui.incompleteZip, cls: 'onenote-ferry-warning' });
