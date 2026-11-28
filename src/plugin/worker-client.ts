@@ -1,6 +1,9 @@
 // The window's side of the worker: starts it from the code and WebAssembly bundled into main.js,
 // sends it requests, and does the vault writes it asks for.
 
+import type * as Fs from 'node:fs';
+import type * as Os from 'node:os';
+import type * as Path from 'node:path';
 import workerSource from 'onenote-ferry:worker';
 import wasmBase64 from 'onenote-ferry:wasm';
 import type { DownloadSection } from '../core/download.ts';
@@ -12,7 +15,11 @@ import type { FromWorker, OpenedDownload, SinkCall, ToWorker } from './protocol.
 
 type Request = ToWorker extends infer T ? T extends { id: number } ? Omit<T, 'id'> : never : never;
 
-declare const require: (id: string) => any;
+declare const require: {
+	(id: 'fs'): typeof Fs;
+	(id: 'os'): typeof Os;
+	(id: 'path'): typeof Path;
+};
 
 /** The worker's scratch folders in the system's temporary folder (the command line names its own differently). */
 const SCRATCH_PREFIX = 'onenote-ferry-worker-';
@@ -45,7 +52,7 @@ export class WorkerClient {
 	private workerUrl?: string;
 	private nextId = 1;
 	/** Requests not answered yet; all are rejected when the worker stops or fails. */
-	private readonly pending = new Map<number, { resolve(value: any): void, reject(error: Error): void }>();
+	private readonly pending = new Map<number, { resolve(value: unknown): void, reject(error: Error): void }>();
 	/** The worker's private folder for temporary copies, removed whenever the worker stops. */
 	private scratch?: string;
 	/** Where the worker's writes go while an import runs. */
@@ -56,7 +63,7 @@ export class WorkerClient {
 		try {
 			const fs = require('fs'), os = require('os'), path = require('path');
 			const dir: string = os.tmpdir();
-			for (const name of fs.readdirSync(dir) as string[]) {
+			for (const name of fs.readdirSync(dir)) {
 				if (!name.startsWith(SCRATCH_PREFIX)) continue;
 				const full = path.join(dir, name);
 				try {

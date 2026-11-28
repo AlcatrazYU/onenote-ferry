@@ -28,7 +28,16 @@ import { cleanFolder, folderProblem, FolderSuggest } from './settings.ts';
 import { nextLine } from './line.ts';
 import type { LineMeasure, LineMode, LineShown } from './line.ts';
 
-declare const require: (id: string) => any;
+/** What the file dialog needs of Electron's `remote`, which Obsidian's desktop app provides. */
+interface ElectronRemote {
+	BrowserWindow: { getFocusedWindow(): object | null };
+	getCurrentWindow(): object;
+	dialog: {
+		showOpenDialog(parent: object, options: { title: string, message: string, properties: string[], filters?: { name: string, extensions: string[] }[] }): Promise<{ canceled: boolean, filePaths: string[] }>;
+	};
+}
+
+declare const require: (id: 'electron') => { remote: ElectronRemote };
 
 export interface WizardHost {
 	ui: UiStrings;

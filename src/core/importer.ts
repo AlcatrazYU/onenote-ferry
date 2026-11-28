@@ -5,6 +5,7 @@
 import { pageFingerprint } from './fingerprint.ts';
 import { Adapter } from './adapter.ts';
 import type { DownloadNotebook, DownloadSection } from './download.ts';
+import type { DumpAsset, DumpSection } from './dump.ts';
 import type { SectionSource, Sink } from './io.ts';
 import { buildLinkIndex, NotebookLinks, notebookNotes, relinkPages } from './links.ts';
 import type { LinkStats, SectionRef } from './links.ts';
@@ -20,7 +21,7 @@ export { sectionKey };
 
 export interface ParsedSection {
 	/** The parser's JSON for the section. */
-	json: any;
+	json: DumpSection;
 	source: SectionSource;
 	/** Frees what the parser holds for this section. */
 	release(): void;
@@ -445,7 +446,7 @@ export async function convertSection(section: DownloadSection, dir: string, stri
 	try {
 		const adapter = new Adapter(strings);
 		// Each page's content fingerprint, so that a later check for updates sees what OneNote changed (§11.5 item 59).
-		const fingerprints = new Map<string, string>(await Promise.all((parsed.json.pages as { id: string, contents?: unknown }[]).map(async page => [page.id, await pageFingerprint(page.contents)] as [string, string])));
+		const fingerprints = new Map<string, string>(await Promise.all(parsed.json.pages.map(async page => [page.id, await pageFingerprint(page.contents)] as [string, string])));
 		const report = await writeSection(adapter.section(parsed.json), parsed.source, host.sink, {
 			dir, label: parsed.json.name || label, strings,
 			boxMarkers: options.boxMarkers, imageAltText: options.imageAltText,
@@ -513,13 +514,14 @@ export async function scanNotebook(notebook: DownloadNotebook, host: Pick<Sectio
 		try {
 			countSection(parsed.json, counts);
 			const assets = new Map<string, number>();
-			const walk = (x: any): void => {
+			const walk = (x: unknown): void => {
 				if (Array.isArray(x)) {
 					for (const v of x) walk(v);
 					return;
 				}
 				if (!x || typeof x !== 'object') return;
-				if ((x.type === 'image' || x.type === 'file') && x.asset?.asset) assets.set(x.asset.asset, x.asset.size ?? 0);
+				const item = x as { type?: unknown, asset?: DumpAsset | null };
+				if ((item.type === 'image' || item.type === 'file') && item.asset?.asset) assets.set(item.asset.asset, item.asset.size ?? 0);
 				for (const value of Object.values(x)) walk(value);
 			};
 			walk(parsed.json.pages);

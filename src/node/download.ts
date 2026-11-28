@@ -11,6 +11,7 @@ import { createInflateRaw, inflateRawSync } from 'node:zlib';
 import { extractCab, readCabIndex } from '../core/cab.ts';
 import { findNotebooks, groupsKey, orderByTables, tableFiles } from '../core/download.ts';
 import type { DownloadFile, DownloadNotebook, DownloadSection } from '../core/download.ts';
+import type { DumpSection } from '../core/dump.ts';
 import type { ParsedSection } from '../core/importer.ts';
 import { ENCRYPTION_MARKER_WINDOW, isPasswordProtected } from '../core/encryption.ts';
 import { entryDataOffset, readZipDirectory, scanZipEntries, ZipFormatError } from '../core/zip.ts';
@@ -45,8 +46,10 @@ export function incompleteZipMessage(zip: IncompleteZip): string {
 	return `The zip is incomplete (the download stopped part way): ${zip.files} ${zip.files === 1 ? 'file' : 'files'} arrived whole${zip.cutOff ? `, it ends inside ${zip.cutOff}` : ''}${zip.lostAt !== undefined ? `, and it could not be read past byte ${zip.lostAt}` : ''}. Sections and notebooks after that are missing; download the zip again to get them.`;
 }
 
+type ZipRange = { file: string, offset: number, length: number };
+
 /** Byte ranges inside a zip that the WebAssembly parser reads in place (parser/UPSTREAM.md, change 6). */
-export const ranges: Map<string, { file: string, offset: number, length: number }> = (globalThis as any).__ONENOTE_FERRY_RANGES__ ??= new Map();
+export const ranges: Map<string, ZipRange> = (globalThis as typeof globalThis & { __ONENOTE_FERRY_RANGES__?: Map<string, ZipRange> }).__ONENOTE_FERRY_RANGES__ ??= new Map<string, ZipRange>();
 
 export function fileAccess(path: string): RandomAccessFile & { close(): void } {
 	const fd = openSync(path, 'r');
@@ -399,9 +402,9 @@ export async function parseWithWasm(parser: WasmParser, download: Download, sect
 		parsed.free();
 		download.done(section);
 	};
-	let json;
+	let json: DumpSection;
 	try {
-		json = JSON.parse(parsed.takeJson());
+		json = JSON.parse(parsed.takeJson()) as DumpSection;
 	}
 	catch (error) {
 		release();

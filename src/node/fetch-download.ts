@@ -277,7 +277,7 @@ async function fetchInto(options: DownloadFileOptions, link: FileLink, offset: n
 			throw new Changed();
 		}
 		if (!response.body) throw new Error('an answer without a body');
-		const reader = response.body.getReader();
+		const reader = (response.body as ReadableStream<Uint8Array>).getReader();
 		try {
 			for (;;) {
 				const { done, value } = await reader.read();

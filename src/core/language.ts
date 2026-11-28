@@ -1,6 +1,7 @@
 // Which language a notebook is written in, for the marks the converter inserts into it
 // (see the project plan: one language per notebook, shown before the import and changeable).
 
+import type { DumpRich, DumpSection } from './dump.ts';
 import type { Language } from './strings.ts';
 
 export interface ScriptCounts {
@@ -48,15 +49,15 @@ export function countText(text: string, counts: ScriptCounts): void {
 }
 
 /** Counts the text of a parsed section (the parser's JSON): page titles and every run of text. */
-export function countSection(json: any, counts: ScriptCounts = emptyCounts()): ScriptCounts {
-	const walk = (x: any): void => {
+export function countSection(json: DumpSection, counts: ScriptCounts = emptyCounts()): ScriptCounts {
+	const walk = (x: unknown): void => {
 		if (Array.isArray(x)) {
 			for (const v of x) walk(v);
 			return;
 		}
 		if (!x || typeof x !== 'object') return;
 		// A paragraph's runs together: a link's field code is often split across runs.
-		if (x.type === 'rich') countText((x.runs ?? []).map((r: any) => (typeof r.text === 'string' ? r.text : '')).join(''), counts);
+		if ((x as { type?: unknown }).type === 'rich') countText(((x as DumpRich).runs ?? []).map(r => (typeof r.text === 'string' ? r.text : '')).join(''), counts);
 		for (const [key, value] of Object.entries(x)) if (key !== 'runs') walk(value);
 	};
 	for (const page of json.pages ?? []) {

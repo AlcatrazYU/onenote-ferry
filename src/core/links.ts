@@ -61,7 +61,7 @@ export function relativePath(target: string, fromFolder: string): string {
 	const from = fromFolder === '' ? [] : fromFolder.split('/');
 	let common = 0;
 	while (common < from.length && common < to.length - 1 && from[common] === to[common]) common++;
-	return [...new Array(from.length - common).fill('..'), ...to.slice(common)].join('/');
+	return [...new Array<string>(from.length - common).fill('..'), ...to.slice(common)].join('/');
 }
 
 const folderOf = (path: string) => path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';

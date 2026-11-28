@@ -761,7 +761,7 @@ export class ImportSession {
 		for (const download of this.downloads) {
 			for (const notebook of download.notebooks) {
 				const was = earlier.has(notebook) ? undefined : before.get(place(download, notebook));
-				choices.push(earlier.get(notebook) ?? { download, notebook, originalName: notebook.sourceName ?? notebook.name, ticks: was?.ticks ?? new Map(), reconvert: was?.reconvert ?? new Set(), restore: was?.restore ?? new Map() });
+				choices.push(earlier.get(notebook) ?? { download, notebook, originalName: notebook.sourceName ?? notebook.name, ticks: was?.ticks ?? new Map<string, boolean>(), reconvert: was?.reconvert ?? new Set<string>(), restore: was?.restore ?? new Map<string, Set<string>>() });
 			}
 		}
 		this.choices = choices;

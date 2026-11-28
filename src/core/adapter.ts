@@ -1,5 +1,6 @@
 // Maps the parser's JSON (one section) to the semantic model.
 
+import type { DumpAsset, DumpBox, DumpContent, DumpInk, DumpItem, DumpOutline, DumpPage, DumpRich, DumpRun, DumpSection, DumpTag } from './dump.ts';
 import type { AssetData, Element, EmbeddedFile, Image, Ink, InkStroke, Outline, Page, Paragraph, ParagraphLayout, Placement, Section, Tag, TextRun } from './model.ts';
 import { MIN_PEN_OPACITY } from './model.ts';
 import { composedText } from './names.ts';
@@ -20,8 +21,6 @@ const FIELD_MARKER = '\uFDDF';
 
 /** Note tag shapes the parser names, as OneNote's NoteTagShape numbers. */
 const CALLOUT_SHAPE: Record<string, number> = { YellowStar: 13, QuestionMark: 15, HighPriority: 17, LightBulb: 21 };
-
-type Json = any;
 
 type RawRun = TextRun & { link?: boolean };
 
@@ -127,17 +126,16 @@ export function linkPrintoutsAcross(pages: Page[]): void {
 function printoutsOf(page: Page): { files: Map<string, EmbeddedFile>, images: Image[] } {
 	const files = new Map<string, EmbeddedFile>();
 	const images: Image[] = [];
-	const walk = (x: Json) => {
-		if (!x || typeof x !== 'object') return;
-		if (Array.isArray(x)) {
-			x.forEach(walk);
-			return;
+	const walk = (elements: readonly Element[]): void => {
+		for (const x of elements) {
+			if (x.kind === 'embedded-file' && x.fileName) files.set(x.fileName.normalize('NFC'), x);
+			if (x.kind === 'image' && x.printoutPage) images.push(x);
+			if (x.kind === 'paragraph' || x.kind === 'outline') walk(x.children);
+			if (x.kind === 'table') for (const row of x.rows) for (const cell of row.cells) walk(cell.children);
 		}
-		if (x.kind === 'embedded-file' && x.fileName) files.set(x.fileName.normalize('NFC'), x);
-		if (x.kind === 'image' && x.printoutPage) images.push(x);
-		for (const k of ['children', 'outlines', 'directContent', 'rows', 'cells']) if (x[k]) walk(x[k]);
 	};
-	walk(page);
+	walk(page.outlines);
+	walk(page.directContent);
 	return { files, images };
 }
 
@@ -151,10 +149,10 @@ function inkColor(value: number | null | undefined): string {
  * Decodes strokes (points after the first are deltas) into `unit`s, offset by (dx, dy). Keeps
  * highlighter strokes, whose broad side is the larger of the tip's width and height.
  */
-function inkStrokes(ink: Json, unit: number, dx = 0, dy = 0): InkStroke[] {
-	return (ink.strokes as Json[]).map(s => {
+function inkStrokes(ink: DumpInk, unit: number, dx = 0, dy = 0): InkStroke[] {
+	return ink.strokes.map(s => {
 		let x = 0, y = 0;
-		const points = (s.points as number[][]).map((p, i) => {
+		const points = s.points.map((p, i) => {
 			if (i === 0) {
 				x = p[0];
 				y = p[1];
@@ -190,8 +188,8 @@ function bounds(points: { x: number, y: number }[]): { left: number, right: numb
 	return { left, right, top, bottom };
 }
 
-/** `box`: the box the ink was drawn in, if any (Json is any, undefined included). */
-function inPage(json: Json, box: Json): InkStroke[] {
+/** `box`: the box the ink was drawn in, if any. */
+function inPage(json: DumpInk, box: DumpBox | undefined): InkStroke[] {
 	const strokes = inkStrokes(json, HIMETRIC_PER_HALF_INCH);
 	const x = box?.x, y = box?.y;
 	if (typeof x !== 'number' || typeof y !== 'number') return strokes;
@@ -208,17 +206,17 @@ function inPage(json: Json, box: Json): InkStroke[] {
  * no tag such as a to-do box, no list item), or undefined. Ink inside a line of text stands in the
  * text as an object replacement character.
  */
-function inkOnly(outline: Json): Json[] | undefined {
-	const inks: Json[] = [];
-	const visit = (items: Json[] | undefined): boolean => {
+function inkOnly(outline: DumpOutline): DumpInk[] | undefined {
+	const inks: DumpInk[] = [];
+	const visit = (items: readonly (DumpItem | DumpContent)[] | undefined): boolean => {
 		for (const item of items ?? []) {
 			if (item.type === 'element') {
 				if (item.list || !visit(item.contents) || !visit(item.children)) return false;
 			}
 			else if (item.type === 'rich') {
-				const text = ((item.runs ?? []) as Json[]).map(r => r.text ?? '').join('');
+				const text = (item.runs ?? []).map(r => r.text ?? '').join('');
 				if (text.replace(/[\uFFFC\s]/g, '') !== '' || (Array.isArray(item.tags) ? item.tags.length > 0 : !!item.tags)) return false;
-				inks.push(...((item.inks ?? []) as Json[]));
+				inks.push(...(item.inks ?? []));
 			}
 			else return false;
 		}
@@ -233,7 +231,7 @@ function colorOf(value: string | null | undefined, ignore: string[]): string | u
 	return ignore.includes(v) ? undefined : v;
 }
 
-function run(r: Json): RawRun {
+function run(r: DumpRun): RawRun {
 	return {
 		text: r.latex ?? r.text ?? '',
 		bold: r.bold || undefined,
@@ -252,19 +250,19 @@ function run(r: Json): RawRun {
 	};
 }
 
-function tags(list: Json[] | null | undefined): Tag[] | undefined {
+function tags(list: DumpTag[] | null | undefined): Tag[] | undefined {
 	if (!list?.length) return undefined;
-	return list.map(t => ({ checkable: !!t.checkable, completed: !!t.completed, label: t.label || undefined, shape: t.checkable ? 1 : CALLOUT_SHAPE[t.shape] }));
+	return list.map(t => ({ checkable: !!t.checkable, completed: !!t.completed, label: t.label || undefined, shape: t.checkable ? 1 : CALLOUT_SHAPE[t.shape ?? ''] }));
 }
 
-function stored(asset: Json): AssetData | undefined {
+function stored(asset: DumpAsset | null | undefined): AssetData | undefined {
 	if (!asset?.asset) return undefined;
 	return { kind: 'stored', key: asset.asset, size: asset.size ?? 0 };
 }
 
 /** A paragraph's font size (the first run's, else its style's; in points) and spacing, when known. */
-function layoutOf(c: Json): ParagraphLayout | undefined {
-	const runSize = (c.runs as Json[] | undefined)?.find(r => typeof r.size === 'number')?.size;
+function layoutOf(c: DumpRich): ParagraphLayout | undefined {
+	const runSize = c.runs?.find(r => typeof r.size === 'number')?.size;
 	const halfPoints: number | undefined = runSize ?? c.para?.size ?? undefined;
 	const layout: ParagraphLayout = {};
 	if (typeof halfPoints === 'number' && halfPoints > 0) layout.fontSize = halfPoints / 2;
@@ -274,7 +272,7 @@ function layoutOf(c: Json): ParagraphLayout | undefined {
 	return Object.keys(layout).length ? layout : undefined;
 }
 
-function placeOf(o: Json): Placement | undefined {
+function placeOf(o: DumpBox): Placement | undefined {
 	return o.x === null || o.x === undefined ? undefined : { x: o.x, y: o.y ?? undefined, width: o.w ?? undefined };
 }
 
@@ -284,19 +282,19 @@ export class Adapter {
 	/** The page being read: highlighter ink found inside its text boxes is kept on it. */
 	private current?: Page;
 	/** The text box being read (its place, for ink inside its lines). */
-	private box?: Json;
+	private box?: DumpBox;
 
 	constructor(strings: Strings) {
 		this.strings = strings;
 	}
 
-	section(json: Json): Section {
-		const pages = (json.pages as Json[]).map(p => this.page(p));
+	section(json: DumpSection): Section {
+		const pages = json.pages.map(p => this.page(p));
 		linkPrintoutsAcross(pages);
 		return { name: composedText(json.name ?? ''), pages };
 	}
 
-	page(p: Json): Page {
+	page(p: DumpPage): Page {
 		const page: Page = {
 			id: p.id,
 			title: composedText(p.title ?? ''),
@@ -309,7 +307,7 @@ export class Adapter {
 			directContent: [],
 		};
 		this.current = page;
-		for (const c of p.contents as Json[]) {
+		for (const c of p.contents) {
 			if (c.type === 'outline') {
 				// A text box with nothing in it but handwriting (OneNote makes one where a pen taps or
 				// writes in an empty spot): its ink is the page's own, where it was written (§11.5 item 71).
@@ -338,16 +336,17 @@ export class Adapter {
 		return page;
 	}
 
-	private items(list: Json[]): Element[] {
+	private items(list: readonly DumpItem[]): Element[] {
 		return list.map(x => this.item(x)).filter((e): e is Element => !!e);
 	}
 
-	private item(i: Json): Element | undefined {
+	/** Content standing alone among the items (the parser puts it in an element) is read as it is. */
+	private item(i: DumpItem | DumpContent): Element | undefined {
 		if (i.type === 'group') return { kind: 'outline', children: this.items(i.items) };
 		if (i.type !== 'element') return this.content(i);
-		const contents = (i.contents as Json[]).map(c => this.content(c)).filter((e): e is Element => !!e);
+		const contents = i.contents.map(c => this.content(c)).filter((e): e is Element => !!e);
 		const children = this.items(i.children);
-		const format: string | undefined = i.list?.format;
+		const format = i.list?.format ?? undefined;
 		const list = i.list ? { level: Math.max(0, (i.level ?? 1) - 1), ordered: (format ?? '').includes('\uFFFD'), format: format || undefined } : undefined;
 		const primary = contents[0];
 		if (primary && primary.kind === 'paragraph') {
@@ -360,19 +359,19 @@ export class Adapter {
 	}
 
 	/** `page` is given for content placed straight on the page, where highlighter-only ink is kept aside. */
-	private content(c: Json, page?: Page): Element | undefined {
+	private content(c: DumpContent, page?: Page): Element | undefined {
 		switch (c.type) {
 			case 'rich': return this.paragraph(c);
 			case 'table': {
-				const widths = Array.isArray(c.w) && c.w.every((w: unknown) => typeof w === 'number' && w > 0) ? c.w as number[] : undefined;
+				const widths = Array.isArray(c.w) && c.w.every(w => typeof w === 'number' && w > 0) ? c.w : undefined;
 				return {
 					kind: 'table',
-					rows: (c.rows as Json[][]).map(cells => ({ cells: cells.map(elements => ({ children: this.items(elements) })) })),
+					rows: c.rows.map(cells => ({ cells: cells.map(elements => ({ children: this.items(elements) })) })),
 					...(widths?.length ? { columnWidths: widths } : {}),
 				};
 			}
 			case 'image': {
-				const extension: string | undefined = c.asset?.asset?.split('.').pop();
+				const extension = c.asset?.asset?.split('.').pop();
 				// File names are names: composed like the others (the parser gives them as stored).
 				const fileName: string | undefined = c.fileName ? composedText(c.fileName) : undefined;
 				const image: Image = { kind: 'image', fileName, extension, data: stored(c.asset) };
@@ -407,7 +406,7 @@ export class Adapter {
 					};
 					return missing;
 				}
-				const extension: string | undefined = c.asset?.asset?.split('.').pop();
+				const extension = c.asset?.asset?.split('.').pop();
 				const file: EmbeddedFile = { kind: 'embedded-file', fileName, extension, data: stored(c.asset) };
 				const place = placeOf(c);
 				if (place) file.place = place;
@@ -437,7 +436,7 @@ export class Adapter {
 	}
 
 	/** Handwriting of a text box with nothing else in it, as ink on the page (§11.5 item 71). */
-	private looseInk(page: Page, json: Json, box: Json): void {
+	private looseInk(page: Page, json: DumpInk, box: DumpBox): void {
 		this.stats.ink++;
 		const strokes = inPage(json, box);
 		const all = strokes.flatMap(stroke => stroke.points);
@@ -451,10 +450,10 @@ export class Adapter {
 		else page.directContent.push(ink);
 	}
 
-	private paragraph(c: Json): Paragraph {
+	private paragraph(c: DumpRich): Paragraph {
 		// An equation arrives as one run per piece of it: joined, then translated to LaTeX once.
 		const runs: RawRun[] = [];
-		for (const r of (c.runs as Json[]).map(run)) {
+		for (const r of (c.runs ?? []).map(run)) {
 			const last = runs[runs.length - 1];
 			if (r.math && last?.math) last.text += r.text;
 			else runs.push(r);
@@ -486,7 +485,7 @@ export class Adapter {
 		const layout = layoutOf(c);
 		if (layout) paragraph.layout = layout;
 		// Ink written inside a line of text: drawn on its own, right after the paragraph.
-		for (const ink of (c.inks ?? []) as Json[]) {
+		for (const ink of c.inks ?? []) {
 			const strokes = inkStrokes(ink, HIMETRIC_PER_PX);
 			const pen = strokes.filter(isPen);
 			if (!pen.length) {

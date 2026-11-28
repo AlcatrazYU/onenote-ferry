@@ -31,7 +31,7 @@ function withoutNoise(value: unknown): unknown {
 /** The fingerprint of a page's content as the parser gives it (`contents` of a page), with the way it was made. */
 export async function pageFingerprint(contents: unknown): Promise<string> {
 	const bytes = new TextEncoder().encode(JSON.stringify(withoutNoise(contents ?? null)));
-	const digest = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-1', bytes));
+	const digest = new Uint8Array(await crypto.subtle.digest('SHA-1', bytes));
 	return `v${FINGERPRINT_VERSION}:${[...digest.slice(0, 10)].map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
 }
 

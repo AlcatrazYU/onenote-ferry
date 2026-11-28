@@ -1767,7 +1767,7 @@ function replay(journalText: string): RunState | undefined {
 	for (const line of journalText.split('\n')) {
 		let entry: Entry;
 		try {
-			entry = JSON.parse(line);
+			entry = JSON.parse(line) as Entry;
 		}
 		catch {
 			continue;

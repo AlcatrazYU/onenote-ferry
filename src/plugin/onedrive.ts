@@ -74,7 +74,7 @@ export function graphFor(account: MicrosoftAccount, version: string): GraphGet {
 				await sleep(Number.isFinite(after) && after > 0 ? Math.min(after, 600) * 1000 : 30_000);
 				continue;
 			}
-			let json: any;
+			let json: unknown;
 			try {
 				json = response.json;
 			}
@@ -82,21 +82,22 @@ export function graphFor(account: MicrosoftAccount, version: string): GraphGet {
 				json = undefined;
 			}
 			if (response.status >= 200 && response.status < 300) return json;
-			throw new GraphError(response.status, json?.error?.code ?? '', String(json?.error?.message ?? '').slice(0, 300));
+			const failure = (json as { error?: { code?: string, message?: unknown } } | null | undefined)?.error;
+			throw new GraphError(response.status, failure?.code ?? '', String(failure?.message ?? '').slice(0, 300));
 		}
 	};
 }
 
 /** The signed-in account's drive: its ID names the local copy's folder. */
 export async function driveOf(graph: GraphGet): Promise<{ id: string, driveType: string }> {
-	const drive = await graph('/me/drive?$select=id,driveType');
+	const drive = await graph('/me/drive?$select=id,driveType') as { id?: unknown, driveType?: unknown };
 	return { id: String(drive.id), driveType: String(drive.driveType) };
 }
 
 /** A fresh download link for a file, and its current version (`$select` must name content.downloadUrl). */
 export function linkFor(graph: GraphGet): (fileId: string) => Promise<FileLink> {
 	return async id => {
-		const item = await graph(`/me/drive/items/${encodeURIComponent(id)}?$select=id,size,eTag,content.downloadUrl`);
+		const item = await graph(`/me/drive/items/${encodeURIComponent(id)}?$select=id,size,eTag,content.downloadUrl`) as { size?: unknown, eTag?: unknown, '@microsoft.graph.downloadUrl'?: unknown };
 		const url = item['@microsoft.graph.downloadUrl'];
 		if (typeof url !== 'string' || typeof item.eTag !== 'string') throw new GraphError(404, 'noDownloadLink', 'OneDrive gave no download link for this file');
 		return { url, size: Number(item.size), eTag: item.eTag };

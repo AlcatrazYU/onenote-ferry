@@ -48,6 +48,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { DownloadSection } from '../core/download.ts';
+import type { DumpSection } from '../core/dump.ts';
 import { importNotebooks, scanNotebook } from '../core/importer.ts';
 import type { ImportHost, ParsedSection, SectionOptions } from '../core/importer.ts';
 import type { SectionSource } from '../core/io.ts';
@@ -158,9 +159,9 @@ function sectionParser(options: ReturnType<typeof parseArgs>, download: Download
 				rmSync(jsonPath, { force: true });
 				download.done(section);
 			};
-			let json;
+			let json: DumpSection;
 			try {
-				json = JSON.parse(readFileSync(jsonPath, 'utf8'));
+				json = JSON.parse(readFileSync(jsonPath, 'utf8')) as DumpSection;
 			}
 			catch (error) {
 				release();
@@ -301,13 +302,13 @@ async function plan(argv: string[], command: 'plan' | 'sync') {
 	try {
 
 		// Page ids, titles and modification times only: attachments are not read out.
-		async function readSection(section: DownloadSection): Promise<any> {
+		async function readSection(section: DownloadSection): Promise<DumpSection> {
 			const path = await download.parserPath(section);
 			try {
 				if (wasm) {
 					const parsed = wasm.parseSection(path);
 					try {
-						return JSON.parse(parsed.takeJson());
+						return JSON.parse(parsed.takeJson()) as DumpSection;
 					}
 					finally {
 						parsed.free();
@@ -315,7 +316,7 @@ async function plan(argv: string[], command: 'plan' | 'sync') {
 				}
 				const result = spawnSync(options.dump!, [path, jsonPath, '-'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 				if (result.status !== 0) throw new Error((result.stderr || String(result.error)).trim().slice(0, 500));
-				return JSON.parse(readFileSync(jsonPath, 'utf8'));
+				return JSON.parse(readFileSync(jsonPath, 'utf8')) as DumpSection;
 			}
 			finally {
 				download.done(section);

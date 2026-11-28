@@ -19,14 +19,14 @@ import { fileSink } from '../node/file-sink.ts';
 import { copyOf } from './bytes.ts';
 import type { OpenedDownload, SinkCall, ToWorker } from './protocol.ts';
 
-declare const require: (id: string) => any;
+declare const require: (id: string) => unknown;
 
 let ferry: (WasmParser & { memoryBytes(): number }) | undefined;
 
 /** The parser, started on first use from the WebAssembly bytes the plugin handed over. */
 function parser(): WasmParser & { memoryBytes(): number } {
-	if (!ferry) ferry = require('../../pkg/ferry.js');
-	return ferry!;
+	if (!ferry) ferry = require('../../pkg/ferry.js') as WasmParser & { memoryBytes(): number };
+	return ferry;
 }
 
 function post(message: unknown, transfer: Transferable[] = []): void {
@@ -35,7 +35,7 @@ function post(message: unknown, transfer: Transferable[] = []): void {
 
 // Writes go to the window and come back answered.
 let nextCall = 1;
-const calls = new Map<number, { resolve(value: any): void, reject(error: Error): void }>();
+const calls = new Map<number, { resolve(value: unknown): void, reject(error: Error): void }>();
 
 function callWindow<T>(op: SinkCall['op'], args: unknown[], transfer: Transferable[] = []): Promise<T> {
 	const call = nextCall++;

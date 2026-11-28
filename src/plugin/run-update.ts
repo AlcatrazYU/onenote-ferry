@@ -12,12 +12,13 @@ import { STRINGS } from '../core/strings.ts';
 import type { Language } from '../core/strings.ts';
 import { stagingPlaces, sweepStaging } from '../node/staging.ts';
 import type { StagingPlaces } from '../node/staging.ts';
+import type * as Os from 'node:os';
 import { FRESH_WORKER_AFTER_BYTES } from './run-import.ts';
 import { VaultSink } from './vault-sink.ts';
 import { ConverterStopped } from './worker-client.ts';
 import type { WorkerClient } from './worker-client.ts';
 
-declare const require: (id: string) => any;
+declare const require: (id: 'os') => typeof Os;
 
 export interface UpdateRunRequest {
 	/** The vault folder the notebooks were imported into. */

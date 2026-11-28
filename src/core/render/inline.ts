@@ -324,6 +324,6 @@ export function renderRuns(runs: TextRun[], options: InlineOptions): string {
 	return placeDelimiters(renderLayers(merged, 0, options, delimiters), delimiters)
 		// Two different highlights (or two bold spans) side by side need a break to parse.
 		// Not from an escaped character (a typed `\*` beside a delimiter is no `**`).
-		.replace(/(?<!\\)(==|\*\*|~~)(?=\1[^\s=*~])/g, (m, d, offset, all) => all[offset - 1] && all[offset - 1] !== ' ' ? `${d}${ZERO_WIDTH_SPACE}` : m)
+		.replace(/(?<!\\)(==|\*\*|~~)(?=\1[^\s=*~])/g, (m: string, d: string, offset: number, all: string) => all[offset - 1] && all[offset - 1] !== ' ' ? `${d}${ZERO_WIDTH_SPACE}` : m)
 		.replace(/\r\n?/g, '\n').trim();
 }

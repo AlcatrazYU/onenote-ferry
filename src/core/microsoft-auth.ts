@@ -28,12 +28,12 @@ export function base64Url(bytes: Uint8Array): string {
 }
 
 function randomText(bytes: number): string {
-	return base64Url(globalThis.crypto.getRandomValues(new Uint8Array(bytes)));
+	return base64Url(crypto.getRandomValues(new Uint8Array(bytes)));
 }
 
 /** The S256 code challenge of a code verifier (RFC 7636 §4.2). */
 export async function codeChallenge(verifier: string): Promise<string> {
-	const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
 	return base64Url(new Uint8Array(digest));
 }
 

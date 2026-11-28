@@ -403,7 +403,7 @@ export function frontMatter(text: string): Record<string, string> {
 		let value = match[2].trim();
 		if (value.startsWith('"')) {
 			try {
-				value = JSON.parse(value);
+				value = JSON.parse(value) as string;
 			}
 			catch {
 				// Keep it as written.

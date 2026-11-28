@@ -30,7 +30,7 @@ export const ITEM_FIELDS = 'id,name,size,eTag,cTag,lastModifiedDateTime,folder,f
  * Answers a Graph request: a path under `https://graph.microsoft.com/v1.0` (`/me/drive/...`) or a
  * full `@odata.nextLink`. Throws GraphError for an error answer.
  */
-export type GraphGet = (pathOrUrl: string) => Promise<any>;
+export type GraphGet = (pathOrUrl: string) => Promise<unknown>;
 
 export class GraphError extends Error {
 	readonly status: number;
@@ -49,7 +49,7 @@ export async function listAll(graph: GraphGet, path: string): Promise<DriveItem[
 	let next: string | undefined = path;
 	// A guard against a listing that never ends (a next link pointing back).
 	for (let pages = 0; next && pages < 10_000; pages++) {
-		const answer: { value?: DriveItem[], '@odata.nextLink'?: string } = await graph(next);
+		const answer = await graph(next) as { value?: DriveItem[], '@odata.nextLink'?: string };
 		items.push(...(answer.value ?? []));
 		next = answer['@odata.nextLink'];
 	}
@@ -119,7 +119,7 @@ export async function findRemoteNotebooks(graph: GraphGet): Promise<RemoteNotebo
 	const item = async (id: string): Promise<DriveItem | null> => {
 		if (!seen.has(id)) {
 			try {
-				seen.set(id, await graph(`/me/drive/items/${encodeURIComponent(id)}?$select=${ITEM_FIELDS}`));
+				seen.set(id, await graph(`/me/drive/items/${encodeURIComponent(id)}?$select=${ITEM_FIELDS}`) as DriveItem);
 			}
 			catch (error) {
 				if (!(error instanceof GraphError && error.status === 404)) throw error;
@@ -154,7 +154,7 @@ export async function findRemoteNotebooks(graph: GraphGet): Promise<RemoteNotebo
 
 /** The notebooks directly in one folder the user chose (or the folder itself, when it is one). */
 export async function notebooksInFolder(graph: GraphGet, folderId: string): Promise<RemoteNotebook[]> {
-	const folder: DriveItem = await graph(`/me/drive/items/${encodeURIComponent(folderId)}?$select=${ITEM_FIELDS}`);
+	const folder = await graph(`/me/drive/items/${encodeURIComponent(folderId)}?$select=${ITEM_FIELDS}`) as DriveItem;
 	if (isNotebookPackage(folder)) return [notebookOf(folder)];
 	return (await listAll(graph, `/me/drive/items/${encodeURIComponent(folderId)}/children?$select=${ITEM_FIELDS}&$top=1000`))
 		.filter(isNotebookPackage).map(notebookOf);

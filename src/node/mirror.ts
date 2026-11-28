@@ -435,7 +435,7 @@ export function copiedNotebooks(root: string): { dir: string, name: string, byte
 		const dir = join(root, entry.name);
 		let name = entry.name;
 		try {
-			name = JSON.parse(readFileSync(join(dir, 'state.json'), 'utf8')).name ?? name;
+			name = (JSON.parse(readFileSync(join(dir, 'state.json'), 'utf8')) as { name?: string }).name ?? name;
 		}
 		catch {
 			// No record: shown by its folder name.

@@ -1,5 +1,6 @@
 // Shared builders for tests: invented parser JSON and an in-memory sink.
 
+import type { DumpPage, DumpSection } from '../src/core/dump.ts';
 import type { SectionSource, UpdateSink } from '../src/core/io.ts';
 
 // Parser JSON (shape of the `dump` output), with invented content.
@@ -10,7 +11,7 @@ export const element = (contents: unknown[], children: unknown[] = [], extra: Re
 export const outline = (items: unknown[], place: { x?: number, y?: number, w?: number } = {}) => ({ type: 'outline', x: place.x ?? null, y: place.y ?? null, w: place.w ?? null, items });
 export const asset = (name: string, size = 10) => ({ asset: name, size });
 export const pageJson = (title: string, contents: unknown[], extra: Record<string, unknown> = {}) => ({ id: `{${title}}`, title, level: 1, created: 1700000000, updated: 1700003600, contents, ...extra });
-export const sectionJson = (name: string, pages: unknown[]) => ({ name, pages, stats: {}, errors: [] });
+export const sectionJson = (name: string, pages: unknown[]): DumpSection => ({ name, pages: pages as DumpPage[], stats: {}, errors: [] });
 
 /** One ink stroke: first point absolute, later points as deltas (HIMETRIC). */
 export const stroke = (transparency = 0, points: number[][] = [[0, 0], [1270, 1270]]) => ({ points, width: 30, height: 30, color: 0x0000ff, transparency, tip: 0 });
