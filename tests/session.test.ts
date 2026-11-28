@@ -76,6 +76,8 @@ class FakeClient {
 	/** Pages of each section by its path (none when not given), and sections whose reading fails. */
 	pages: Record<string, ScannedPage[]> = {};
 	failing = new Set<string>();
+	/** OneNote's order of each notebook's section paths, as the local copy's tables of contents would give it (by notebook path). */
+	copyOrder: Record<string, string[]> = {};
 	/** Downloads (by path) and sections (by path) in a damaged `.onepkg`. */
 	damaged = new Set<string>();
 	scanned = 0;
@@ -129,6 +131,9 @@ class FakeClient {
 			// By download and path (`input:path`), else by path.
 			return structuredClone(this.pages[`${input}:${section.path}`] ?? this.pages[section.path] ?? []);
 		});
+	}
+	order(_input: string, notebooks: DownloadNotebook[]) {
+		return this.answer(() => notebooks.map(notebook => this.copyOrder[notebook.path] ?? notebook.sections.map(section => section.path)));
 	}
 	forget(input: string) {
 		this.forgotten.push(input);
@@ -723,6 +728,44 @@ test('OneDrive: a notebook imported before is brought up to date whole before it
 		Fresh: ['new', true], Skipped: ['skipped', false], Lost: ['missing', false],
 	});
 	assert.equal(client.scanned, 6, 'the section not downloaded is not read');
+});
+
+test('OneDrive: the update and the import take the sections in OneNote\'s order from the local copy; the window\'s tree stays by name (§11.5 item 101)', async () => {
+	const { files, pages } = importedTides();
+	const sections = ['Spring', 'Summer', 'Autumn', 'Older', 'Fresh', 'Skipped', 'Lost'];
+	const drive = fakeOneDrive([
+		{ id: 'n1', name: 'Tides', files: [...sections.map(name => `${name}.one`), 'Open Notebook.onetoc2'] },
+		{ id: 'n2', name: 'Harbour', files: ['Quay.one', 'Pier.one', 'Bay.one', 'Open Notebook.onetoc2'] },
+	]);
+	const oneDrivePages = Object.fromEntries(Object.entries(pages).map(([path, list]) => [`n1/${path}`, list]));
+	const client = new FakeClient({});
+	client.pages = oneDrivePages;
+	// OneNote's order, as the tables of contents in the copy give it.
+	client.copyOrder = {
+		'n1/Tides': ['Summer', 'Spring', 'Lost', 'Older', 'Autumn', 'Skipped', 'Fresh'].map(name => `n1/Tides/${name}.one`),
+		'n2/Harbour': ['Quay', 'Bay', 'Pier'].map(name => `n2/Harbour/${name}.one`),
+	};
+	const s = new ImportSession(fakeApp(files), client as never, DEFAULTS, 'zh-Hans', 'import', {});
+	await s.addOneDrive(drive.access as never);
+	await settled(s);
+	const tides = s.choices.find(choice => choice.notebook.name === 'Tides')!;
+	const harbour = s.choices.find(choice => choice.notebook.name === 'Harbour')!;
+	// The tree: by name.
+	assert.deepEqual(tides.notebook.sections.map(section => section.label), ['Autumn', 'Fresh', 'Lost', 'Older', 'Skipped', 'Spring', 'Summer']);
+	// The update (imported before, its copy brought up to date): OneNote's order.
+	assert.deepEqual((s as any).scanned(tides, zhHans).map((section: { label: string }) => section.label), ['Summer', 'Spring', 'Lost', 'Older', 'Autumn', 'Skipped', 'Fresh']);
+	// The import (a notebook new to the folder): ordered once its sections came down.
+	assert.deepEqual(harbour.notebook.sections.map(section => section.label), ['Bay', 'Pier', 'Quay']);
+	const going = new Set(harbour.notebook.sections);
+	await (s as any).fetchChosen([harbour], going);
+	const of = new Map();
+	const downloads = await (s as any).toImport([harbour], going, of);
+	assert.equal(downloads.length, 1);
+	const [handed] = downloads[0].notebooks;
+	assert.deepEqual(handed.sections.map((section: { label: string }) => section.label), ['Quay', 'Bay', 'Pier']);
+	assert.equal(of.get(handed), harbour, 'still known as its choice (language, OneDrive tag)');
+	assert.ok(handed.sections.every((section: unknown) => going.has(section as never)), 'the same sections, only their order');
+	assert.deepEqual(harbour.notebook.sections.map(section => section.label), ['Bay', 'Pier', 'Quay'], 'the tree is not reordered');
 });
 
 test('OneDrive: stopped while downloading, the result says what came down is kept (a stop is no failure)', async () => {

@@ -230,6 +230,8 @@ export interface UpdateCounts {
 
 const message = (error: unknown) => String((error as Error)?.message ?? error);
 const key = (name: string) => name.normalize('NFC').toLowerCase();
+/** A notebook of a download, for what is kept of it (see copyOrder). */
+const orderKey = (download: ChosenDownload, notebook: DownloadNotebook) => `${download.input}\u0000${notebook.path}`;
 
 /** Folders an update keeps its own files in, in every language: no notebook takes one (§11.5 item 50.14). */
 const RESERVED = [...new Set(LANGUAGES.flatMap(language => [STRINGS[language].oldVersionsFolder, STRINGS[language].updateLogFolder]))];
@@ -304,6 +306,11 @@ export class ImportSession {
 	private readonly scans = new Map<string, Map<string, Scan>>();
 	/** What earlier sessions read, by download (loaded once, see useKept). */
 	private readonly kept = new Map<string, Map<string, KeptScan>>();
+	/**
+	 * A OneDrive notebook's section paths in the order OneNote shows them, read from the tables of
+	 * contents in the local copy (by download and notebook path; §11.5 item 101).
+	 */
+	private readonly copyOrder = new Map<string, string[]>();
 	/** Each download as it was on disk when it was read (see SessionHooks.stamp). */
 	private readonly stamps = new Map<ChosenDownload, string | undefined>();
 	/** What was ticked in a download while it is gone from disk: it comes back with it. */
@@ -646,6 +653,53 @@ export class ImportSession {
 		return [...kept, ...fresh].sort((a, b) => nameCollator.compare(a.name, b.name));
 	}
 
+	/**
+	 * Reads, in the worker, the tables of contents a OneDrive notebook's local copy holds, for its
+	 * sections in the order OneNote shows them (§11.5 item 101). OneDrive's file lists give no order:
+	 * the window's tree stays by name, the import and the update (contents pages, report) follow
+	 * OneNote. When the tables cannot be read, the order by name stays.
+	 */
+	private async orderFromCopy(download: ChosenDownload, notebooks: DownloadNotebook[]): Promise<void> {
+		if (!download.onedrive || !notebooks.length) return;
+		try {
+			const ordered = await (await this.worker()).order(download.input, notebooks);
+			notebooks.forEach((notebook, i) => {
+				if (ordered[i]) this.copyOrder.set(orderKey(download, notebook), ordered[i]);
+			});
+		}
+		catch {
+			// Kept by name.
+		}
+	}
+
+	/** A notebook's sections in the order OneNote shows them, where its local copy told it; else as listed. */
+	private inOneNoteOrder(choice: NotebookChoice): DownloadSection[] {
+		const order = this.copyOrder.get(orderKey(choice.download, choice.notebook));
+		if (!order) return choice.notebook.sections;
+		const rank = new Map(order.map((path, at) => [path, at]));
+		return [...choice.notebook.sections].sort((a, b) => (rank.get(a.path) ?? order.length) - (rank.get(b.path) ?? order.length));
+	}
+
+	/**
+	 * The downloads and notebooks the import takes, those with a section going. What came down from
+	 * OneDrive holds the notebooks' tables of contents: their sections follow OneNote's order.
+	 */
+	private async toImport(fresh: NotebookChoice[], going: Set<DownloadSection>, of: Map<DownloadNotebook, NotebookChoice>): Promise<{ input: string, notebooks: DownloadNotebook[] }[]> {
+		const downloads = this.downloads.map(download => ({ download, choices: fresh.filter(choice => choice.download === download && choice.notebook.sections.some(section => going.has(section))) }))
+			.filter(({ choices }) => choices.length);
+		for (const { download, choices } of downloads) await this.orderFromCopy(download, choices.map(choice => choice.notebook));
+		return downloads.map(({ download, choices }) => ({ input: download.input, notebooks: choices.map(choice => this.ordered(choice, of)) }));
+	}
+
+	/** A notebook as the import takes it: its sections in OneNote's order, still known as its choice's. */
+	private ordered(choice: NotebookChoice, of: Map<DownloadNotebook, NotebookChoice>): DownloadNotebook {
+		const sections = this.inOneNoteOrder(choice);
+		if (sections === choice.notebook.sections) return choice.notebook;
+		const notebook = { ...choice.notebook, sections };
+		of.set(notebook, choice);
+		return notebook;
+	}
+
 	/** The OneDrive folder a notebook of a OneDrive source is in (`学习/文档`; '' at the top), if it is one. */
 	oneDriveFolder(choice: NotebookChoice): string | undefined {
 		return choice.download.onedrive?.notebooks.get(choice.notebook.path)?.notebook.folder;
@@ -698,6 +752,8 @@ export class ImportSession {
 		await this.lookForPasswords(choice.download, choice.notebook.sections);
 		// Sections OneNote changed since they were read are read again.
 		this.dropStale(choice.download, choice.notebook.sections);
+		// The copy holds the notebook's tables of contents now: the update follows OneNote's order.
+		await this.orderFromCopy(choice.download, [choice.notebook]);
 	}
 
 	/**
@@ -1103,7 +1159,7 @@ export class ImportSession {
 
 	/** The sections of a notebook as read, as the planner and the update take them. */
 	private scanned(choice: NotebookChoice, strings: Strings): ScannedSection[] {
-		return choice.notebook.sections.map(section => {
+		return this.inOneNoteOrder(choice).map(section => {
 			const base = { key: [choice.notebook.name, ...section.groups, section.label].join('/'), groups: section.groups, label: section.label };
 			const scan = this.scanOf(choice.download, section);
 			if (section.incomplete) return { ...base, error: strings.incompleteSection };
@@ -1564,8 +1620,7 @@ export class ImportSession {
 			}
 			if (fresh.length) {
 				this.outcome = await runImport(this.app, this.client, {
-					downloads: this.downloads.map(download => ({ input: download.input, notebooks: fresh.filter(choice => choice.download === download && choice.notebook.sections.some(section => going.has(section))).map(choice => choice.notebook) }))
-						.filter(download => download.notebooks.length),
+					downloads: await this.toImport(fresh, going, of),
 					root: this.folder,
 					languageFor: notebook => of.get(notebook)?.earlier?.language ?? this.language,
 					chosen: section => going.has(section),

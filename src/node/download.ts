@@ -99,6 +99,27 @@ async function orderSections(notebooks: DownloadNotebook[], files: DownloadFile[
 	});
 }
 
+/**
+ * Notebooks listed from somewhere else (OneDrive's file lists), their sections in the order OneNote
+ * shows them: from the tables of contents in a folder laid out like a download that holds them (the
+ * local copy of OneDrive; §11.5 item 101). Sections not in the folder are placed by the names the
+ * tables list, like the others. Answers each notebook's section paths in that order; a notebook
+ * whose tables cannot be read keeps the order it came in (by name).
+ */
+export async function orderInFolder(folder: string, notebooks: DownloadNotebook[], tocNames: (data: Uint8Array) => string[]): Promise<string[][]> {
+	const files: DownloadFile[] = [];
+	for (const notebook of notebooks) {
+		try {
+			for (const file of listFolder(join(folder, ...notebook.path.split('/')))) files.push({ path: `${notebook.path}/${file.path}`, size: file.size });
+		}
+		catch {
+			// Not in the folder: it keeps its order.
+		}
+	}
+	await orderSections(notebooks, files, async paths => new Map([...paths].map(path => [path, new Uint8Array(readFileSync(join(folder, ...path.split('/'))))] as [string, Uint8Array])), tocNames);
+	return notebooks.map(notebook => notebook.sections.map(section => section.path));
+}
+
 export function listFolder(root: string): DownloadFile[] {
 	const files: DownloadFile[] = [];
 	for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {

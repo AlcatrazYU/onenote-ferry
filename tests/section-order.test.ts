@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findNotebooks, orderByTables, tableFiles } from '../src/core/download.ts';
 import type { DownloadFile } from '../src/core/download.ts';
-import { openDownload } from '../src/node/download.ts';
+import { openDownload, orderInFolder } from '../src/node/download.ts';
 import { makeCab } from './cab-writer.ts';
 import { makeZip } from './zip-writer.ts';
 
@@ -101,6 +101,39 @@ test('a folder, a zip and a packaged notebook all come in their tables\' order; 
 		const unread = await openDownload(join(dir, 'Tides.zip'), join(dir, 'tmp-unread'), true, () => { throw new Error('unreadable'); });
 		assert.deepEqual(order(unread.notebooks[0]!.sections), ['Autumn', 'Spring', 'Archive/Old', 'Archive/Older']);
 		unread.close();
+	}
+	finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// From OneDrive (§11.5 item 101): the sections are listed from OneDrive's file lists (by name), and
+// only the chosen ones come down into the local copy, with every table of contents. The tables in
+// the copy put all of them in OneNote's order, those not downloaded too.
+test('OneDrive notebooks are put in their tables\' order from the local copy, sections not downloaded too', async () => {
+	const dir = mkdtempSync(join(tmpdir(), 'ferry-copy-order-'));
+	try {
+		const listed: DownloadFile[] = ['Open Notebook.onetoc2', 'Autumn.one', 'Spring.one', 'Week 2.one', 'Archive/Open Notebook.onetoc2', 'Archive/Old.one', 'Archive/Older.one']
+			.map(path => ({ path: `n1/Tides/${path}`, size: 1 }));
+		const [tides] = findNotebooks([...listed, { path: 'n2/Harbour/Quay.one', size: 1 }, { path: 'n2/Harbour/Pier.one', size: 1 }, { path: 'n2/Harbour/Open Notebook.onetoc2', size: 1 }], 'OneDrive');
+		const harbour = findNotebooks([{ path: 'n2/Harbour/Quay.one', size: 1 }, { path: 'n2/Harbour/Pier.one', size: 1 }, { path: 'n2/Harbour/Open Notebook.onetoc2', size: 1 }], 'OneDrive')[0]!;
+		assert.deepEqual(order(tides!.sections), ['Autumn', 'Spring', 'Week 2', 'Archive/Old', 'Archive/Older'], 'by name, as listed');
+		// The copy: the tables, and only Spring and Archive/Old downloaded. Harbour has nothing in the copy.
+		const put = (path: string, data: Uint8Array) => {
+			mkdirSync(join(dir, ...path.split('/').slice(0, -1)), { recursive: true });
+			writeFileSync(join(dir, ...path.split('/')), data);
+		};
+		put('n1/Tides/Open Notebook.onetoc2', table(['Week 2.one', 'Spring.one', 'Autumn.one', 'Archive']));
+		put('n1/Tides/Archive/Open Notebook.onetoc2', table(['Older.one', 'Old.one']));
+		put('n1/Tides/Spring.one', new Uint8Array(4));
+		put('n1/Tides/Archive/Old.one', new Uint8Array(4));
+		const ordered = await orderInFolder(dir, [tides!, harbour], tocNames);
+		assert.deepEqual(ordered[0]!.map(path => path.replace('n1/Tides/', '')), ['Week 2.one', 'Spring.one', 'Autumn.one', 'Archive/Older.one', 'Archive/Old.one']);
+		assert.deepEqual(ordered[1]!.map(path => path.replace('n2/Harbour/', '')), ['Pier.one', 'Quay.one'], 'not in the copy: as listed');
+		// Tables that cannot be read: as listed, nothing lost.
+		const [again] = findNotebooks(listed, 'OneDrive');
+		const unread = await orderInFolder(dir, [again!], () => { throw new Error('unreadable'); });
+		assert.deepEqual(unread[0]!.map(path => path.replace('n1/Tides/', '')), ['Autumn.one', 'Spring.one', 'Week 2.one', 'Archive/Old.one', 'Archive/Older.one']);
 	}
 	finally {
 		rmSync(dir, { recursive: true, force: true });

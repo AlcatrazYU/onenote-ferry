@@ -28,6 +28,11 @@ export type ToWorker =
 	 * straight into that folder outside the vault; `names` keeps the file names an earlier import gave.
 	 */
 	| { type: 'convert', id: number, input: string, section: unknown, dir: string, language: string, options: unknown, staging?: string, names?: WireNames }
+	/**
+	 * Notebooks listed from OneDrive's file lists (DownloadNotebook[]), their sections put in OneNote's
+	 * order from the tables of contents in the local copy `input`: answers each one's section paths (string[][]).
+	 */
+	| { type: 'order', id: number, input: string, notebooks: unknown }
 	/** Closes one download, which changed on disk: the next request naming it opens it again. */
 	| { type: 'forget', id: number, input: string }
 	/** Closes every open download. */

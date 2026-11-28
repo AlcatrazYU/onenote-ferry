@@ -7,7 +7,7 @@ import type * as Path from 'node:path';
 import workerSource from 'onenote-ferry:worker';
 import wasmBase64 from 'onenote-ferry:wasm';
 import { CabFormatError } from '../core/cab.ts';
-import type { DownloadSection } from '../core/download.ts';
+import type { DownloadNotebook, DownloadSection } from '../core/download.ts';
 import type { SectionNames, SectionOptions, SectionResult } from '../core/importer.ts';
 import type { Sink } from '../core/io.ts';
 import type { Language } from '../core/strings.ts';
@@ -174,6 +174,11 @@ export class WorkerClient {
 	/** Paths of a download's password-protected sections. */
 	locked(input: string): Promise<string[]> {
 		return this.request({ type: 'locked', input });
+	}
+
+	/** OneDrive notebooks' sections in OneNote's order, from the tables of contents in the local copy: each one's section paths. */
+	order(input: string, notebooks: DownloadNotebook[]): Promise<string[][]> {
+		return this.request({ type: 'order', input, notebooks });
 	}
 
 	/** A section's pages (ids, titles, times, levels), in order. */

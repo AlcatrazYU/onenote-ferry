@@ -6,7 +6,7 @@
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { CabFormatError } from '../core/cab.ts';
-import type { DownloadSection } from '../core/download.ts';
+import type { DownloadNotebook, DownloadSection } from '../core/download.ts';
 import { convertSection } from '../core/importer.ts';
 import type { SectionHost, SectionOptions } from '../core/importer.ts';
 import type { Sink } from '../core/io.ts';
@@ -14,7 +14,7 @@ import { STRINGS } from '../core/strings.ts';
 import type { Language } from '../core/strings.ts';
 import { scannedPages } from '../core/sync.ts';
 import type { ScannedPage } from '../core/sync.ts';
-import { openDownload, parseWithWasm, passwordProtected } from '../node/download.ts';
+import { openDownload, orderInFolder, parseWithWasm, passwordProtected } from '../node/download.ts';
 import type { Download, WasmParser } from '../node/download.ts';
 import { fileSink } from '../node/file-sink.ts';
 import { copyOf } from './bytes.ts';
@@ -144,6 +144,9 @@ async function handle(message: ToWorker): Promise<unknown> {
 			const names = message.names ? { names: new Map(message.names.names), taken: new Set(message.names.taken) } : undefined;
 			return convertSection(message.section as DownloadSection, message.dir, STRINGS[message.language as Language], hostFor(download, message.staging), message.options as SectionOptions, names);
 		}
+		case 'order':
+			// Read from the folder as it is now: the copy is not opened as a download for this.
+			return await orderInFolder(message.input, message.notebooks as DownloadNotebook[], data => parser().tocNames!(data));
 		case 'forget':
 			closeAll([message.input]);
 			return null;
