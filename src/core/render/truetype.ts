@@ -63,7 +63,7 @@ class TrueType implements Font {
 		const count = view.getUint16(4);
 		for (let i = 0; i < count; i++) {
 			const at = 12 + 16 * i;
-			const tag = String.fromCharCode(bytes[at]!, bytes[at + 1]!, bytes[at + 2]!, bytes[at + 3]!);
+			const tag = String.fromCharCode(bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]);
 			const offset = view.getUint32(at + 8), length = view.getUint32(at + 12);
 			if (offset + length > bytes.length) throw new Error('table outside the font');
 			tables.set(tag, { offset, length });
@@ -114,13 +114,13 @@ class TrueType implements Font {
 
 	isLigatureOf(glyph: number, components: number[]): boolean {
 		if (components.length < 2) return false;
-		return (this.substitutes.ligature.get(components[0]!) ?? []).some(rule =>
+		return (this.substitutes.ligature.get(components[0]) ?? []).some(rule =>
 			rule.components.length === components.length - 1 && rule.components.every((g, i) => g === components[i + 1]) && this.isFormOf(glyph, rule.glyph));
 	}
 
 	isSplitOf(glyphs: number[], base: number): boolean {
 		return (this.substitutes.multiple.get(base) ?? []).some(sequence =>
-			sequence.length === glyphs.length && sequence.every((g, i) => this.isFormOf(glyphs[i]!, g)));
+			sequence.length === glyphs.length && sequence.every((g, i) => this.isFormOf(glyphs[i], g)));
 	}
 
 	/** `base` and every glyph its single and alternate substitutions lead to, four steps deep. */
@@ -161,7 +161,7 @@ class TrueType implements Font {
 			// The glyph is placed by its left side bearing (hmtx), as renderers do: where that differs
 			// from the outline's own left edge (its xMin), the outline moves by the difference.
 			if (path) {
-				const shift = this.leftSideBearing(glyph) - this.view.getInt16(this.glyf.offset + this.locations[glyph]! + 2);
+				const shift = this.leftSideBearing(glyph) - this.view.getInt16(this.glyf.offset + this.locations[glyph] + 2);
 				if (shift) path = transformPath(path, 1, 0, 0, 1, shift, 0);
 			}
 			this.outlines.set(glyph, path);
@@ -177,7 +177,7 @@ class TrueType implements Font {
 	/** The glyph's outline as SVG path data; composite glyphs are drawn from their parts, `depth` deep. */
 	private path(glyph: number, depth: number): string | undefined {
 		if (!(glyph >= 0 && glyph < this.glyphCount) || depth > 8) return undefined;
-		const start = this.locations[glyph]!, end = this.locations[glyph + 1]!;
+		const start = this.locations[glyph], end = this.locations[glyph + 1];
 		if (end === start) return '';
 		if (end < start || this.glyf.offset + end > this.glyf.offset + this.glyf.length) return undefined;
 		const view = this.view;
@@ -191,7 +191,7 @@ class TrueType implements Font {
 		let p = at + 10;
 		const ends: number[] = [];
 		for (let i = 0; i < contours; i++, p += 2) ends.push(view.getUint16(p));
-		const points = contours ? ends[contours - 1]! + 1 : 0;
+		const points = contours ? ends[contours - 1] + 1 : 0;
 		p += 2 + view.getUint16(p); // instructions
 		const flags: number[] = [];
 		while (flags.length < points) {
@@ -224,7 +224,7 @@ class TrueType implements Font {
 		let first = 0;
 		for (const last of ends) {
 			const contour: { x: number, y: number, on: boolean }[] = [];
-			for (let i = first; i <= last; i++) contour.push({ x: xs[i]!, y: ys[i]!, on: (flags[i]! & 1) === 1 });
+			for (let i = first; i <= last; i++) contour.push({ x: xs[i], y: ys[i], on: (flags[i] & 1) === 1 });
 			first = last + 1;
 			if (contour.length) d.push(contourPath(contour));
 		}
@@ -286,8 +286,8 @@ function contourPath(points: { x: number, y: number, on: boolean }[]): string {
 	// control point and the first, so that the curves go through every control point in turn.
 	const startIndex = points.findIndex(point => point.on);
 	const ordered = startIndex >= 0 ? [...points.slice(startIndex), ...points.slice(0, startIndex)] : points;
-	const last = points[points.length - 1]!;
-	const start = startIndex >= 0 ? ordered[0]! : { x: (last.x + points[0]!.x) / 2, y: (last.y + points[0]!.y) / 2, on: true };
+	const last = points[points.length - 1];
+	const start = startIndex >= 0 ? ordered[0] : { x: (last.x + points[0].x) / 2, y: (last.y + points[0].y) / 2, on: true };
 	const out = [`M${round(start.x)} ${round(start.y)}`];
 	let control: { x: number, y: number } | undefined;
 	const rest = startIndex >= 0 ? ordered.slice(1) : ordered;
@@ -317,9 +317,9 @@ function transformPath(d: string, a: number, b: number, c: number, e: number, dx
 }
 
 interface CharacterMap {
-	lookup(codePoint: number): number;
+	lookup: (codePoint: number) => number;
 	/** Every character the map gives a glyph, with that glyph. */
-	entries(): Iterable<[codePoint: number, glyph: number]>;
+	entries: () => Iterable<[codePoint: number, glyph: number]>;
 }
 
 /** The character map: Unicode subtables (format 4 or 12) first, then a symbol subtable. */

@@ -168,7 +168,7 @@ export function orderByTables(notebook: DownloadNotebook, listed: (groups: strin
 		.concat([0, place(rank(section.groups, `${section.label}.one`), index)]);
 	const keys = new Map(notebook.sections.map((section, index) => [section, keyOf(section, index)] as [DownloadSection, number[]]));
 	const compare = (a: number[], b: number[]) => {
-		for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i]! < b[i]! ? -1 : 1;
+		for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1;
 		return a.length - b.length;
 	};
 	notebook.sections = [...notebook.sections].sort((a, b) => compare(keys.get(a)!, keys.get(b)!));
@@ -195,7 +195,7 @@ function placesInTable(listed: string[], names: string[]): Map<string, number> {
 		if (!take(index, name => foldName(name) === foldName(entry))) left.push(index);
 	});
 	for (const index of left) {
-		const entry = foldName(listed[index]!);
+		const entry = foldName(listed[index]);
 		if (!entry.includes('^')) continue;
 		const pattern = new RegExp(`^${entry.split(/\^[\s\S]/u).map(part => part.replace(/[.*+?$()|[\]{}\\]/g, '\\$&')).join('.')}$`, 'u');
 		take(index, name => pattern.test(foldName(name)));

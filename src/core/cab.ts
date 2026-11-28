@@ -41,8 +41,8 @@ interface Layout {
 	dataReserve: number;
 }
 
-const u16 = (b: Uint8Array, i: number) => b[i]! | (b[i + 1]! << 8);
-const u32 = (b: Uint8Array, i: number) => (b[i]! | (b[i + 1]! << 8) | (b[i + 2]! << 16) | (b[i + 3]! << 24)) >>> 0;
+const u16 = (b: Uint8Array, i: number) => b[i] | (b[i + 1] << 8);
+const u32 = (b: Uint8Array, i: number) => (b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24)) >>> 0;
 
 /** Whether these bytes start a Cabinet archive (`MSCF`). */
 export const isCabinet = (head: Uint8Array) => head.length >= 4 && head[0] === 0x4d && head[1] === 0x53 && head[2] === 0x43 && head[3] === 0x46;
@@ -133,7 +133,7 @@ function checksum(data: Uint8Array, seed: number): number {
 	let i = 0;
 	for (; i + 4 <= data.length; i += 4) sum ^= u32(data, i);
 	let rest = 0;
-	for (; i < data.length; i++) rest = (rest << 8) | data[i]!;
+	for (; i < data.length; i++) rest = (rest << 8) | data[i];
 	return (sum ^ rest) >>> 0;
 }
 
@@ -240,7 +240,7 @@ class BitReader {
 	readRawByte(): number {
 		this.aligned();
 		this.ensure(1);
-		return this.data[this.next++]!;
+		return this.data[this.next++];
 	}
 
 	readRawUInt32(): number {
@@ -261,7 +261,7 @@ class BitReader {
 
 	private load(): void {
 		if (this.next > this.data.length - 2) throw corrupt('the bit stream ends inside a word.');
-		this.word = this.data[this.next]! | (this.data[this.next + 1]! << 8);
+		this.word = this.data[this.next] | (this.data[this.next + 1] << 8);
 		this.next += 2;
 		this.bits = 16;
 	}
@@ -294,7 +294,7 @@ class HuffmanTree {
 		const counts = new Int32Array(MAXIMUM_PATH_LENGTH + 1);
 		for (const length of lengths) {
 			if (length > MAXIMUM_PATH_LENGTH) throw corrupt(`the ${name} tree has an invalid code length.`);
-			if (length !== 0) counts[length]!++;
+			if (length !== 0) counts[length]++;
 		}
 		let total = 0;
 		for (const count of counts) total += count;
@@ -307,17 +307,17 @@ class HuffmanTree {
 		const firstSymbols = new Int32Array(MAXIMUM_PATH_LENGTH + 1);
 		let code = 0, symbol = 0;
 		for (let length = 1; length <= MAXIMUM_PATH_LENGTH; length++) {
-			code = (code + counts[length - 1]!) << 1;
+			code = (code + counts[length - 1]) << 1;
 			firstCodes[length] = code;
 			firstSymbols[length] = symbol;
-			if (code + counts[length]! > 1 << length) throw corrupt(`the ${name} tree is oversubscribed.`);
-			symbol += counts[length]!;
+			if (code + counts[length] > 1 << length) throw corrupt(`the ${name} tree is oversubscribed.`);
+			symbol += counts[length];
 		}
 		const symbols = new Int32Array(total);
 		const next = firstSymbols.slice();
 		for (let s = 0; s < lengths.length; s++) {
-			const length = lengths[s]!;
-			if (length !== 0) symbols[next[length]!++] = s;
+			const length = lengths[s];
+			if (length !== 0) symbols[next[length]++] = s;
 		}
 		return new HuffmanTree(counts, firstCodes, firstSymbols, symbols);
 	}
@@ -327,8 +327,8 @@ class HuffmanTree {
 		let code = 0;
 		for (let length = 1; length <= MAXIMUM_PATH_LENGTH; length++) {
 			code = (code << 1) | reader.readBit();
-			const offset = code - this.firstCodes[length]!;
-			if (offset >= 0 && offset < this.counts[length]!) return this.symbols[this.firstSymbols[length]! + offset]!;
+			const offset = code - this.firstCodes[length];
+			if (offset >= 0 && offset < this.counts[length]) return this.symbols[this.firstSymbols[length] + offset];
 		}
 		throw corrupt('a code is not in its tree.');
 	}
@@ -447,7 +447,7 @@ class LzxDecoder {
 	private uncompressed(reader: BitReader, end: number): void {
 		const count = Math.min(this.blockRemaining, end - this.position);
 		const bytes = reader.rawBytes(count);
-		for (let i = 0; i < count; i++) this.put(bytes[i]!);
+		for (let i = 0; i < count; i++) this.put(bytes[i]);
 		this.blockRemaining -= count;
 	}
 
@@ -468,7 +468,7 @@ class LzxDecoder {
 			if (length > this.blockRemaining || length > end - this.position) throw corrupt('a match crosses a block or data block boundary.');
 			if (offset === 0 || offset > this.windowSize || offset > this.position) throw corrupt('a match reaches outside the window.');
 			// Byte by byte: a match may overlap what it writes.
-			for (let i = 0; i < length; i++) this.put(this.window[(this.position - offset) & this.mask]!);
+			for (let i = 0; i < length; i++) this.put(this.window[(this.position - offset) & this.mask]);
 			this.blockRemaining -= length;
 		}
 	}
@@ -487,11 +487,11 @@ class LzxDecoder {
 			this.r0 = offset;
 			return offset;
 		}
-		const bits = this.footerBits[slot]!;
+		const bits = this.footerBits[slot];
 		let footer: number;
 		if (this.blockType === ALIGNED_OFFSET_BLOCK && bits >= 3) footer = (bits === 3 ? 0 : reader.readBits(bits - 3) << 3) | this.alignedTree.decode(reader);
 		else footer = reader.readBits(bits);
-		const formatted = this.positionBase[slot]! + footer;
+		const formatted = this.positionBase[slot] + footer;
 		if (formatted < 3) throw corrupt('a match has an invalid offset.');
 		const offset = formatted - 2;
 		this.checkOffset(offset);
@@ -514,7 +514,7 @@ function pathLengths(reader: BitReader, lengths: Uint8Array, start: number, end:
 	while (cursor < end) {
 		const code = pretree.decode(reader);
 		if (code <= MAXIMUM_PATH_LENGTH) {
-			lengths[cursor] = (lengths[cursor]! - code + 17) % 17;
+			lengths[cursor] = (lengths[cursor] - code + 17) % 17;
 			cursor++;
 			continue;
 		}
@@ -531,7 +531,7 @@ function pathLengths(reader: BitReader, lengths: Uint8Array, start: number, end:
 			repeat = reader.readBits(1) + 4;
 			const delta = pretree.decode(reader);
 			if (delta > MAXIMUM_PATH_LENGTH) throw corrupt('a repeated code length has an invalid delta.');
-			value = (lengths[cursor]! - delta + 17) % 17;
+			value = (lengths[cursor] - delta + 17) % 17;
 		}
 		else throw corrupt('the pretree has an invalid symbol.');
 		if (repeat > end - cursor) throw corrupt('repeated code lengths run past their tree.');
@@ -546,7 +546,7 @@ function undoE8(frame: Uint8Array, frameStart: number, fileSize: number): void {
 	for (let i = 0; i < scanEnd; i++) {
 		if (frame[i] !== 0xe8) continue;
 		const cursor = frameStart + i;
-		const value = frame[i + 1]! | (frame[i + 2]! << 8) | (frame[i + 3]! << 16) | (frame[i + 4]! << 24);
+		const value = frame[i + 1] | (frame[i + 2] << 8) | (frame[i + 3] << 16) | (frame[i + 4] << 24);
 		if (value >= -cursor && value < fileSize) {
 			const displacement = value >= 0 ? value - cursor : value + fileSize;
 			frame[i + 1] = displacement;

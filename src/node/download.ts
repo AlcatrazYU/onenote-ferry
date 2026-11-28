@@ -82,7 +82,7 @@ async function orderSections(notebooks: DownloadNotebook[], files: DownloadFile[
 	}
 	notebooks.forEach((notebook, i) => {
 		const names = new Map<string, string[]>();
-		for (const [key, path] of tables[i]!) {
+		for (const [key, path] of tables[i]) {
 			const data = bytes.get(path);
 			if (!data) continue;
 			try {
@@ -98,7 +98,7 @@ async function orderSections(notebooks: DownloadNotebook[], files: DownloadFile[
 
 export function listFolder(root: string): DownloadFile[] {
 	const files: DownloadFile[] = [];
-	for (const entry of readdirSync(root, { recursive: true, withFileTypes: true }) as import('node:fs').Dirent[]) {
+	for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {
 		const path = join(entry.parentPath, entry.name);
 		// A symbolic link counts as what it points to, as it did for the parser.
 		const stat = entry.isSymbolicLink() ? statSync(path, { throwIfNoEntry: false }) : undefined;
@@ -123,7 +123,7 @@ export function downloadStamp(input: string, section?: string): string | undefin
 		return file && of(file);
 	}
 	const parts: string[] = [];
-	for (const entry of readdirSync(input, { recursive: true, withFileTypes: true }) as import('node:fs').Dirent[]) {
+	for (const entry of readdirSync(input, { recursive: true, withFileTypes: true })) {
 		if (!/\.one(toc2)?$/i.test(entry.name)) continue;
 		const path = join(entry.parentPath, entry.name);
 		const info = statSync(path, { throwIfNoEntry: false });
@@ -210,7 +210,7 @@ async function openPackage(input: string, tmp: string, tocNames?: (data: Uint8Ar
 	const target = (path: string) => {
 		const parts = path.split('/').filter(part => part !== '' && part !== '.');
 		// Nothing outside the folder, whatever names the package holds.
-		if (!parts.length || parts.includes('..') || /^[A-Za-z]:/.test(parts[0]!)) throw new Error(`The package holds a file with a name that cannot be unpacked: ${path}`);
+		if (!parts.length || parts.includes('..') || /^[A-Za-z]:/.test(parts[0])) throw new Error(`The package holds a file with a name that cannot be unpacked: ${path}`);
 		return join(folder, ...parts);
 	};
 	let unpacked: Promise<void> | undefined;

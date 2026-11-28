@@ -24,11 +24,11 @@ const REQUEST_TIMEOUT_MS = 30 * 1000;
 
 /** Waits for `promise` at most `ms` (the request itself cannot be called off and may still end later). */
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-	let timer: ReturnType<typeof setTimeout> | undefined;
+	let timer: number | undefined;
 	const timeout = new Promise<never>((_, reject) => {
-		timer = setTimeout(() => reject(new SignInError('unreachable', `no answer within ${ms / 1000} seconds`)), ms);
+		timer = window.setTimeout(() => reject(new SignInError('unreachable', `no answer within ${ms / 1000} seconds`)), ms);
 	});
-	return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+	return Promise.race([promise, timeout]).finally(() => window.clearTimeout(timer));
 }
 
 /** Posts a form through Obsidian (no browser origin, the system's proxy settings). */

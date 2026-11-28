@@ -63,12 +63,12 @@ function readTiff(b: Uint8Array): Pixels | undefined {
 	const data = new Uint8Array(rowBytes * height);
 	let at = 0;
 	for (const [i, offset] of offsets.entries()) {
-		const length = Math.min(counts[i]!, rowBytes * Math.min(rowsPerStrip, height - i * rowsPerStrip));
+		const length = Math.min(counts[i], rowBytes * Math.min(rowsPerStrip, height - i * rowsPerStrip));
 		if (offset + length > b.length || length !== rowBytes * Math.min(rowsPerStrip, height - i * rowsPerStrip)) return undefined;
 		data.set(b.subarray(offset, offset + length), at);
 		at += length;
 	}
-	if (channels === 1 && photometric === 0) for (let i = 0; i < data.length; i++) data[i] = 255 - data[i]!;
+	if (channels === 1 && photometric === 0) for (let i = 0; i < data.length; i++) data[i] = 255 - data[i];
 	// A fourth sample of no stated use (extra sample 0, often padding) is not transparency, and an
 	// alpha channel that is opaque everywhere adds nothing: both left out.
 	if (channels === 4) {
@@ -102,7 +102,7 @@ const CRC_TABLE = (() => {
 
 function crc(parts: Uint8Array[]): number {
 	let c = 0xffffffff;
-	for (const part of parts) for (const byte of part) c = CRC_TABLE[(c ^ byte) & 0xff]! ^ (c >>> 8);
+	for (const part of parts) for (const byte of part) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8);
 	return (c ^ 0xffffffff) >>> 0;
 }
 
@@ -125,7 +125,7 @@ async function encodePng(image: Pixels): Promise<Uint8Array> {
 	for (let y = 0; y < height; y++) {
 		const from = y * rowBytes, to = y * (rowBytes + 1);
 		filtered[to] = 1;
-		for (let x = 0; x < rowBytes; x++) filtered[to + 1 + x] = (data[from + x]! - (x >= channels ? data[from + x - channels]! : 0)) & 0xff;
+		for (let x = 0; x < rowBytes; x++) filtered[to + 1 + x] = (data[from + x] - (x >= channels ? data[from + x - channels] : 0)) & 0xff;
 	}
 	const stream = new Blob([filtered]).stream().pipeThrough(new CompressionStream('deflate'));
 	const compressed = new Uint8Array(await new Response(stream).arrayBuffer());

@@ -37,7 +37,7 @@ export interface DownloadFileOptions {
 	maxRestarts?: number;
 	/** Bytes received so far (of this file), as they come. */
 	onProgress?(bytes: number, size: number): void;
-	sleep?(ms: number): Promise<void>;
+	sleep?: (ms: number) => Promise<void>;
 	/**
 	 * Calls `callback` whenever the system says the network is back (the window's online event);
 	 * answers a function that stops it. A connection silent for a moment is then given up at once,

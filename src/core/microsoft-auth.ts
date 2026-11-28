@@ -111,7 +111,7 @@ export interface SignInAnswer {
 
 /** The AADSTS numbers in an error description (Microsoft's codes for what went wrong). */
 function codesIn(description: string): string[] {
-	return [...description.matchAll(/AADSTS(\d+)/g)].map(match => match[1]!);
+	return [...description.matchAll(/AADSTS(\d+)/g)].map(match => match[1]);
 }
 
 /**

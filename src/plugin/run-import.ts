@@ -36,18 +36,18 @@ export interface ImportRequest {
 	/** The vault folder the notebooks go under. */
 	root: string;
 	/** The language of a notebook's marks and folder names. */
-	languageFor(notebook: DownloadNotebook): Language;
+	languageFor: (notebook: DownloadNotebook) => Language;
 	/** Whether a section is to be imported (all are when not given). */
-	chosen?(section: DownloadSection): boolean;
+	chosen?: (section: DownloadSection) => boolean;
 	/** What an earlier import wrote of a notebook: sections are added to it. */
-	earlier?(notebook: DownloadNotebook): EarlierNotebook | undefined;
+	earlier?: (notebook: DownloadNotebook) => EarlierNotebook | undefined;
 	/** The OneDrive notebook a notebook is, when it came from there (§11.5 item 66). */
-	oneDriveOf?(notebook: DownloadNotebook): string | undefined;
+	oneDriveOf?: (notebook: DownloadNotebook) => string | undefined;
 	/** The reader's language: the report's. */
 	reportLanguage: Language;
 	options: SectionOptions;
 	isCancelled?(): boolean;
-	onProgress?(progress: ImportProgress): void;
+	onProgress?: (progress: ImportProgress) => void;
 }
 
 export interface ImportOutcome {
@@ -176,7 +176,7 @@ export async function runImport(app: App, client: WorkerClient, request: ImportR
 		// off half way (Obsidian quit, a crash) is not lost to the next one, and the page says so.
 		async checkpoint(sofar) {
 			try {
-				await writeReport(sink, reportStrings, sofar, meta(true), await sink.listFolders());
+				await writeReport(sink, reportStrings, sofar, meta(true), sink.listFolders());
 			}
 			catch {
 				// The report is written at the end anyway.
@@ -187,7 +187,7 @@ export async function runImport(app: App, client: WorkerClient, request: ImportR
 		const result = await importNotebooks(notebooks, host, { languageFor: request.languageFor, chosen: request.chosen, earlier: request.earlier, oneDriveOf: request.oneDriveOf, ...request.options, links: true });
 		// Stopped before the first notebook: nothing was written, and no report (or folder) is made for it.
 		if (!result.notebooks.length) return { result };
-		const { report, name } = await writeReport(sink, reportStrings, result, meta(false), await sink.listFolders());
+		const { report, name } = await writeReport(sink, reportStrings, result, meta(false), sink.listFolders());
 		return { result, report, reportPath: sink.vaultPath(`${name}.md`) };
 	}
 	finally {

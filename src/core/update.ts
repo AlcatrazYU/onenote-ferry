@@ -57,8 +57,8 @@ export interface UpdateHost {
 	openStaging(id: string): Promise<UpdateSink | undefined>;
 	/** Frees a place once its section is in the vault, or put back. */
 	releaseStaging(id: string): Promise<void>;
-	parse(section: DownloadSection): Promise<ParsedSection>;
-	isPasswordProtected(section: DownloadSection): Promise<boolean>;
+	parse: (section: DownloadSection) => Promise<ParsedSection>;
+	isPasswordProtected: (section: DownloadSection) => Promise<boolean>;
 	/** Converts a section into `dir` of `staging` somewhere else (the plugin's worker); else parse() here. */
 	convertSection?(section: DownloadSection, dir: string, language: Language, options: SectionOptions, names: SectionNames, staging: UpdateSink): Promise<SectionResult>;
 	/** Folders directly under the output root. */
@@ -361,7 +361,7 @@ function setProperties(text: string, set: Record<string, string | null>): string
 
 /** Names of the attachments a page links to in the section's attachments folder. */
 function attachmentLinks(text: string, folder: string): string[] {
-	return [...text.matchAll(new RegExp(`\\]\\(<${escapeRegExp(folder)}/([^>]+)>\\)`, 'g'))].map(match => match[1]!);
+	return [...text.matchAll(new RegExp(`\\]\\(<${escapeRegExp(folder)}/([^>]+)>\\)`, 'g'))].map(match => match[1]);
 }
 
 /** The text with links to some attachments changed to others of the section's attachments folder. */
@@ -501,7 +501,7 @@ async function prepareSection(vault: UpdateSink, start: StartEntry, nb: Notebook
 	// The vault's section folder (only its own files: what is in sub-folders goes along with it).
 	const vaultAll = V ? await vault.listFiles(V) : await vault.listFiles(N);
 	if (!V && vaultAll.length) throw new Blocked(N);
-	if (moving && !fold(N).startsWith(`${fold(V!)}/`) && await vault.exists(N)) throw new Blocked(N);
+	if (moving && !fold(N).startsWith(`${fold(V)}/`) && await vault.exists(N)) throw new Blocked(N);
 	// Each file as it is now, to tell later whether it is still as the steps found it.
 	const states = new Map<string, State>();
 	for (const path of [...vaultAll, ...(nb.toc === undefined ? [] : [nb.tocPath])]) states.set(fold(path), await stateOf(vault, path));
@@ -657,13 +657,13 @@ async function prepareSection(vault: UpdateSink, start: StartEntry, nb: Notebook
 	if (nb.toc !== undefined && !nb.tocSaved) ops.unshift({ op: 'copy', from: nb.tocPath, to: joinPath(start.backup, notebook.dir, tocName) });
 	if (nb.toc === undefined) ops.push(textWrite(nb.tocPath, notebookToc(notebook.notebook, notebook.listed, strings, 'importing', notebook.oneDrive), { kind: 'new' }));
 	ops.push(textWrite(joinPath(V ?? N, tocName), syncingToc, oldToc !== undefined ? { kind: 'text', text: oldToc } : { kind: 'new' }));
-	if (moving && fold(N).startsWith(`${fold(V!)}/`)) {
+	if (moving && fold(N).startsWith(`${fold(V)}/`)) {
 		// Into a group of its own name (Spring to Spring/Spring): through a free name beside it.
 		let between = `${V} (onenote-ferry)`;
 		for (let n = 2; await vault.exists(between); n++) between = `${V} (onenote-ferry ${n})`;
-		ops.push({ op: 'move', from: V!, to: between }, { op: 'move', from: between, to: N });
+		ops.push({ op: 'move', from: V, to: between }, { op: 'move', from: between, to: N });
 	}
-	else if (moving) ops.push({ op: 'move', from: V!, to: N });
+	else if (moving) ops.push({ op: 'move', from: V, to: N });
 	for (const name of orphans) ops.push({ op: 'move', from: joinPath(N, att, name), to: joinPath(B, att, name) });
 
 	// Renames, through a free name when two pages swap theirs.
@@ -678,7 +678,7 @@ async function prepareSection(vault: UpdateSink, start: StartEntry, nb: Notebook
 			present.add(fold(rename.to));
 			continue;
 		}
-		const rename = pending[0]!;
+		const rename = pending[0];
 		if (!pending.some(other => fold(other.from) === fold(rename.to))) throw new Blocked(joinPath(N, rename.to));
 		const between = numbered(rename.from.replace(/\.md$/, ' (onenote-ferry).md'), name => present.has(fold(name)));
 		ops.push({ op: 'move', from: joinPath(N, rename.from), to: joinPath(N, between) });
@@ -697,7 +697,7 @@ async function prepareSection(vault: UpdateSink, start: StartEntry, nb: Notebook
 		await need(joinPath(N, att, entry.staged));
 		ops.push({
 			op: 'write', path: joinPath(N, att, entry.name), staged: joinPath(N, att, entry.staged), binary: true,
-			undo: entry.saved ? { kind: 'saved', path: entry.saved } : { kind: 'new' }, after: [needs[needs.length - 1]![1], null],
+			undo: entry.saved ? { kind: 'saved', path: entry.saved } : { kind: 'new' }, after: [needs[needs.length - 1][1], null],
 		});
 	}
 	const renameList = [...subst];
@@ -736,7 +736,7 @@ async function prepareSection(vault: UpdateSink, start: StartEntry, nb: Notebook
 	check(ops, states);
 
 	const moves: Move[] = [];
-	if (moving) moves.push({ from: V!, to: N, folder: true });
+	if (moving) moves.push({ from: V, to: N, folder: true });
 	for (const name of orphans) moves.push({ from: joinPath(V!, att, name), to: joinPath(B, att, name) });
 	for (const rename of renames) moves.push({ from: joinPath(V!, rename.from), to: joinPath(N, rename.to) });
 
@@ -939,7 +939,7 @@ async function runSection(ctx: Context, run: RunState['sections'][number], stagi
 	const { entry } = run;
 	try {
 		for (let i = run.done; i < entry.ops.length; i++) {
-			await runOp(ctx, staging, entry.ops[i]!);
+			await runOp(ctx, staging, entry.ops[i]);
 			await ctx.journal.add({ t: 'op', s: entry.s, i });
 			run.done = i + 1;
 		}
@@ -968,10 +968,10 @@ async function rollBack(ctx: Context, run: RunState['sections'][number], reason:
 	const refused: string[] = [];
 	for (let i = from; i >= 0; i--) {
 		try {
-			await undoOp(ctx, entry.ops[i]!);
+			await undoOp(ctx, entry.ops[i]);
 		}
 		catch (error) {
-			refused.push(`${'path' in entry.ops[i]! ? (entry.ops[i] as { path: string }).path : (entry.ops[i] as { to: string }).to}: ${errorText(error)}`);
+			refused.push(`${'path' in entry.ops[i] ? (entry.ops[i] as { path: string }).path : (entry.ops[i] as { to: string }).to}: ${errorText(error)}`);
 		}
 		await ctx.journal.add({ t: 'undo', s: entry.s, i });
 		run.undone = i;
@@ -1013,7 +1013,7 @@ function listing(items: PlanItem[], dir: string, earlier: ReportNotebook | undef
 	for (const section of unmatched) {
 		if (extra.some(entry => entry.folder !== undefined && fold(entry.folder) === fold(section.folder))) continue;
 		const parts = section.folder.split('/');
-		const label = section.heading ?? parts[parts.length - 1]!;
+		const label = section.heading ?? parts[parts.length - 1];
 		extra.push({ key: sectionKey(parts.slice(0, -1), label), groups: parts.slice(0, -1), section: label, extra: true, folder: section.folder, ...resultOf(section.folder) });
 	}
 	return inTocOrder(inDownload, extra);
@@ -1223,7 +1223,7 @@ export async function updateNotebooks(requests: UpdateRequest[], host: UpdateHos
 	let done = 0;
 	for (const [n, entry] of planned.entries()) {
 		if (!entry.todo.length) continue;
-		const notebook = state.notebooks[n]!;
+		const notebook = state.notebooks[n];
 		const tocPath = joinPath(entry.dir, `${entry.strings.tocFileName}.md`);
 		const nb: NotebookState = { entry: notebook, strings: entry.strings, tocPath, toc: entry.archive ? await vault.readText(tocPath) : undefined };
 		for (const item of entry.todo) {
@@ -1349,10 +1349,10 @@ async function listedPages(vault: UpdateSink, notebookFolders: string[]): Promis
 			const text = await vault.readText(path) ?? '';
 			const at = Math.max(...headings.map(heading => text.indexOf(`\n## ${heading}\n`)));
 			for (const match of text.matchAll(/\]\(<([^>]+\.md)>\)/g)) {
-				if (match[1]!.includes('/')) continue;
-				const page = fold(joinPath(parentOf(path), match[1]!));
+				if (match[1].includes('/')) continue;
+				const page = fold(joinPath(parentOf(path), match[1]));
 				listed.add(page);
-				if (at >= 0 && match.index! > at) gone.add(page);
+				if (at >= 0 && match.index > at) gone.add(page);
 			}
 		}
 	}
@@ -1716,7 +1716,7 @@ function trustworthy(state: RunState, journalPath: string): boolean {
 		const oldRoots = own('oldVersionsFolder'), logRoots = own('updateLogFolder');
 		if (!isPlainPath(start.backup) || !isPlainPath(start.record) || !isPlainPath(start.journal) || !isLanguage(start.reader)) return false;
 		const backup = start.backup.split('/');
-		if (backup.length !== 2 || !oldRoots.has(fold(backup[0]!))) return false;
+		if (backup.length !== 2 || !oldRoots.has(fold(backup[0]))) return false;
 		const log = parentOf(journalPath);
 		if (log.includes('/') || !logRoots.has(fold(log)) || fold(start.journal) !== fold(journalPath)) return false;
 		if (fold(parentOf(start.record)) !== fold(log) || !start.record.endsWith('.md')) return false;

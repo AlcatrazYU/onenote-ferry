@@ -119,7 +119,7 @@ export function linkPrintoutsAcross(pages: Page[]): void {
 	const sameData = (a: EmbeddedFile, b: EmbeddedFile) => a.data?.kind === 'stored' && b.data?.kind === 'stored' && a.data.key === b.data.key;
 	for (const image of waiting) {
 		const found = pdfs.get(image.printoutName!.normalize('NFC'));
-		if (found?.length && found.every(file => sameData(file, found[0]!))) image.printoutOf = found[0];
+		if (found?.length && found.every(file => sameData(file, found[0]))) image.printoutOf = found[0];
 	}
 }
 
@@ -190,7 +190,8 @@ function bounds(points: { x: number, y: number }[]): { left: number, right: numb
 	return { left, right, top, bottom };
 }
 
-function inPage(json: Json, box: Json | undefined): InkStroke[] {
+/** `box`: the box the ink was drawn in, if any (Json is any, undefined included). */
+function inPage(json: Json, box: Json): InkStroke[] {
 	const strokes = inkStrokes(json, HIMETRIC_PER_HALF_INCH);
 	const x = box?.x, y = box?.y;
 	if (typeof x !== 'number' || typeof y !== 'number') return strokes;

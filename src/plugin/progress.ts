@@ -73,7 +73,8 @@ export class ProgressDisplay {
 		const state = this.state;
 		if (!state) return;
 		const fraction = state.total ? state.done / state.total : 0;
-		this.textEl.setText((state.downloading ? this.ui.statusDownloading : state.updating ? this.ui.statusUpdating : this.ui.statusImporting)(Math.min(state.done + 1, state.total), state.total));
+		const ui = this.ui, current = Math.min(state.done + 1, state.total);
+		this.textEl.setText(state.downloading ? ui.statusDownloading(current, state.total) : state.updating ? ui.statusUpdating(current, state.total) : ui.statusImporting(current, state.total));
 		this.fillEl.setCssProps({ '--onenote-ferry-progress': String(fraction) });
 		const time = this.ui.elapsed(elapsed(Date.now() - state.startedAt));
 		setTooltip(this.statusEl, `${state.notebook} / ${state.section}\n${time}\n${this.ui.statusTooltip}`, { placement: 'top' });

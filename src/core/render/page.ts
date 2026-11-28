@@ -250,7 +250,7 @@ function joinShortLines(lines: string[]): string[] {
 	const out: string[] = [];
 	let run: string[] = [];
 	const flush = () => {
-		if (run.length >= 3) out.push(run.reduce((joined, line) => joined + (CJK.test([...joined].pop()!) || CJK.test([...line][0]!) ? '' : ' ') + line));
+		if (run.length >= 3) out.push(run.reduce((joined, line) => joined + (CJK.test([...joined].pop()!) || CJK.test([...line][0]) ? '' : ' ') + line));
 		else out.push(...run);
 		run = [];
 	};
@@ -998,7 +998,7 @@ export async function renderPage(page: Page, options: PageRenderOptions): Promis
 				}
 				// A picture that cannot be drawn on: its handwriting stays a drawing of its own, as before.
 				if (!picture) continue;
-				const notes = strokes.map(i => free[i]!.piece);
+				const notes = strokes.map(i => free[i].piece);
 				for (const i of strokes) taken.add(i);
 				if (sure) {
 					writer.annotations.set(image, notes);
@@ -1025,7 +1025,7 @@ export async function renderPage(page: Page, options: PageRenderOptions): Promis
 			for (const item of loose) {
 				if (pen(item)) continue;
 				const under = drawingUnder(item.piece.stroke, pens);
-				if (under >= 0) drawings[under]!.push(item);
+				if (under >= 0) drawings[under].push(item);
 			}
 		}
 		// Within one drawing, strokes keep the order they were written in.

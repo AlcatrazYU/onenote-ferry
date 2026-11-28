@@ -228,9 +228,9 @@ export interface UpdateCopyOptions {
 	only?: ReadonlySet<string>;
 	/** For tests: how long a download may go without a byte, and how to wait. */
 	idleMs?: number;
-	sleep?(ms: number): Promise<void>;
+	sleep?: (ms: number) => Promise<void>;
 	/** The system's word that the network is back (see DownloadFileOptions.whenOnline). */
-	whenOnline?(callback: () => void): () => void;
+	whenOnline?: (callback: () => void) => () => void;
 	free?(dir: string): number | undefined;
 }
 
@@ -326,7 +326,7 @@ export async function updateCopy(options: UpdateCopyOptions): Promise<CopyResult
 		let next = 0;
 		const worker = async () => {
 			while (next < plan.download.length && !signal?.aborted) {
-				const file = plan.download[next++]!;
+				const file = plan.download[next++];
 				const part = join(parts, `${safeId(file.id)}.part`);
 				if (isSectionFile(file.path)) progress.current = file.path;
 				arriving.set(file.id, 0);

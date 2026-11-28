@@ -1,5 +1,6 @@
 // File and folder names.
 
+// eslint-disable-next-line no-control-regex -- control characters cannot be in a file name: they are what is looked for
 const ILLEGAL = /[\\/:*?"<>|\u0000-\u001f#^[\]]/g;
 
 /** Characters a file name cannot hold (or Obsidian links cannot) become their full-width forms. */

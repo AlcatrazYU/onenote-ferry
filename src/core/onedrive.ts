@@ -132,7 +132,7 @@ export async function findRemoteNotebooks(graph: GraphGet): Promise<RemoteNotebo
 	let next = 0;
 	await Promise.all(Array.from({ length: Math.min(6, unknown.length) }, async () => {
 		while (next < unknown.length) {
-			const hit = unknown[next++]!;
+			const hit = unknown[next++];
 			// Found meanwhile through another hit of the same notebook.
 			if (inKnown(hit)) continue;
 			let id = hit.parentReference?.id;

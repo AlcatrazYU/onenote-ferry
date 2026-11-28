@@ -78,7 +78,7 @@ export function readProfile(raw: ArrayLike<number>): RowProfile | undefined {
 	for (let i = 0; i < rows; i += k) {
 		let sum = 0, n = 0;
 		for (let j = i; j < Math.min(rows, i + k); j++) {
-			sum += raw[3 + j]!;
+			sum += raw[3 + j];
 			n++;
 		}
 		dark.push(sum / n);
@@ -87,7 +87,7 @@ export function readProfile(raw: ArrayLike<number>): RowProfile | undefined {
 	const smooth = dark.map((_, i) => {
 		const from = Math.max(0, i - 1), to = Math.min(n, i + 2);
 		let sum = 0;
-		for (let j = from; j < to; j++) sum += dark[j]!;
+		for (let j = from; j < to; j++) sum += dark[j];
 		return sum / (to - from);
 	});
 	const mean = smooth.reduce((a, b) => a + b, 0) / n;
@@ -96,7 +96,7 @@ export function readProfile(raw: ArrayLike<number>): RowProfile | undefined {
 	let periodic = 0, pitch: number | undefined;
 	for (let lag = 6; lag < Math.max(7, Math.floor(n / 3)); lag++) {
 		let sum = 0;
-		for (let i = 0; i + lag < n; i++) sum += dev[i]! * dev[i + lag]!;
+		for (let i = 0; i + lag < n; i++) sum += dev[i] * dev[i + lag];
 		const ac = sum / variance;
 		if (ac > periodic) {
 			periodic = ac;
@@ -108,21 +108,21 @@ export function readProfile(raw: ArrayLike<number>): RowProfile | undefined {
 		const r = Math.max(1, Math.floor(pitch / 3));
 		let run: number[] = [];
 		const close = () => {
-			if (run.length) bands.push((run[0]! + run[run.length - 1]!) / 2);
+			if (run.length) bands.push((run[0] + run[run.length - 1]) / 2);
 			run = [];
 		};
 		for (let i = 0; i < n; i++) {
-			if (smooth[i]! <= mean) continue;
+			if (smooth[i] <= mean) continue;
 			let top = true;
 			for (let j = Math.max(0, i - r); j <= Math.min(n - 1, i + r); j++) {
-				if (smooth[j]! > smooth[i]!) {
+				if (smooth[j] > smooth[i]) {
 					top = false;
 					break;
 				}
 			}
 			if (!top) continue;
 			// A run of equally dark rows is one line, at its middle.
-			if (run.length && i - run[run.length - 1]! > r) close();
+			if (run.length && i - run[run.length - 1] > r) close();
 			run.push(i);
 		}
 		close();
@@ -301,7 +301,7 @@ function layOutTable(table: Table, left: number, top: number, at: Flow, above: A
 			let border = left + TABLE_LEFT;
 			const cells: { height: number, above: Above }[] = [];
 			for (const [column, cell] of row.cells.entries()) {
-				const width = widths[column] ?? widths[widths.length - 1]!;
+				const width = widths[column] ?? widths[widths.length - 1];
 				const mine = { ...inside };
 				const bottom = flow(cell.children, 1, border + CELL_LEFT, Math.max(width - CELL_NARROWER, INDENT), y + CELL_TOP, at, mine, true);
 				cells.push({ height: bottom - y - CELL_TOP, above: mine });
@@ -376,7 +376,7 @@ function offsets(picture: FlowPicture, profile: RowProfile, ys: number[], shift 
 
 const median = (values: number[]) => {
 	const sorted = [...values].sort((a, b) => a - b);
-	return sorted[Math.floor(sorted.length / 2)]!;
+	return sorted[Math.floor(sorted.length / 2)];
 };
 
 export interface PlacedMarks {
@@ -415,7 +415,7 @@ export async function placeOnPictures(outlines: Outline[], strokes: InkStroke[],
 	const pins = new Map(outlines.map(outline => [outline, pinnedFactor(outline, aspects)]));
 	const shapes = strokes.map(shape);
 	// What lines a picture up with its rows: highlighter strokes along a line of text.
-	const aligning = strokes.map((stroke, i) => isHighlighter(stroke) && shapes[i]!.along);
+	const aligning = strokes.map((stroke, i) => isHighlighter(stroke) && shapes[i].along);
 
 	// The line height that puts the strokes along lines best on rows of text, over the page.
 	let factor = USUAL_FACTOR, best = Infinity;
@@ -423,10 +423,10 @@ export async function placeOnPictures(outlines: Outline[], strokes: InkStroke[],
 		const pictures = layOut(outlines, candidate, pins, aspects);
 		let cost = 0, n = 0;
 		for (const [k, indexes] of onPictures(pictures, shapes)) {
-			const read = await profile(pictures[k]!.image);
+			const read = await profile(pictures[k].image);
 			const along = indexes.filter(i => aligning[i]);
 			if (!read?.pitch || !read.bands.length || !along.length) continue;
-			for (const off of offsets(pictures[k]!, read, along.map(i => shapes[i]!.y))) cost += Math.min(off, 0.5);
+			for (const off of offsets(pictures[k], read, along.map(i => shapes[i].y))) cost += Math.min(off, 0.5);
 			n += along.length;
 		}
 		if (!n) continue;
@@ -449,9 +449,9 @@ export async function placeOnPictures(outlines: Outline[], strokes: InkStroke[],
 	});
 	const placed: PlacedMarks[] = [];
 	for (const [k, indexes] of [...on].sort((a, b) => a[0] - b[0])) {
-		const picture = pictures[k]!;
+		const picture = pictures[k];
 		const read = await profile(picture.image);
-		const along = indexes.filter(i => aligning[i]).map(i => shapes[i]!.y);
+		const along = indexes.filter(i => aligning[i]).map(i => shapes[i].y);
 		const result: PlacedMarks = { image: picture.image, box: picture.box, strokes: indexes, sure: false };
 		placed.push(result);
 		if (!read?.pitch || read.periodic < PERIODIC || !read.bands.length || !along.length) continue;

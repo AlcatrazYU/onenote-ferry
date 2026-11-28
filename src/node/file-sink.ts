@@ -56,7 +56,7 @@ export function fileSink(root: string): UpdateSink {
 		async listFiles(folder) {
 			const start = resolve(folder);
 			if (!existsSync(start)) return [];
-			return (readdirSync(start, { recursive: true, withFileTypes: true }) as import('node:fs').Dirent[])
+			return (readdirSync(start, { recursive: true, withFileTypes: true }))
 				.filter(entry => entry.isFile())
 				.map(entry => relative(root, join(entry.parentPath, entry.name)).split(sep).join('/'));
 		},

@@ -33,7 +33,7 @@ export interface UpdateRunRequest {
 	/** The run imported new notebooks first: the time its report gave that import. */
 	joins?: string;
 	isCancelled?(): boolean;
-	onProgress?(progress: ImportProgress): void;
+	onProgress?: (progress: ImportProgress) => void;
 }
 
 /** The plugin's staging folders, in the system's temporary folder. */

@@ -393,7 +393,7 @@ export async function earlierNotebook(sink: Sink, dir: string, notebook: Downloa
 		const status = importStatusOf(text);
 		if (status !== 'complete' && status !== 'syncing') continue;
 		const parts = folder.slice(dir.length + 1).split('/');
-		const groups = parts.slice(0, -1), name = tocHeading(text) ?? parts[parts.length - 1]!;
+		const groups = parts.slice(0, -1), name = tocHeading(text) ?? parts[parts.length - 1];
 		sections.set(sectionKey(groups, name), entry(groups, name, folder));
 	}
 	return { language, sections, occupied };

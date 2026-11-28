@@ -87,7 +87,7 @@ function touch(a: InkStroke, b: InkStroke): boolean {
 	const reach = (a.width + b.width) / 2;
 	const boxA = strokeBox(a), boxB = strokeBox(b);
 	if (boxA.right < boxB.left || boxB.right < boxA.left || boxA.bottom < boxB.top || boxB.bottom < boxA.top) return false;
-	const segments = (s: InkStroke) => (s.points.length > 1 ? s.points.slice(1).map((p, i) => [s.points[i]!, p] as const) : s.points.map(p => [p, p] as const));
+	const segments = (s: InkStroke) => (s.points.length > 1 ? s.points.slice(1).map((p, i) => [s.points[i], p] as const) : s.points.map(p => [p, p] as const));
 	for (const [a1, a2] of segments(a)) {
 		for (const [b1, b2] of segments(b)) if (betweenSegments(a1, a2, b1, b2) <= reach) return true;
 	}

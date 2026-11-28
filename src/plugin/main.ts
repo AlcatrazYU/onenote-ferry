@@ -3,8 +3,7 @@
 // status bar and a report at the end. The same window updates notebooks imported before from a new
 // download (§11.5 item 49); an update cut off (Obsidian quit) is finished when Obsidian starts.
 
-import { Notice, Plugin, requestUrl } from 'obsidian';
-import * as obsidian from 'obsidian';
+import { getLanguage, Notice, Plugin, requestUrl } from 'obsidian';
 import { markerLanguageFor } from '../core/strings.ts';
 import { findRemoteNotebooks } from '../core/onedrive.ts';
 import { downloadStamp } from '../node/download.ts';
@@ -27,16 +26,9 @@ import type { WizardHost } from './wizard.ts';
 import { VaultSink } from './vault-sink.ts';
 import { WorkerClient } from './worker-client.ts';
 
-/** Obsidian's interface language: getLanguage() from 1.8.7, the same setting read directly before. */
+/** Obsidian's interface language (getLanguage() is there from 1.8.7; the plugin needs 1.11.5). */
 function interfaceLanguage(): string {
-	const get = (obsidian as { getLanguage?: () => string }).getLanguage;
-	if (typeof get === 'function') return get();
-	try {
-		return window.localStorage.getItem('language') ?? 'en';
-	}
-	catch {
-		return 'en';
-	}
+	return getLanguage();
 }
 
 export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, WizardHost {
@@ -119,7 +111,7 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 				for (const result of finished) {
 					const notice = new Notice(this.ui.resumedNotice, 0);
 					const record = new VaultSink(this.app, root).vaultPath(result.record);
-					const el = (notice as { containerEl?: HTMLElement }).containerEl ?? notice.noticeEl;
+					const el = notice.containerEl;
 					el.addEventListener('click', () => {
 						const file = this.app.vault.getFileByPath(record);
 						if (file) void this.app.workspace.getLeaf(true).openFile(file);
@@ -149,7 +141,7 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 	/** The saved settings, each kept only when it is of the right kind (the file may have been edited by hand). */
 	async loadSettings(): Promise<void> {
 		const saved = ((await this.loadData()) ?? {}) as Record<string, unknown>;
-		const flag = (key: 'boxMarkers' | 'imageAltText') => typeof saved[key] === 'boolean' ? saved[key] as boolean : DEFAULT_SETTINGS[key];
+		const flag = (key: 'boxMarkers' | 'imageAltText') => typeof saved[key] === 'boolean' ? saved[key] : DEFAULT_SETTINGS[key];
 		const folder = typeof saved.folder === 'string' ? cleanFolder(saved.folder) : DEFAULT_SETTINGS.folder;
 		this.settings = {
 			folder: folderProblem(folder) ? DEFAULT_SETTINGS.folder : folder,
@@ -248,7 +240,7 @@ export default class OneNoteFerryPlugin extends Plugin implements SettingsHost, 
 				: update ? this.ui.updateFinished : this.ui.finished;
 			const notice = new Notice(this.ui.finishedNotice(outcome), 0);
 			this.resultNotice = notice;
-			const el = (notice as { containerEl?: HTMLElement }).containerEl ?? notice.noticeEl;
+			const el = notice.containerEl;
 			el.addEventListener('click', () => this.openWizard());
 		});
 	}

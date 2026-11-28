@@ -66,6 +66,8 @@ import type { Download, WasmParser } from '../node/download.ts';
 
 /** Paths as the disks of macOS and Windows compare them. */
 const fold = (path: string) => path.normalize('NFC').toLowerCase();
+/** A line of the command's own output, on its standard output (errors go to standard error). */
+const say = (line: string) => void process.stdout.write(`${line}\n`);
 
 /** The marks for the person running the command: the system's language. */
 const SYSTEM_LANGUAGE = markerLanguageFor(process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || Intl.DateTimeFormat().resolvedOptions().locale);
@@ -180,7 +182,7 @@ async function main() {
 		console.error(`Unknown language "${options.language}". Use one of: auto, ${LANGUAGES.join(', ')}`);
 		process.exit(2);
 	}
-	const fixed = options.language === 'auto' ? undefined : options.language as Language;
+	const fixed = options.language === 'auto' ? undefined : options.language;
 	// The report and anything not tied to one notebook: the reader's language.
 	const strings = STRINGS[fixed ?? SYSTEM_LANGUAGE];
 	const sink = fileSink(options.output);
@@ -214,11 +216,11 @@ async function main() {
 				return readdirSync(options.output).filter(name => statSync(join(options.output, name), { throwIfNoEntry: false })?.isDirectory());
 			},
 			onProgress({ notebook, section }) {
-				if (section === notebooks.find(n => n.name === notebook)?.sections[0]) console.log(`Notebook "${notebook}"`);
+				if (section === notebooks.find(n => n.name === notebook)?.sections[0]) say(`Notebook "${notebook}"`);
 			},
 			onSectionDone(_notebook, section, result) {
 				const state = result.locked ? result.error : result.error ? `failed: ${result.error}` : `${result.report!.pageCount} pages, ${result.report!.attachments} attachments`;
-				console.log(`  ${[...section.groups, `${section.label}.one`].join(' / ')}: ${state}`);
+				say(`  ${[...section.groups, `${section.label}.one`].join(' / ')}: ${state}`);
 			},
 		};
 		const languages = new Map<string, Language>();
@@ -226,15 +228,15 @@ async function main() {
 			for (const notebook of notebooks) {
 				const scan = await scanNotebook(notebook, host);
 				languages.set(notebook.name, scan.language ?? SYSTEM_LANGUAGE);
-				console.log(`Notebook "${notebook.name}": ${scan.language ?? 'too little text to tell'}`);
+				say(`Notebook "${notebook.name}": ${scan.language ?? 'too little text to tell'}`);
 			}
 		}
 		const sectionOptions = { boxMarkers: options.boxMarkers, imageAltText: options.imageAltText };
 		const result = await importNotebooks(notebooks, host, { languageFor: notebook => fixed ?? languages.get(notebook.name)!, ...sectionOptions, links: options.links });
-		if (result.links) console.log(`Links: ${result.links.resolved} of ${result.links.links} rewritten, ${result.links.unresolved} left as they were`);
+		if (result.links) say(`Links: ${result.links.resolved} of ${result.links.links} rewritten, ${result.links.unresolved} left as they were`);
 		const seconds = Math.round((Date.now() - started) / 1000);
 		await writeReport(sink, strings, result, { at: new Date(started), sources: [basename(options.input)], seconds, options: sectionOptions }, await host.listFolders());
-		console.log(`Done in ${Math.round((Date.now() - started) / 1000)} s`);
+		say(`Done in ${Math.round((Date.now() - started) / 1000)} s`);
 	}
 	finally {
 		download.close();
@@ -259,7 +261,7 @@ async function plan(argv: string[], command: 'plan' | 'sync') {
 	}
 	// Each notebook is compared in the language it was converted in (its folder names say which),
 	// unless --language names one.
-	const given = options.languageGiven && options.language !== 'auto' ? options.language as Language : undefined;
+	const given = options.languageGiven && options.language !== 'auto' ? options.language : undefined;
 	// The record of an update, and notebooks not converted before: the reader's language.
 	const reader = STRINGS[given ?? SYSTEM_LANGUAGE];
 	const sink = fileSink(options.output);
@@ -291,7 +293,7 @@ async function plan(argv: string[], command: 'plan' | 'sync') {
 		writeFileSync(lock, String(process.pid));
 		process.on('exit', () => rmSync(lock, { force: true }));
 		const resumed = await resumeUpdates({ vault: sink, ...staging, listFolders });
-		for (const result of resumed.finished) console.log(`Finished an update that was cut off: ${result.record}`);
+		for (const result of resumed.finished) say(`Finished an update that was cut off: ${result.record}`);
 		for (const journal of resumed.ignored) console.warn(`Left alone: ${journal} was changed since the update wrote it, so it is not followed. The sections it was updating are checked again below.`);
 	}
 	const download = await openDownload(options.input, join(scratch, 'zip'), !!wasm, wasm?.tocNames && (data => wasm.tocNames!(data)));
@@ -361,11 +363,11 @@ async function plan(argv: string[], command: 'plan' | 'sync') {
 			const deletedHere = (item: PlanItem) => item.added.filter(page => page.userDeleted);
 			// Not into a folder of that name that is not ours, nor a notebook of that name that is another one.
 			const occupied = !archive && (await sink.listFiles(notebookFolder(name, strings))).length > 0;
-			if (occupied) console.log(`  [not ours] ${name}: a folder of this name holds files the plugin did not write; nothing is written into it`);
+			if (occupied) say(`  [not ours] ${name}: a folder of this name holds files the plugin did not write; nothing is written into it`);
 			const chosen = identity === 'different' || occupied ? [] : items.filter(item => (item.status === 'changed' || item.status === 'unfinished' || (options.addNew && (item.status === 'new' || item.status === 'skipped' || item.status === 'missing')) || (options.restoreDeleted && deletedHere(item).length > 0)) && !item.older);
 			const restore = options.restoreDeleted ? new Set(chosen.flatMap(item => deletedHere(item).map(page => page.id))) : undefined;
 			requests.push({ notebook, scanned, chosen: new Set(chosen.map(item => sectionKey(item.groups, item.label))), partial: options.partial, ...(restore ? { restore } : {}) });
-			if (identity === 'different') console.log(`  [different notebook] ${name}: a notebook of this name is in the folder, with no page in common`);
+			if (identity === 'different') say(`  [different notebook] ${name}: a notebook of this name is in the folder, with no page in common`);
 			for (const item of items) {
 				const deleted = item.added.filter(page => page.userDeleted).length;
 				if (item.status === 'same' && !deleted) continue;
@@ -375,38 +377,38 @@ async function plan(argv: string[], command: 'plan' | 'sync') {
 					.filter(([, list]) => (list as PagePlan[]).length > 0).map(([label, list]) => `${label} ${(list as PagePlan[]).length}`)
 					.concat(edited ? [`edited in the vault ${edited}`] : [], deleted ? [`deleted in the vault ${deleted} (${options.restoreDeleted ? 'to be brought back' : 'not brought back; --restore-deleted brings them back'})`] : [], item.older ? ['older than the vault'] : []).join(', ');
 				const moved = item.old && item.new && item.old.normalize('NFC').toLowerCase() !== item.new.normalize('NFC').toLowerCase();
-				console.log(`  [${item.status}] ${item.key}${moved ? ` (was ${item.old})` : ''}${detail ? `: ${detail}` : ''}${item.error ? `: ${item.error}` : ''}`);
+				say(`  [${item.status}] ${item.key}${moved ? ` (was ${item.old})` : ''}${detail ? `: ${detail}` : ''}${item.error ? `: ${item.error}` : ''}`);
 			}
 		}
 		const totals: Record<string, number> = {};
 		for (const p of plans) for (const item of p.items) totals[item.status] = (totals[item.status] ?? 0) + 1;
-		console.log(`Plan: ${Object.entries(totals).map(([status, n]) => `${n} ${status}`).join(', ') || 'nothing to compare'}`);
+		say(`Plan: ${Object.entries(totals).map(([status, n]) => `${n} ${status}`).join(', ') || 'nothing to compare'}`);
 		if (options.json) writeFileSync(options.json, JSON.stringify(plans, null, 2));
 		if (command === 'plan') return;
 		const count = requests.reduce((n, request) => n + request.chosen.size, 0);
 		if (!count) {
-			console.log('Nothing to update.');
+			say('Nothing to update.');
 			return;
 		}
 		if (!options.apply) {
-			console.log(`Would update ${count} section${count === 1 ? '' : 's'}. Nothing was written: run again with --apply to update.`);
+			say(`Would update ${count} section${count === 1 ? '' : 's'}. Nothing was written: run again with --apply to update.`);
 			return;
 		}
 		const defaults: SectionOptions = { boxMarkers: options.boxMarkers, imageAltText: options.imageAltText };
 		const host: UpdateHost = {
 			vault: sink, ...staging, ...sectionParser(options, download, wasm, scratch), listFolders,
 			onSectionDone(notebook, section, outcome) {
-				console.log(`  ${[notebook, ...section.groups, section.label].join(' / ')}: ${outcome}`);
+				say(`  ${[notebook, ...section.groups, section.label].join(' / ')}: ${outcome}`);
 			},
 		};
 		const started = Date.now();
 		const result = await updateNotebooks(requests, host, { at: new Date(started), strings: reader, languageFor: () => given ?? SYSTEM_LANGUAGE, defaults, links: options.links, sources: [basename(options.input)] });
 		if (!result) {
-			console.log('Nothing to update.');
+			say('Nothing to update.');
 			return;
 		}
-		if (result.links) console.log(`Links: ${result.links.resolved} rewritten in ${result.links.filesChanged} pages`);
-		console.log(`Done in ${Math.round((Date.now() - started) / 1000)} s. Record: ${result.record}.${existsSync(join(options.output, ...result.backup.split('/'))) ? ` Previous versions: ${result.backup}` : ''}`);
+		if (result.links) say(`Links: ${result.links.resolved} rewritten in ${result.links.filesChanged} pages`);
+		say(`Done in ${Math.round((Date.now() - started) / 1000)} s. Record: ${result.record}.${existsSync(join(options.output, ...result.backup.split('/'))) ? ` Previous versions: ${result.backup}` : ''}`);
 	}
 	finally {
 		download.close();

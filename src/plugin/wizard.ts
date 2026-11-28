@@ -277,7 +277,7 @@ export class ImportWizard extends Modal {
 				.setName(ui.language)
 				.setDesc(ui.languageDesc)
 				.addDropdown(dropdown => {
-					for (const code of LANGUAGES) dropdown.addOption(code, LANGUAGE_NAMES[code]!);
+					for (const code of LANGUAGES) dropdown.addOption(code, LANGUAGE_NAMES[code]);
 					dropdown.setValue(session.language).onChange(value => session.setLanguage(value as Language));
 				});
 		});
@@ -580,7 +580,7 @@ export class ImportWizard extends Modal {
 		const oneDriveReading = session.downloads.some(download => download.onedrive && download.state === 'reading');
 		if (!session.choices.length) listEl.createDiv({ cls: 'onenote-ferry-tree-placeholder', text: oneDriveReading ? this.ui.oneDriveTreeWaiting : this.ui.treeEmpty });
 		// One notebook in all: open from the start.
-		if (session.choices.length === 1) this.session.expanded.add(this.rowId(session.choices[0]!, ''));
+		if (session.choices.length === 1) this.session.expanded.add(this.rowId(session.choices[0], ''));
 		const many = session.downloads.filter(download => download.notebooks.length).length > 1;
 		for (const download of session.downloads) {
 			const choices = session.choices.filter(choice => choice.download === download);
@@ -588,7 +588,7 @@ export class ImportWizard extends Modal {
 			if (many) this.sourceHeading(listEl, download, rows);
 			for (const choice of choices) {
 				// Sections of ours the download does not have: shown where they are, never ticked.
-				const gone = new Map(session.gone(choice).map(item => [{ path: `\u0000gone\u0000${item.old}`, notebook: choice.notebook.name, groups: item.groups, label: item.label, size: 0 } as DownloadSection, item]));
+				const gone = new Map(session.gone(choice).map(item => [{ path: `\u0000gone\u0000${item.old}`, notebook: choice.notebook.name, groups: item.groups, label: item.label, size: 0 }, item]));
 				this.treeRow(listEl, choice, treeOf(choice.notebook, [...gone.keys()]), 'notebook', rows, section => gone.has(section));
 			}
 		}
@@ -633,7 +633,7 @@ export class ImportWizard extends Modal {
 	private treeRow(parent: HTMLElement, choice: NotebookChoice, node: TreeNode, kind: 'notebook' | 'group' | 'section', rows: (() => void)[], isGone: (section: DownloadSection) => boolean): void {
 		const session = this.session;
 		const stateOf = (section: DownloadSection): RowState => (isGone(section) ? 'gone' : session.sectionState(choice, section));
-		const section = kind === 'section' ? node.sections[0]! : undefined;
+		const section = kind === 'section' ? node.sections[0] : undefined;
 		const item = section && !isGone(section) ? session.itemOf(choice, section) : undefined;
 		const details = section && item ? this.details(choice, section, item) : [];
 		const folder = kind !== 'section' || details.length > 0;
@@ -834,7 +834,7 @@ export class ImportWizard extends Modal {
 			if (choice.earlier && states.some(state => STRONG.has(state))) return this.summary(choice, node, states);
 			return same !== undefined && GROUP_WORDS.has(same) ? this.word(choice, node, same) : { text: '' };
 		}
-		if (kind === 'section') return this.word(choice, node, states[0]!);
+		if (kind === 'section') return this.word(choice, node, states[0]);
 		// A new notebook whose sections all cannot be ticked for one reason: that reason; else its size.
 		if (same === 'locked' || same === 'incomplete') return this.word(choice, node, same);
 		const bytes = node.sections.reduce((n, section) => n + section.size, 0);
@@ -868,7 +868,7 @@ export class ImportWizard extends Modal {
 	private word(choice: NotebookChoice, node: TreeNode, state: RowState): Flair {
 		const ui = this.ui;
 		const session = this.session;
-		const section = node.sections[0]!;
+		const section = node.sections[0];
 		const folder = session.oldVersionsFolder;
 		switch (state) {
 			case 'free': {
@@ -994,7 +994,7 @@ export class ImportWizard extends Modal {
 			if (attention?.rolledBack) notes.push(ui.attnRolledBack(attention.rolledBack));
 			if (attention?.notConverted) notes.push(ui.attnNotConverted(attention.notConverted));
 			if (attention?.notUpdated) notes.push(ui.attnNotUpdated(attention.notUpdated));
-			if (attention?.keptAside) notes.push(ui.attnKeptAside(attention.keptAside, backup.split('/')[0]!));
+			if (attention?.keptAside) notes.push(ui.attnKeptAside(attention.keptAside, backup.split('/')[0]));
 			// Stopped before the update began (while new notebooks were imported), or during it.
 			const leftOut = done ? attention!.notReached : session.stopRequested ? session.updateTotal : 0;
 			if (leftOut) notes.push(ui.attnLeftOut(leftOut));

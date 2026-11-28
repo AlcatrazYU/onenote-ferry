@@ -149,6 +149,7 @@ export class FerrySettingTab extends PluginSettingTab {
 		const copies = allCopies(folder2);
 		const bytes = copies.reduce((n, copy) => n + copy.bytes, 0);
 		const kept = new Setting(containerEl).setName(ui.settingsCopy).setDesc(copies.length ? ui.copyDesc(formatBytes(bytes), shownPath(folder2)) : ui.copyNone);
+		// setWarning(), not setDestructive(): that needs Obsidian 1.13, and the plugin supports 1.11.5.
 		if (copies.length) kept.addButton(button => button.setButtonText(ui.deleteCopy).setWarning().onClick(() => {
 			new ConfirmModal(this.app, ui.deleteCopyTitle, ui.deleteCopyConfirm(formatBytes(bytes)), ui.deleteCopy, ui.cancel, async () => {
 				await removeCopies(copies.map(copy => copy.dir));
@@ -172,6 +173,7 @@ class ConfirmModal extends Modal {
 		this.contentEl.createEl('p', { text });
 		const footer = this.contentEl.createDiv('modal-button-container');
 		new ButtonComponent(footer).setButtonText(cancel).onClick(() => this.close());
+		// setWarning(), not setDestructive(): that needs Obsidian 1.13, and the plugin supports 1.11.5.
 		new ButtonComponent(footer).setButtonText(confirm).setWarning().onClick(async () => {
 			this.close();
 			await onConfirm();

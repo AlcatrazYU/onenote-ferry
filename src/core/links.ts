@@ -95,12 +95,12 @@ function findSection(segments: string[], sections: SectionRef[], fromPath: strin
 		if (n > segments.length) continue;
 		const tail = segments.slice(segments.length - n);
 		if (!tail.every((segment, i) => segment === section.source[i])) continue;
-		if (!best.length || n > best[0]!.source.length) best = [section];
-		else if (n === best[0]!.source.length) best.push(section);
+		if (!best.length || n > best[0].source.length) best = [section];
+		else if (n === best[0].source.length) best.push(section);
 	}
 	const only = (candidates: SectionRef[]) => {
 		const tocs = new Set(candidates.map(section => nfc(section.toc)));
-		return tocs.size === 1 ? candidates[0]!.toc : undefined;
+		return tocs.size === 1 ? candidates[0].toc : undefined;
 	};
 	return only(best) ?? only(best.filter(section => notebookOf(section.toc) === notebookOf(fromPath))) ?? only(best.filter(section => !section.alias));
 }

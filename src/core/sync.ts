@@ -239,7 +239,7 @@ export function planNotebook(notebook: string, scanned: ScannedSection[], archiv
 	/** What the report recorded of a folder of ours: the section's OneNote name and groups then (§11.5 item 52.2). */
 	const previousOf = (old: ArchivedSection) => options.previous?.get(fold(old.folder)) ?? (old.recorded ? { groups: old.recorded.groups, name: old.recorded.section } : undefined);
 	const nameOf = (old: ArchivedSection) => previousOf(old)?.name ?? old.heading ?? old.folder.split('/').pop()!;
-	const named = (pair: { s: number, a: number }) => (fold(composedText(nameOf(sections[pair.a]!))) === fold(composedText(scanned[pair.s]!.label)) ? 1 : 0);
+	const named = (pair: { s: number, a: number }) => (fold(composedText(nameOf(sections[pair.a]))) === fold(composedText(scanned[pair.s].label)) ? 1 : 0);
 	pairs.sort((x, y) => y.n - x.n || named(y) - named(x) || x.s - y.s || x.a - y.a);
 	const matchOf = new Map<number, number>();
 	const taken = new Set<number>();
@@ -276,9 +276,9 @@ export function planNotebook(notebook: string, scanned: ScannedSection[], archiv
 	for (const [a, section] of sections.entries()) if (!taken.has(a)) used.add(fold(section.folder));
 	const target = new Map<number, string>();
 	for (const [s, a] of matchOf) {
-		if (fold(wanted(scanned[s]!, sections[a]!)) !== fold(sections[a]!.folder)) continue;
-		target.set(s, sections[a]!.folder);
-		used.add(fold(sections[a]!.folder));
+		if (fold(wanted(scanned[s], sections[a])) !== fold(sections[a].folder)) continue;
+		target.set(s, sections[a].folder);
+		used.add(fold(sections[a].folder));
 	}
 	/** Taken: one of ours that stays (or a folder given already), the user's, inside one of those, or holding one. */
 	const clashes = (folder: string) => {
@@ -289,7 +289,7 @@ export function planNotebook(notebook: string, scanned: ScannedSection[], archiv
 		// A group folder that is a section folder of ours (a group named like a section): the group's folder gets a number.
 		const parts = folder.split('/');
 		for (let i = 0; i < parts.length - 1; i++) {
-			const name = parts[i]!;
+			const name = parts[i];
 			for (let n = 2; n < 1000 && used.has(fold(parts.slice(0, i + 1).join('/'))); n++) parts[i] = safeName(numberedName(name, n), names.untitledPage);
 		}
 		const at = joinPath(...parts);
@@ -300,7 +300,7 @@ export function planNotebook(notebook: string, scanned: ScannedSection[], archiv
 	for (const [s, a] of [...matchOf].sort((x, y) => x[0] - y[0])) {
 		if (target.has(s)) continue;
 		// A folder another section moves out of may be taken: the update moves that one first.
-		const folder = free(wanted(scanned[s]!, sections[a]!), scanned[s]!.label);
+		const folder = free(wanted(scanned[s], sections[a]), scanned[s].label);
 		target.set(s, folder);
 		used.add(fold(folder));
 	}
@@ -311,7 +311,7 @@ export function planNotebook(notebook: string, scanned: ScannedSection[], archiv
 	for (const [s, section] of scanned.entries()) {
 		const base = { key: section.key, groups: section.groups, label: section.label, added: [], removed: [], modified: [], reordered: [] };
 		const a = matchOf.get(s);
-		const old = a === undefined ? undefined : sections[a]!;
+		const old = a === undefined ? undefined : sections[a];
 		if (section.error !== undefined || !section.pages) {
 			items.push({ ...base, status: 'error', ...(old ? { old: old.folder, new: old.folder } : {}), error: section.error ?? 'unreadable' });
 			continue;
@@ -400,7 +400,7 @@ export function frontMatter(text: string): Record<string, string> {
 		// Not `.`, which stops at the line separators a title may hold (U+2028, U+2029).
 		const match = line.match(/^([\w-]+):\s*([^\n]*)$/);
 		if (!match) continue;
-		let value = match[2]!.trim();
+		let value = match[2].trim();
 		if (value.startsWith('"')) {
 			try {
 				value = JSON.parse(value);
@@ -410,7 +410,7 @@ export function frontMatter(text: string): Record<string, string> {
 			}
 		}
 		else if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1).replace(/''/g, "'");
-		out[match[1]!] = value;
+		out[match[1]] = value;
 	}
 	return out;
 }
@@ -456,9 +456,9 @@ export async function readArchive(sink: Sink, notebookFolder: string, recorded?:
 		// language; a heading the user adds does not count), those no longer in OneNote.
 		const split = Math.max(...NO_LONGER_IN_ONENOTE.map(heading => (text ?? '').indexOf(`\n## ${heading}\n`)));
 		const links = /\[((?:\\.|[^\]\\])*)\]\(<([^>]+\.md)>\)/g;
-		const listed = [...(split < 0 ? text ?? '' : text!.slice(0, split)).matchAll(links)].filter(match => !match[2]!.includes('/'));
-		const gone = new Set(split < 0 ? [] : [...text!.slice(split).matchAll(links)].filter(match => !match[2]!.includes('/')).map(match => fold(match[2]!)));
-		const linkedFiles = new Set([...listed.map(match => fold(match[2]!)), ...gone]);
+		const listed = [...(split < 0 ? text ?? '' : text!.slice(0, split)).matchAll(links)].filter(match => !match[2].includes('/'));
+		const gone = new Set(split < 0 ? [] : [...text!.slice(split).matchAll(links)].filter(match => !match[2].includes('/')).map(match => fold(match[2])));
+		const linkedFiles = new Set([...listed.map(match => fold(match[2])), ...gone]);
 		const pages = new Map<string, ArchivedPage>();
 		for (const file of inFolder) {
 			if (!file.endsWith('.md') || file === path) continue;
@@ -478,7 +478,7 @@ export async function readArchive(sink: Sink, notebookFolder: string, recorded?:
 		}
 		// Pages of the first list whose files are gone: the user deleted them; by id where the report has ids.
 		const present = new Set(inFolder.map(file => fold(file.slice(folder.length + 1))));
-		const missing = new Set(listed.filter(match => !present.has(fold(match[2]!))).map(match => fold(composedText(unescape(match[1]!)))));
+		const missing = new Set(listed.filter(match => !present.has(fold(match[2]))).map(match => fold(composedText(unescape(match[1])))));
 		const heading = tocHeading(text);
 		sections.push({ folder, status, ...(heading !== undefined ? { heading } : {}), pages, missing, gone });
 		presentOf.set(folder, present);

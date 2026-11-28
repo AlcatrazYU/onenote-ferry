@@ -54,7 +54,7 @@ export class ReceiverClosed extends Error {
 const MAX_BODY = 256 * 1024;
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-const escapeHtml = (text: string) => text.replace(/[&<>"']/g, char => ESCAPES[char]!);
+const escapeHtml = (text: string) => text.replace(/[&<>"']/g, char => ESCAPES[char]);
 
 /** Microsoft's codes for a sign-in an organization's administrator must approve first. */
 const ADMIN_APPROVAL = /\bAADSTS9009[45]\b/;
@@ -145,7 +145,7 @@ export async function startReceiver(pages: ReceiverPages, timeoutMs = 10 * 60 * 
 
 		let params: URLSearchParams;
 		if (req.method === 'POST') {
-			const type = (req.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase();
+			const type = (req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
 			if (type !== 'application/x-www-form-urlencoded') return send(res, 415, 'Unsupported media type', false);
 			const body = await readBody(req);
 			if (body === undefined) return send(res, 413, 'Too large', false);

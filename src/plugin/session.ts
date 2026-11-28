@@ -90,7 +90,7 @@ export function filesToFetch(notebookPath: string, files: RemoteFile[], sectionP
 async function eachLimited<T>(items: T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
 	let next = 0;
 	await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
-		while (next < items.length) await work(items[next++]!);
+		while (next < items.length) await work(items[next++]);
 	}));
 }
 
@@ -180,24 +180,24 @@ export type Entry = 'import' | 'update';
 /** What the plugin keeps track of around an update (see main.ts). */
 export interface SessionHooks {
 	/** Resolves once updates cut off before (finished when Obsidian started) are done with. */
-	beforeRun?(): Promise<void>;
+	beforeRun?: () => Promise<void>;
 	/**
 	 * What a download (with `section`, the file that section is read from) is like on disk now, to
 	 * tell one changed since it was read (see downloadStamp); undefined when it is gone. Without it,
 	 * downloads are not looked at again.
 	 */
-	stamp?(input: string, section?: string): string | undefined;
+	stamp?: (input: string, section?: string) => string | undefined;
 	/**
 	 * What a check in an earlier session read from a download, by section path, each with its file's
 	 * stamp then (§11.5 item 90); used only while the file is still like that.
 	 */
-	keptScans?(input: string): Promise<Map<string, KeptScan>>;
+	keptScans?: (input: string) => Promise<Map<string, KeptScan>>;
 	/** Keeps what was read from a download for the checks of later sessions. */
-	keepScans?(input: string, scans: ReadonlyMap<string, KeptScan>): Promise<void>;
+	keepScans?: (input: string, scans: ReadonlyMap<string, KeptScan>) => Promise<void>;
 	/** An update of the folder is about to write: it is to be finished at the next start if cut off. */
-	updateStarting?(root: string): Promise<void>;
+	updateStarting?: (root: string) => Promise<void>;
 	/** The update of the folder ended (its journal is closed). */
-	updateEnded?(root: string): Promise<void>;
+	updateEnded?: (root: string) => Promise<void>;
 }
 
 /** A section's pages as read for an update, or why they could not be. */
@@ -346,7 +346,7 @@ export class ImportSession {
 	async add(inputs: string[]): Promise<void> {
 		if (!this.open) return;
 		const added = inputs.filter(input => !this.downloads.some(download => download.input === input))
-			.map(input => ({ input, name: downloadName(input), state: 'reading', notebooks: [] } as ChosenDownload));
+			.map((input): ChosenDownload => ({ input, name: downloadName(input), state: 'reading', notebooks: [] }));
 		this.downloads.push(...added);
 		this.changed();
 		for (const download of added) {
@@ -615,7 +615,7 @@ export class ImportSession {
 		for (const [path, entry] of source.notebooks) {
 			const found = findNotebooks(entry.files.map(file => ({ path: `${path}/${file.path}`, size: file.size })), 'OneDrive');
 			// A notebook without any section or table of contents shows nothing.
-			const built = found.length === 1 && found[0]!.path === path ? found[0]! : undefined;
+			const built = found.length === 1 && found[0].path === path ? found[0] : undefined;
 			if (!built) entry.listed = undefined;
 			else if (entry.listed) {
 				entry.listed.sections = built.sections.map(section => ({ ...section, notebook: entry.listed!.name }));
@@ -1182,7 +1182,7 @@ export class ImportSession {
 		const same = this.updatable.filter(other => key(other.dir!) === key(choice.dir!) && other.plan?.identity !== 'different');
 		if (same.length < 2) return choice;
 		if (same.some(other => !other.plan)) return undefined;
-		let best = same[0]!;
+		let best = same[0];
 		for (const other of same.slice(1)) if (this.newer(other, best)) best = other;
 		return best;
 	}

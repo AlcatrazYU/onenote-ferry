@@ -56,7 +56,7 @@ class Package {
 		for (const entry of entries) {
 			const name = entry.name.replace(/^\/+/, '');
 			const piece = name.match(/^(.*)\/\[(\d+)\](?:\.last)?\.piece$/i);
-			const part = (piece ? piece[1]! : name).toLowerCase();
+			const part = (piece ? piece[1] : name).toLowerCase();
 			if (!pieces.has(part)) pieces.set(part, []);
 			pieces.get(part)!.push({ index: piece ? Number(piece[2]) : 0, entry });
 		}
@@ -108,18 +108,18 @@ function resolve(from: string, reference: string): string {
 const ENTITIES: Record<string, string> = { lt: '<', gt: '>', quot: '"', apos: '\'', amp: '&' };
 /** XML text: named entities and character references (`&#12354;`, `&#x3042;`). */
 const unescape = (value: string) => value.replace(/&(lt|gt|quot|apos|amp|#\d+|#x[0-9a-fA-F]+);/g, (whole, name: string) => {
-	if (!name.startsWith('#')) return ENTITIES[name]!;
+	if (!name.startsWith('#')) return ENTITIES[name];
 	const code = name[1] === 'x' ? parseInt(name.slice(2), 16) : Number(name.slice(1));
 	return code <= 0x10ffff ? String.fromCodePoint(code) : whole;
 });
 
 function attributes(text: string): Map<string, string> {
 	const found = new Map<string, string>();
-	for (const match of text.matchAll(/([\w.:]+)\s*=\s*"([^"]*)"/g)) found.set(match[1]!, unescape(match[2]!));
+	for (const match of text.matchAll(/([\w.:]+)\s*=\s*"([^"]*)"/g)) found.set(match[1], unescape(match[2]));
 	return found;
 }
 
-const sources = (xml: string, element: string) => [...xml.matchAll(new RegExp(`<${element}\\b[^>]*\\bSource="([^"]*)"`, 'g'))].map(match => unescape(match[1]!));
+const sources = (xml: string, element: string) => [...xml.matchAll(new RegExp(`<${element}\\b[^>]*\\bSource="([^"]*)"`, 'g'))].map(match => unescape(match[1]));
 
 /** Opens a printout's XPS document; undefined when it is not one that can be read. */
 export async function openXps(bytes: Uint8Array): Promise<XpsDocument | undefined> {
@@ -252,17 +252,17 @@ function checkCluster(font: Font, codes: number[], glyphs: number[], hasText: bo
 	}
 	if (codes.length === glyphs.length) {
 		glyphs.forEach((glyph, k) => {
-			if (drawn(glyph) && !font.isFormOf(glyph, font.glyphOf(codes[k]!))) throw new Error('glyph is not its character');
+			if (drawn(glyph) && !font.isFormOf(glyph, font.glyphOf(codes[k]))) throw new Error('glyph is not its character');
 		});
 		return;
 	}
 	const bases = codes.map(code => font.glyphOf(code));
 	if (glyphs.length === 1) {
-		if (!font.isLigatureOf(glyphs[0]!, bases)) throw new Error('glyph cannot be checked: not the ligature of its characters');
+		if (!font.isLigatureOf(glyphs[0], bases)) throw new Error('glyph cannot be checked: not the ligature of its characters');
 		return;
 	}
 	if (codes.length === 1) {
-		if (!font.isSplitOf(glyphs, bases[0]!)) throw new Error('glyphs cannot be checked: not what their character splits into');
+		if (!font.isSplitOf(glyphs, bases[0])) throw new Error('glyphs cannot be checked: not what their character splits into');
 		return;
 	}
 	throw new Error('glyph cluster cannot be checked');
@@ -290,7 +290,7 @@ export function glyphRun(font: Font, text: string | undefined, indices: string |
 		x += (advance ?? defaultAdvance(glyph)) * em / 100;
 	};
 	for (let i = 0; i < entries.length;) {
-		const first = entries[i]!;
+		const first = entries[i];
 		const clusterUnits = first.units ?? 1, clusterGlyphs = first.glyphs ?? 1;
 		if (!(clusterGlyphs >= 1) || i + clusterGlyphs > entries.length) throw new Error('glyph cluster');
 		const cluster = entries.slice(i, i + clusterGlyphs);
@@ -301,13 +301,13 @@ export function glyphRun(font: Font, text: string | undefined, indices: string |
 		const glyphs = cluster.map(entry => {
 			if (entry.glyph !== undefined) return entry.glyph;
 			if (codes.length !== 1 || cluster.length !== 1) throw new Error('glyph without a character');
-			const glyph = font.glyphOf(codes[0]!);
+			const glyph = font.glyphOf(codes[0]);
 			if (glyph === 0) throw new Error('character without a glyph');
 			return glyph;
 		});
 		for (const glyph of glyphs) if (!(glyph >= 0 && glyph < font.glyphCount)) throw new Error('glyph number outside the font');
 		checkCluster(font, codes, glyphs, hasText);
-		cluster.forEach((entry, k) => place(glyphs[k]!, entry.advance, entry.u, entry.v));
+		cluster.forEach((entry, k) => place(glyphs[k], entry.advance, entry.u, entry.v));
 		i += clusterGlyphs;
 	}
 	// Characters past the indices: one glyph each, from the character map.
@@ -327,7 +327,7 @@ function deobfuscate(name: string, bytes: Uint8Array): Uint8Array | undefined {
 	if (!/^[0-9a-f]{32}$/i.test(guid) || bytes.length < 32) return undefined;
 	const key = Array.from({ length: 16 }, (_, i) => parseInt(guid.slice(30 - 2 * i, 32 - 2 * i), 16));
 	const out = bytes.slice();
-	for (let i = 0; i < 32; i++) out[i] = out[i]! ^ key[i % 16]!;
+	for (let i = 0; i < 32; i++) out[i] = out[i] ^ key[i % 16];
 	return out;
 }
 
@@ -420,7 +420,7 @@ async function pageSvg(pkg: Package, path: string, fonts: Map<string, Promise<Fo
 	if (xml === undefined) return undefined;
 	// What is not drawn here: other brushes, transforms and data given as elements, visuals.
 	const unsupported = xml.match(/<(RadialGradientBrush|VisualBrush|[\w]+\.RenderTransform|[\w]+\.OpacityMask|[\w]+\.Clip|Path\.Data|ImageBrush\.Transform|LinearGradientBrush\.Transform)\b/);
-	if (unsupported) throw new Error(unsupported[1]!);
+	if (unsupported) throw new Error(unsupported[1]);
 	if (/\sOpacityMask\s*=/.test(xml)) throw new Error('opacity mask');
 	// Fonts the page's text uses, read once per document; glyph outlines go into the page's defs once.
 	const defs = new Map<string, string>();
@@ -457,7 +457,7 @@ async function pageSvg(pkg: Package, path: string, fonts: Map<string, Promise<Fo
 	for (const source of sources(xml, 'ResourceDictionary')) dictionaries.push(await pkg.text(resolve(path, source)) ?? '');
 	for (const dictionary of dictionaries) {
 		for (const match of dictionary.matchAll(/<PathGeometry\b([^>]*?)\/?>/g)) {
-			const attrs = attributes(match[1]!);
+			const attrs = attributes(match[1]);
 			const key = attrs.get('x:Key'), figures = attrs.get('Figures');
 			if (key && figures) shapes.set(key, { figures, rule: attrs.get('FillRule') === 'NonZero' ? 'F1 ' : 'F0 ', transformed: attrs.has('Transform') });
 		}
@@ -465,7 +465,7 @@ async function pageSvg(pkg: Package, path: string, fonts: Map<string, Promise<Fo
 	/** A shape given as path data or as a resource (`{StaticResource key}`), as SVG path data and fill rule. */
 	const shapeOf = (data: string) => {
 		const resource = data.match(/^\{StaticResource\s+([^}\s]+)\s*\}$/);
-		const shape = resource ? shapes.get(resource[1]!) : undefined;
+		const shape = resource ? shapes.get(resource[1]) : undefined;
 		if (resource && !shape) throw new Error('missing resource');
 		if (shape?.transformed) throw new Error('shape transform');
 		const geo = geometry(shape ? shape.rule + shape.figures : data);
@@ -531,7 +531,7 @@ async function pageSvg(pkg: Package, path: string, fonts: Map<string, Promise<Fo
 			const picture = await image(imageBrush.get('ImageSource') ?? '');
 			if (tile !== 'None' || !port || !box || !picture || imageBrush.get('ViewportUnits') !== 'Absolute' || (imageBrush.get('ViewboxUnits') ?? 'Absolute') !== 'Absolute') throw new Error('image brush');
 			if (imageBrush.has('Transform')) throw new Error('image brush transform');
-			if (!(box[2]! > 0 && box[3]! > 0 && port[2]! > 0 && port[3]! > 0)) throw new Error('viewbox');
+			if (!(box[2] > 0 && box[3] > 0 && port[2] > 0 && port[3] > 0)) throw new Error('viewbox');
 			const brushOpacity = imageBrush.has('Opacity') ? Number(imageBrush.get('Opacity')) : 1;
 			if (!(brushOpacity >= 0 && brushOpacity <= 1)) throw new Error('brush opacity');
 			// The brush's Viewbox (in 1/96 inch of the picture at its own resolution) stretched over its
@@ -727,10 +727,10 @@ export function textRun(attrs: Map<string, string>, font: Font | undefined, m: M
 	};
 	let text = '', given = '', at = 0;
 	for (let i = 0; i < entries.length;) {
-		const count = Math.max(1, entries[i]!.glyphs ?? 1);
+		const count = Math.max(1, entries[i].glyphs ?? 1);
 		const cluster = entries.slice(i, i + count);
-		const piece = units.slice(at, at + (entries[i]!.units ?? 1));
-		at += entries[i]!.units ?? 1;
+		const piece = units.slice(at, at + (entries[i].units ?? 1));
+		at += entries[i].units ?? 1;
 		if (piece) {
 			text += piece;
 			given += piece;
@@ -751,7 +751,7 @@ export function textRun(attrs: Map<string, string>, font: Font | undefined, m: M
 	const transform = compose(m, transformOf(attrs.get('RenderTransform')));
 	const scale = Math.sqrt(Math.abs(transform[0] * transform[3] - transform[1] * transform[2]));
 	const at0 = (point: Point) => apply(transform, ox + point.x, oy + point.y);
-	const first = at0(origins[0]!), last = at0(origins[origins.length - 1]!);
+	const first = at0(origins[0]), last = at0(origins[origins.length - 1]);
 	const pageEm = em * scale;
 	// Where the next glyph would go: along the run's advance, or one more step as its glyphs go (down
 	// a column, where they are placed by offsets and advance nothing).
@@ -759,7 +759,7 @@ export function textRun(attrs: Map<string, string>, font: Font | undefined, m: M
 	if (ends) next.push(apply(transform, ox + x, oy + v));
 	let vertical = false;
 	if (origins.length > 1) {
-		const before = at0(origins[origins.length - 2]!);
+		const before = at0(origins[origins.length - 2]);
 		next.push({ x: 2 * last.x - before.x, y: 2 * last.y - before.y });
 		vertical = Math.abs(last.y - before.y) > Math.abs(last.x - before.x);
 	}
@@ -781,7 +781,7 @@ async function pageText(pkg: Package, path: string, fonts: Map<string, Promise<F
 	const runs: TextRun[] = [];
 	for (const match of xml.matchAll(/<(\/?)(Canvas|Glyphs)((?:\s+[\w.:]+\s*=\s*"[^"]*")*)\s*(\/?)>/g)) {
 		const [, closing, name, rest, selfClosing] = match;
-		const top = stack[stack.length - 1]!;
+		const top = stack[stack.length - 1];
 		if (name === 'Canvas') {
 			if (closing) {
 				if (stack.length > 1) stack.pop();

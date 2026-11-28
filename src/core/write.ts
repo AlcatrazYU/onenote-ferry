@@ -325,7 +325,7 @@ export function sectionFolders(sections: readonly { groups: string[], label: str
 		return free;
 	};
 	for (const section of sections) {
-		for (let i = 0; i < section.groups.length; i++) take(groupPath(section.groups.slice(0, i)), safeName(section.groups[i]!, strings.untitledPage));
+		for (let i = 0; i < section.groups.length; i++) take(groupPath(section.groups.slice(0, i)), safeName(section.groups[i], strings.untitledPage));
 	}
 	const folders = new Map<string, string>();
 	for (const section of sections) {
@@ -363,7 +363,7 @@ export function notebookToc(notebookName: string, entries: NotebookTocEntry[], s
 		const groups = entry.groups.map(composedText);
 		let shared = 0;
 		while (shared < groups.length && shared < open.length && groups[shared] === open[shared]) shared++;
-		for (let level = shared; level < groups.length; level++) lines.push(`${'\t'.repeat(level)}- ${escapeLineStart(escapeInline(groups[level]!))}`);
+		for (let level = shared; level < groups.length; level++) lines.push(`${'\t'.repeat(level)}- ${escapeLineStart(escapeInline(groups[level]))}`);
 		open = groups;
 		if (entry.cancelled || entry.skipped) {
 			lines.push(`${'\t'.repeat(groups.length)}- ${escapeLineStart(escapeInline(composedText(entry.section)))}${entry.skipped ? strings.notImportedSuffix : strings.cancelledSuffix}`);
