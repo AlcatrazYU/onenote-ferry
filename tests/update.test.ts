@@ -704,6 +704,138 @@ test('links go to the page its contents page lists, not to a copy the user made 
  * `torn`: the write it stops in is left half done (a file with only the first half of what was
  * being written, as a power cut leaves a plain write), instead of not done at all.
  */
+// Sections an import could not convert (password protected, failed, not downloaded completely) get
+// a folder holding only a page that says why, and are marked so on the notebook's contents page and
+// in the report, where they are recorded without a folder. An update writing another section of the
+// notebook lists them as they were (§11.5 item 103): it found records by folder only, so it listed
+// them as sections imported fine, on the contents page and in the report.
+const UNCONVERTED: Version = {
+	Spring: { pages: [page('a', 'One', 'one, first version')] },
+	Locked: { pages: [page('b', 'Two', 'two')] },
+	Broken: { pages: [page('c', 'Three', 'three')] },
+	Partial: { pages: [page('d', 'Four', 'four')] },
+	Unticked: { pages: [page('e', 'Five', 'five')] },
+};
+const failsToParse = (section: DownloadSection) => section.label === 'Locked' || section.label === 'Broken';
+
+async function importedUnconverted(): Promise<MemorySink> {
+	const vault = memorySink();
+	const notebooks = download(UNCONVERTED);
+	notebooks[0]!.sections.find(section => section.label === 'Partial')!.incomplete = true;
+	const parse = parser(UNCONVERTED);
+	const host: ImportHost = {
+		sink: vault,
+		parse: async section => {
+			if (failsToParse(section)) throw new Error('PARSE_ERROR: invented failure');
+			return parse(section);
+		},
+		isPasswordProtected: async section => section.label === 'Locked',
+		listFolders: folders(vault),
+	};
+	const result = await importNotebooks(notebooks, host, { languageFor: () => 'zh-Hans', ...OPTIONS, links: true, chosen: section => section.label !== 'Unticked' });
+	await writeReport(vault, zhHans, result, { at: new Date(2026, 10, 1), sources: ['old.zip'], options: OPTIONS }, await folders(vault)());
+	return vault;
+}
+
+/** An update of Spring only, the others read as the plugin gives them (`readable`: read fine now). */
+async function updateSpring(vault: MemorySink, version: Version, readable: string[] = []) {
+	const [notebook] = download(version);
+	const scanned = await Promise.all(notebook!.sections.map(async section => {
+		const base = { key: `Tides/${placeOf(section)}`, groups: section.groups, label: section.label };
+		if (!readable.includes(section.label)) {
+			if (section.label === 'Locked') return { ...base, error: zhHans.passwordProtected };
+			if (section.label === 'Broken') return { ...base, error: 'PARSE_ERROR: invented failure' };
+			if (section.label === 'Partial') return { ...base, error: zhHans.incompleteSection };
+		}
+		return { ...base, pages: await scannedPages(sectionJson(section.label, version[placeOf(section)]!.pages) as never) };
+	}));
+	const h = host(vault, version);
+	const parse = h.parse;
+	h.parse = async section => {
+		assert.equal(section.label, 'Spring', 'only Spring is converted');
+		return parse(section);
+	};
+	return updateNotebooks([{ notebook: notebook!, scanned, chosen: new Set(['Spring']) }], h, { at: AT, strings: zhHans, languageFor: () => 'zh-Hans', defaults: OPTIONS, links: true, sources: ['new.zip'] });
+}
+
+const sectionLines = (vault: MemorySink) => textOf(vault, 'Tides/_目录.md')!.split('\n').filter(line => line.startsWith('- '));
+const recorded = async (vault: MemorySink) => (await reportedNotebooks(vault, zhHans))[0]!.sections
+	.map(({ section, dir, failed, locked, incomplete, skipped, error }) => ({ section, folder: dir !== undefined, failed, locked, incomplete, skipped, error }));
+
+test('sections an import could not convert stay marked so on the notebook\'s contents page and in the report when an update writes another section (§11.5 item 103)', async () => {
+	const vault = await importedUnconverted();
+	const lines = sectionLines(vault);
+	assert.deepEqual(lines, [
+		'- [Broken](<Broken/_目录.md>)（转换失败）',
+		'- [Locked](<Locked/_目录.md>)（有密码保护，未转换）',
+		'- [Partial](<Partial/_目录.md>)（转换失败）',
+		'- [Spring](<Spring/_目录.md>)',
+		'- Unticked（未导入）',
+	], 'as the import lists them');
+	const records = await recorded(vault);
+	// OneNote changed Spring; Broken reads fine now (not chosen, its folder still says it failed).
+	const V2: Version = { ...UNCONVERTED, Spring: { pages: [page('a', 'One', 'one, second version', 2)] } };
+	const first = await updateSpring(vault, V2, ['Broken']);
+	assert.deepEqual(first!.outcomes.map(o => o.outcome), ['done']);
+	assert.match(textOf(vault, 'Tides/Spring/One.md')!, /second version/);
+	assert.deepEqual(sectionLines(vault), lines);
+	assert.deepEqual(await recorded(vault), records);
+	// Again: what the first update recorded is what the next one reads.
+	const V3: Version = { ...UNCONVERTED, Spring: { pages: [page('a', 'One', 'one, third version', 3)] } };
+	await updateSpring(vault, V3);
+	assert.deepEqual(sectionLines(vault), lines);
+	assert.deepEqual(await recorded(vault), records);
+	// OneNote no longer has Broken: it stays where it is, still marked.
+	const { Broken: _gone, ...rest } = V3;
+	await updateSpring(vault, { ...rest, Spring: { pages: [page('a', 'One', 'one, fourth version', 4)] } });
+	assert.deepEqual(sectionLines(vault), lines);
+	assert.deepEqual(await recorded(vault), records);
+});
+
+test('with the report gone, sections whose folder says they could not be converted are still marked so: password protected as they read now (§11.5 item 103)', async () => {
+	const vault = await importedUnconverted();
+	const lines = sectionLines(vault);
+	vault.files.delete('_转换报告.json');
+	vault.files.delete('_转换报告.md');
+	const V2: Version = { ...UNCONVERTED, Spring: { pages: [page('a', 'One', 'one, second version', 2)] } };
+	const done = await updateSpring(vault, V2, ['Broken']);
+	assert.deepEqual(done!.outcomes.map(o => o.outcome), ['done']);
+	assert.deepEqual(sectionLines(vault).filter(line => !line.startsWith('- Unticked')), lines.filter(line => !line.startsWith('- Unticked')));
+	const marks = Object.fromEntries((await recorded(vault)).map(record => [record.section, [record.failed, record.locked]]));
+	assert.deepEqual([marks.Broken, marks.Locked, marks.Partial], [[true, undefined], [true, true], [true, undefined]]);
+});
+
+test('a vault an earlier version updated (the marks gone from the contents page and the report) gets them back at the next update (§11.5 item 103)', async () => {
+	const vault = await importedUnconverted();
+	const lines = sectionLines(vault);
+	// What 1.0.0 to 1.1.1 left after an update of another section: plain links, records as if imported fine.
+	const unmarked = new Set(['Locked', 'Broken', 'Partial']);
+	const toc = textOf(vault, 'Tides/_目录.md')!;
+	vault.files.set('Tides/_目录.md', toc.replace(/（转换失败）|（有密码保护，未转换）/g, ''));
+	const report = JSON.parse(textOf(vault, '_转换报告.json')!);
+	let changed = 0;
+	const strip = (value: unknown): unknown => {
+		if (Array.isArray(value)) return value.map(strip);
+		if (value && typeof value === 'object') {
+			const entry = value as Record<string, unknown>;
+			if (typeof entry.section === 'string' && unmarked.has(entry.section) && entry.failed) {
+				changed++;
+				return { groups: entry.groups, section: entry.section, dir: `Tides/${entry.section}`, earlier: true };
+			}
+			return Object.fromEntries(Object.entries(entry).map(([k, v]) => [k, strip(v)]));
+		}
+		return value;
+	};
+	vault.files.set('_转换报告.json', JSON.stringify(strip(report)));
+	assert.ok(changed >= 3);
+	assert.ok(sectionLines(vault).filter(line => !line.startsWith('- Unticked')).every(line => line.endsWith(')')), 'as the earlier versions left it');
+	const V2: Version = { ...UNCONVERTED, Spring: { pages: [page('a', 'One', 'one, second version', 2)] } };
+	await updateSpring(vault, V2);
+	assert.deepEqual(sectionLines(vault), lines);
+	const marks = Object.fromEntries((await recorded(vault)).map(record => [record.section, [record.folder, record.failed, record.locked]]));
+	assert.deepEqual([marks.Broken, marks.Locked, marks.Partial], [[false, true, undefined], [false, true, true], [false, true, undefined]]);
+});
+
 function crashing(vault: MemorySink, after: number, torn: boolean | 'empty' = false): MemorySink & { writes(): number } {
 	let writes = 0;
 	const wrapped: MemorySink & { writes(): number } = { ...vault, writes: () => writes };

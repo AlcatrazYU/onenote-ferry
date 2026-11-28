@@ -989,9 +989,24 @@ const isLocked = (error: string | undefined) => error !== undefined && LANGUAGES
 /** How the notebook's contents page and report list its sections before the update. */
 function listing(items: PlanItem[], dir: string, earlier: ReportNotebook | undefined, archive: Archive | undefined, unmatched: ArchivedSection[] = []): Listed[] {
 	const results = new Map((earlier?.sections ?? []).filter(section => section.dir).map(section => [fold(section.dir!), section]));
-	// A section's report entry, where it is now (a folder the user moved keeps its record, found by its pages).
-	const resultOf = (folder: string) => {
-		const result = archive?.sections.find(section => fold(section.folder) === fold(folder))?.recorded ?? results.get(fold(joinPath(dir, folder)));
+	// What an import could not convert is recorded without a folder, though it has one (holding only
+	// a page that says why): found by its place in the notebook (§11.5 item 103).
+	const unconverted = new Map((earlier?.sections ?? []).filter(section => section.failed && !section.dir).map(section => [sectionKey(section.groups, section.section), section]));
+	/**
+	 * A section's report entry, where it is now (a folder the user moved keeps its record, found by
+	 * its pages). One whose folder says it could not be converted is listed as the import listed it,
+	 * on the contents page and in the report: password protected or not as its record says, or as
+	 * it reads now when there is no record (§11.5 item 103).
+	 */
+	const resultOf = (base: { key: string, groups: string[], section: string }, folder: string, error?: string) => {
+		const archived = archive?.sections.find(section => fold(section.folder) === fold(folder));
+		if (archived?.status === 'failed') {
+			const record = unconverted.get(base.key);
+			const locked = record ? record.locked === true : isLocked(error);
+			const result: SectionResult = record ? { ...record, earlier: true } : { groups: base.groups, section: base.section, failed: true, ...(locked ? { locked: true } : {}), earlier: true };
+			return { failed: true, ...(locked ? { locked: true } : {}), result };
+		}
+		const result = archived?.recorded ?? results.get(fold(joinPath(dir, folder)));
 		if (!result) return {};
 		const here = joinPath(dir, folder);
 		return { result: { ...result, dir: here, ...(result.report ? { report: { ...result.report, dir: here } } : {}), earlier: true as const } };
@@ -999,14 +1014,14 @@ function listing(items: PlanItem[], dir: string, earlier: ReportNotebook | undef
 	const inDownload: Listed[] = [], extra: Listed[] = [];
 	for (const item of items) {
 		const base = { key: sectionKey(item.groups, item.label), groups: item.groups, section: item.label };
-		if (item.status === 'gone') extra.push({ ...base, extra: true, folder: item.old!, ...resultOf(item.old!) });
+		if (item.status === 'gone') extra.push({ ...base, extra: true, folder: item.old!, ...resultOf(base, item.old!) });
 		// Imported before and not found now: its record stays, so that it is still known for imported (§11.5 item 52.3).
 		else if (item.status === 'missing') {
 			const record = earlier?.sections.find(section => sectionKey(section.groups, section.section) === base.key && section.report);
 			inDownload.push({ ...base, skipped: true, ...(record ? { result: { ...record, earlier: true as const } } : {}) });
 		}
 		else if (item.status === 'new' || item.status === 'skipped' || item.status === 'occupied') inDownload.push({ ...base, skipped: true });
-		else if (item.old !== undefined) inDownload.push({ ...base, folder: item.old, ...resultOf(item.old) });
+		else if (item.old !== undefined) inDownload.push({ ...base, folder: item.old, ...resultOf(base, item.old, item.error) });
 		else inDownload.push({ ...base, unlinked: true, ...(item.error !== undefined ? { error: item.error } : {}), ...(isLocked(item.error) ? { locked: true } : { failed: true }) });
 	}
 	// Sections of ours a partial download does not have: listed where they are, as gone ones are.
@@ -1014,7 +1029,8 @@ function listing(items: PlanItem[], dir: string, earlier: ReportNotebook | undef
 		if (extra.some(entry => entry.folder !== undefined && fold(entry.folder) === fold(section.folder))) continue;
 		const parts = section.folder.split('/');
 		const label = section.heading ?? parts[parts.length - 1];
-		extra.push({ key: sectionKey(parts.slice(0, -1), label), groups: parts.slice(0, -1), section: label, extra: true, folder: section.folder, ...resultOf(section.folder) });
+		const base = { key: sectionKey(parts.slice(0, -1), label), groups: parts.slice(0, -1), section: label };
+		extra.push({ ...base, extra: true, folder: section.folder, ...resultOf(base, section.folder) });
 	}
 	return inTocOrder(inDownload, extra);
 }
