@@ -362,11 +362,14 @@ export class Adapter {
 	private content(c: Json, page?: Page): Element | undefined {
 		switch (c.type) {
 			case 'rich': return this.paragraph(c);
-			case 'table':
+			case 'table': {
+				const widths = Array.isArray(c.w) && c.w.every((w: unknown) => typeof w === 'number' && w > 0) ? c.w as number[] : undefined;
 				return {
 					kind: 'table',
 					rows: (c.rows as Json[][]).map(cells => ({ cells: cells.map(elements => ({ children: this.items(elements) })) })),
+					...(widths?.length ? { columnWidths: widths } : {}),
 				};
+			}
 			case 'image': {
 				const extension: string | undefined = c.asset?.asset?.split('.').pop();
 				// File names are names: composed like the others (the parser gives them as stored).

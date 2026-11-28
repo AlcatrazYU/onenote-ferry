@@ -561,10 +561,13 @@ class PageWriter {
 
 		const columns = Math.max(...table.rows.map(row => row.cells.length));
 		const rendered: string[][] = [];
-		for (const row of table.rows) {
+		// Copies of pictures in cells with the writing on them where it was estimated to be: a folded
+		// box cannot go into a cell, so they come below the table, each named by its cell (§11.5 item 86).
+		const folded: { row: number, column: number, link: string }[] = [];
+		for (const [r, row] of table.rows.entries()) {
 			const cells: string[] = [];
 			for (let index = 0; index < columns; index++) {
-				const text = await this.renderCell(row.cells[index]?.children ?? []);
+				const text = await this.renderCell(row.cells[index]?.children ?? [], { row: r + 1, column: index + 1, folded });
 				cells.push(text.replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim());
 			}
 			rendered.push(cells);
@@ -577,6 +580,14 @@ class PageWriter {
 			...rendered.slice(1).map(row => `| ${row.join(' | ')} |`),
 		];
 		this.push(lines.join('\n'));
+		if (folded.length) {
+			const several = (one: { row: number, column: number }) => folded.filter(other => other.row === one.row && other.column === one.column).length > 1;
+			const entries = folded.map((one, i) => {
+				const picture = several(one) ? folded.slice(0, i + 1).filter(other => other.row === one.row && other.column === one.column).length : undefined;
+				return `> ${renderRuns([{ text: this.options.strings.tableCell(one.row, one.column, picture), italic: true }], this.options)}\n> ${one.link}`;
+			});
+			this.push(`> [!info]- ${this.options.strings.inkEstimated}\n${entries.join('\n>\n')}`);
+		}
 	}
 
 	/**
@@ -611,13 +622,17 @@ class PageWriter {
 
 	/** A picture with the handwriting on it drawn over it, as one drawing. False when the picture cannot be drawn. */
 	private async writeAnnotatedPicture(image: Image, notes: InkPiece[]): Promise<boolean> {
-		const picture = this.pictures.get(image);
-		const underlay = picture?.bytes && picture.info ? underlayOf(picture) : undefined;
-		if (!underlay) return false;
-		const link = await this.drawingLink(notes, { underlays: [underlay] }, { role: 'image', extension: 'svg' });
+		const link = await this.annotatedLink(image, notes);
 		if (!link) return false;
 		this.push(link);
 		return true;
+	}
+
+	/** The link to a picture drawn with the writing on it, as one drawing; undefined when the picture cannot be drawn. */
+	private async annotatedLink(image: Image, notes: InkPiece[]): Promise<string | undefined> {
+		const picture = this.pictures.get(image);
+		const underlay = picture?.bytes && picture.info ? underlayOf(picture) : undefined;
+		return underlay ? this.drawingLink(notes, { underlays: [underlay] }, { role: 'image', extension: 'svg' }) : undefined;
 	}
 
 	/**
@@ -808,7 +823,12 @@ class PageWriter {
 		return embed ? `![${label}](${target})` : `[${label}](${target})`;
 	}
 
-	private async renderCell(children: Element[]): Promise<string> {
+	/**
+	 * A table cell's content, on one line. A picture with writing on it (§11.5 item 86) is drawn with
+	 * it when its place is sure; otherwise it stays as it is and its estimated copy goes into `cell`'s
+	 * list, written below the table.
+	 */
+	private async renderCell(children: Element[], cell?: { row: number, column: number, folded: { row: number, column: number, link: string }[] }): Promise<string> {
 		const parts: string[] = [];
 		for (const child of children) {
 			switch (child.kind) {
@@ -816,19 +836,27 @@ class PageWriter {
 					if (child.missingFile !== undefined) this.options.onSkipped?.(child.missingFile, 'no-data');
 					const text = renderRuns(child.runs, this.options);
 					parts.push(text === '' ? '' : cellTagPrefix(child.tags) + text);
-					parts.push(await this.renderCell(child.children));
+					parts.push(await this.renderCell(child.children, cell));
 					break;
 				}
 				case 'outline':
-					parts.push(await this.renderCell(child.children));
+					parts.push(await this.renderCell(child.children, cell));
 					break;
-				case 'image':
+				case 'image': {
 					if (!hasData(child.data)) {
 						this.options.onSkipped?.(describe(imageHint(child)), 'no-data');
 						parts.push(renderRuns([{ text: missingNotice(missingRunOf(child), this.options.strings), italic: true }], this.options));
+						break;
 					}
-					else parts.push(await this.renderAsset(child.data, imageHint(child), ...this.pictureLabel(child)) ?? '');
+					const notes = this.annotations.get(child);
+					const drawn = notes && !isWholeDocument(child) ? await this.annotatedLink(child, notes) : undefined;
+					parts.push(drawn ?? await this.renderAsset(child.data, imageHint(child), ...this.pictureLabel(child)) ?? '');
+					const folded = this.folded.get(child);
+					const underlay = folded && underlayOf(folded.picture);
+					const link = underlay && await this.drawingLink(folded.pieces, { underlays: [underlay] }, { role: 'ink' });
+					if (link && cell) cell.folded.push({ row: cell.row, column: cell.column, link });
 					break;
+				}
 				case 'embedded-file': {
 					const hint = fileHint(child);
 					parts.push(await this.renderAsset(child.data, hint, hint.role === 'file' ? hint.fileName : '', false) ?? '');

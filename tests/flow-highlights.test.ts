@@ -185,3 +185,82 @@ test('handwriting alone on a picture in a text box: its rows say nothing of wher
 	const { markdown } = await render(page, raw(300, 20, 12));
 	assert.equal(markdown, 'Above.\n\n![](<_附件/img1.png>)\n\n> [!info]- 笔迹（位置为估算）\n> ![](<_附件/ink2.svg>)');
 });
+
+// Pictures in table cells (§11.5 item 86): across from the column widths, down from the rows above,
+// each row as high as its highest cell plus the padding, as OneNote draws a table (measured).
+
+const { TABLE_LEFT, TABLE_TOP, COLUMN_EXTRA, CELL_LEFT, CELL_NARROWER, CELL_TOP, CELL_BOTTOM } = await import('../src/core/render/flow-highlights.ts');
+/** A picture 4 by 2 half inches with a line of text every 66 of its 300 rows (16 points), the first in row 20. */
+const cellShot = picture(4, 2);
+const cellRows = raw(300, 66, 20);
+const cellProfile = async (image: Image): Promise<RowProfile | undefined> => (image === cellShot ? readProfile(cellRows) : undefined);
+/** A line of 11 point text at the usual line height, and a row holding one (half inches). */
+const LINE = 11 * 1.46 / 36, ROW = CELL_TOP + LINE + CELL_BOTTOM;
+/** Where a table at (2, 2) puts what is in its second column (columns 3 and 6 half inches wide), across. */
+const SECOND = 2 + TABLE_LEFT + 3 + COLUMN_EXTRA + CELL_LEFT;
+const grid = (rows: Outline['children'][][], widths = [3, 6]): Table => ({ kind: 'table', columnWidths: widths, rows: rows.map(cells => ({ cells: cells.map(children => ({ children })) })) });
+/** Highlighter along the first two lines of text of a picture whose top is at `top`. */
+const onCellShot = (top: number) => [across(top + 20 / 150, 6, 8), across(top + 86 / 150, 6, 8)];
+
+test('a picture in a table cell sits across from the column widths and down from the rows above; with little above, sure', async () => {
+	const table = grid([[[text('Pier')], [text('Notes')]], [[text('North')], [cellShot]]]);
+	const top = 2 + TABLE_TOP + ROW + CELL_TOP;
+	const [placed] = await placeOnPictures([box([table], { x: 2, y: 2, width: 13 })], onCellShot(top), cellProfile);
+	assert.equal(placed?.image, cellShot);
+	assert.deepEqual(placed.strokes, [0, 1]);
+	assert.equal(placed.sure, true);
+	assert.ok(Math.abs(placed.box.left - SECOND) < 1e-9);
+	assert.ok(Math.abs(placed.box.top - top) < 0.02, String(placed.box.top - top));
+	// Where the layout puts it, before its rows move it (its rows unread): exactly there.
+	const [estimated] = await placeOnPictures([box([table], { x: 2, y: 2, width: 13 })], onCellShot(top), async () => undefined);
+	assert.ok(Math.abs(estimated!.box.top - top) < 1e-9, String(estimated!.box.top - top));
+});
+
+test('a row is as high as its highest cell: a picture in the row below one with three lines in a cell sits below those', async () => {
+	// A cell 3 half inches wide holds 9 characters of 11 points a line: three lines.
+	const three = text('一'.repeat(3 * 9));
+	const table = grid([[[three], [text('Notes')]], [[text('North')], [cellShot]]]);
+	const top = 2 + TABLE_TOP + CELL_TOP + 3 * LINE + CELL_BOTTOM + CELL_TOP;
+	const [placed] = await placeOnPictures([box([table], { x: 2, y: 2, width: 13 })], onCellShot(top), async () => undefined);
+	assert.ok(Math.abs(placed!.box.top - top) < 1e-9, String(placed!.box.top - top));
+});
+
+test('a picture in a table below rows that may add up to half a line of its text, or below a cell that cannot be measured: not sure', async () => {
+	const file: EmbeddedFile = { kind: 'embedded-file', fileName: 'notes.pdf', data: { kind: 'stored', key: 'notes.pdf', size: 1 } };
+	const rows = grid([[[text('a')], [text('b')]], [[text('c')], [text('d')]], [[text('e')], [cellShot]]]);
+	const [many] = await placeOnPictures([box([rows], { x: 2, y: 2, width: 13 })], onCellShot(2 + TABLE_TOP + 2 * ROW + CELL_TOP), cellProfile);
+	assert.equal(many?.sure, false);
+	const unmeasured = grid([[[file], [text('b')]], [[text('e')], [cellShot]]]);
+	const [below] = await placeOnPictures([box([unmeasured], { x: 2, y: 2, width: 13 })], onCellShot(2 + TABLE_TOP + ROW + CELL_TOP), cellProfile);
+	assert.equal(below?.sure, false);
+});
+
+test('a picture below a table in the same box keeps the estimate it had: a line a row', async () => {
+	const table = grid([[[text('Pier')], [text('Notes')]], [[text('North')], [text('Calm')]]]);
+	const top = 2 + 2 * LINE;
+	const [placed] = await placeOnPictures([box([table, cellShot], { x: 2, y: 2, width: 13 })], [across(top + 20 / 150, 3, 5), across(top + 86 / 150, 3, 5)], async () => undefined);
+	assert.equal(placed?.image, cellShot);
+	assert.ok(Math.abs(placed.box.top - top) < 1e-9, String(placed.box.top - top));
+});
+
+test('a picture wider than its cell is shrunk to the cell\'s width, as OneNote shows it', async () => {
+	const wide = picture(12, 6);
+	const [placed] = await placeOnPictures([box([grid([[[text('Pier')], [wide]]])], { x: 2, y: 2, width: 13 })], [across(2.5, 6, 8)], async () => undefined);
+	assert.equal(placed?.image, wide);
+	assert.ok(Math.abs(placed.box.right - placed.box.left - (6 - CELL_NARROWER)) < 1e-9);
+	assert.ok(Math.abs(placed.box.bottom - placed.box.top - (6 - CELL_NARROWER) / 2) < 1e-9);
+});
+
+test('written: a sure picture in a cell drawn with its strokes in the cell; an unsure one as it is, its copy folded below the table and named by its cell', async () => {
+	const top = 2 + TABLE_TOP + ROW + CELL_TOP;
+	const page: Page = {
+		id: '{P}', title: 'Sample', level: 0, isConflictPage: false, isDeleted: false,
+		outlines: [box([grid([[[text('Pier')], [text('Notes')]], [[text('North')], [picture(4, 2)]]])], { x: 2, y: 2, width: 13 })], directContent: [],
+		highlighterInk: [{ kind: 'ink', strokes: onCellShot(top) }],
+	};
+	const sure = await render(page, cellRows);
+	assert.equal(sure.markdown, '| Pier | Notes |\n| --- | --- |\n| North | ![](<_附件/img1.svg>) |');
+	assert.match(sure.saved[0]!.text!, /<image /);
+	const unsure = await render(page, undefined);
+	assert.equal(unsure.markdown, '| Pier | Notes |\n| --- | --- |\n| North | ![](<_附件/img1.png>) |\n\n> [!info]- 笔迹（位置为估算）\n> *第 2 行第 2 列*\n> ![](<_附件/ink2.svg>)');
+});

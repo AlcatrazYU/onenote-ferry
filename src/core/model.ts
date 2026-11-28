@@ -99,6 +99,8 @@ export interface TableRow {
 export interface Table extends Placed {
 	kind: 'table';
 	rows: TableRow[];
+	/** Each column's width (half inches), when the file gives them: where a picture in a cell sits (§11.5 item 86). */
+	columnWidths?: number[];
 }
 
 export interface Image extends Placed {

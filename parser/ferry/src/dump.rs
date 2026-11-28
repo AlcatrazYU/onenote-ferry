@@ -322,7 +322,9 @@ fn table(ctx: &mut Ctx, t: &Table) -> Value {
             )
         })
         .collect();
-    json!({ "type": "table", "rows": rows })
+    // Column widths (half inches): where a picture in a cell sits, for ink drawn on it (§11.5 item 86).
+    // Under "w", as text boxes and pictures give their widths: page fingerprints leave it out.
+    json!({ "type": "table", "rows": rows, "w": t.col_widths() })
 }
 
 fn content(ctx: &mut Ctx, c: &Content) -> Value {

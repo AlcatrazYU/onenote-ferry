@@ -12,8 +12,12 @@
 // its rows are (a pen may underline, circle or write beside them). All the strokes on a picture go
 // together: drawn into it when its place is sure; otherwise onto one copy shown folded under it,
 // marked as estimated.
+//
+// A picture in a table's cell is laid out the same way inside its cell (§11.5 item 86): columns from
+// the widths the file gives, each row as high as its highest cell (OneNote grows a row to fit), with
+// the cell padding measured on a test page (Internal-15).
 
-import type { Element, Image, InkStroke, Outline } from '../model.ts';
+import type { Element, Image, InkStroke, Outline, Table } from '../model.ts';
 import { assignToPictures, isHighlighter } from './ink-layout.ts';
 import type { Box } from './ink-layout.ts';
 
@@ -37,6 +41,18 @@ const PERIODIC = 0.25;
 const OFF = 0.2;
 /** Profiles are looked at about this many pixels wide (finer ones are averaged down to it). */
 const PROFILE_WIDTH = 600;
+/**
+ * How OneNote draws a table, in half inches, measured on a test page against its strokes (Internal-15
+ * §8): the table's left border is this far left of where its text box's text starts, and its top
+ * border this far below; each column is drawn this much wider than the width the file gives; what is
+ * in a cell starts this far right of the column's left border, and has the width the file gives less
+ * this much (a wider picture is shrunk to it); and a row has this much above its first line and below
+ * its last.
+ */
+export const TABLE_LEFT = -0.076, TABLE_TOP = 0.045, COLUMN_EXTRA = 0.12;
+export const CELL_LEFT = 0.098, CELL_NARROWER = 0.045, CELL_TOP = 0.078, CELL_BOTTOM = 0.048;
+/** How far that may be off at each row, in points: it adds up over the rows above a picture. */
+const CELL_SPREAD = 1;
 
 /** A picture's rows of text as its pixels show them: rows of the profile, their spacing, their middles. */
 export interface RowProfile {
@@ -184,50 +200,140 @@ function pinnedFactor(outline: Outline, aspects: Map<Image, number>): number | u
 	return factor >= 1.1 && factor <= 2 ? factor : undefined;
 }
 
-/** Where the pictures inside the text boxes sit, with a line height for boxes that do not give their own. */
+/** What the layout has passed over above a place, for how far the place may be off (see FlowPicture). */
+interface Above {
+	/** Lines of text, times their font size (points). */
+	em: number;
+	/** Lines that may be one more or one fewer (points). */
+	wrapRisk: number;
+	/** Something the layout cannot tell the height of. */
+	unknown: boolean;
+}
+
+/** What a text box's layout goes by, and the pictures it found. */
+interface Flow {
+	lineFactor: number;
+	pinned: boolean;
+	aspects: Map<Image, number>;
+	pictures: FlowPicture[];
+}
+
+/** Whether these elements hold a table, at any depth (a table in a cell makes the whole table layout). */
+function holdsTable(elements: Element[]): boolean {
+	return elements.some(element => element.kind === 'table' || ((element.kind === 'outline' || element.kind === 'paragraph') && holdsTable(element.children)));
+}
+
+/** Every picture in these elements, table cells included. */
+function eachPicture(elements: Element[], visit: (image: Image) => void): void {
+	for (const element of elements) {
+		if (element.kind === 'image') visit(element);
+		else if (element.kind === 'paragraph' || element.kind === 'outline') eachPicture(element.children, visit);
+		else if (element.kind === 'table') for (const row of element.rows) for (const cell of row.cells) eachPicture(cell.children, visit);
+	}
+}
+
+/**
+ * Lays out `elements` at indentation `level` from `top`, in a column from `left` and `width` wide
+ * (half inches): each picture found is added with where it sits and what is above it. Answers where
+ * the elements end.
+ */
+function flow(elements: Element[], level: number, left: number, width: number, top: number, at: Flow, above: Above, inCell = false): number {
+	let y = top;
+	for (const element of elements) {
+		const x = left + (level - 1) * INDENT;
+		if (element.kind === 'paragraph') {
+			const size = element.layout?.fontSize ?? DEFAULT_FONT_SIZE;
+			const text = element.runs.map(run => run.text).join('');
+			const lineWidth = (width - (level - 1) * INDENT) * PT;
+			const lines = lineCount(text, size, lineWidth);
+			const lineHeight = element.layout?.lineSpacing ?? size * at.lineFactor;
+			y += ((element.layout?.spaceBefore ?? 0) + lines * lineHeight + (element.layout?.spaceAfter ?? 0)) / PT;
+			above.em += lines * size;
+			// Latin letters are counted at an average width: near a wrap, a line more or fewer.
+			if (/[A-Za-z]/.test(text)) {
+				let used = 0;
+				for (const ch of text) used += widthOf(ch, size);
+				const fill = used / lineWidth, part = fill - Math.floor(fill);
+				if (fill >= 0.8 && (part <= 0.2 || part >= 0.8)) above.wrapRisk += lineHeight;
+			}
+			y = flow(element.children, level + 1, left, width, y, at, above, inCell);
+		}
+		else if (element.kind === 'outline') y = flow(element.children, level, left, width, y, at, above, inCell);
+		else if (element.kind === 'image' && !element.place) {
+			const stored = pictureSize(element, at.aspects);
+			if (!stored) {
+				above.unknown = true;
+				continue;
+			}
+			// In a cell, a picture wider than the cell is shrunk to its width.
+			const room = width - (level - 1) * INDENT;
+			const size = inCell && stored.width > room ? { width: room, height: stored.height * room / stored.width } : stored;
+			at.pictures.push({ image: element, box: { left: x, top: y, right: x + size.width, bottom: y + size.height }, emAbove: above.em, pinned: at.pinned, unknownAbove: above.unknown, wrapRisk: above.wrapRisk });
+			y += size.height;
+		}
+		else if (element.kind === 'table') y = layOutTable(element, left + (level - 1) * INDENT, y, at, above);
+		else if (element.kind === 'embedded-file' || element.kind === 'ink') above.unknown = true;
+	}
+	return y;
+}
+
+/**
+ * A table from `left` and `top`. Pictures in its cells are laid out as OneNote draws the table:
+ * its columns from the widths the file gives, each row as high as its highest cell plus the padding,
+ * each cell as a box of its column's width. What may be off at a picture in a row is what may be off
+ * in the cell above it that could be that row's highest (of those, the one that may be off most), and
+ * the padding; a cell that cannot be measured makes what is below it in the table never sure.
+ *
+ * What comes below the table keeps the estimate it had before cells were laid out: a line a row,
+ * never sure below a cell that holds more than a line. The measured rows did not do better there:
+ * on the one page of the maintainer's notes they change (a picture far below a table whose cell holds
+ * four paragraphs), its estimated copy moved three lines away from where the old estimate had it
+ * (Internal-15 §9). Without widths, or holding another table (written as layout), nothing in the
+ * table is laid out. Answers where what follows the table is laid out from.
+ */
+function layOutTable(table: Table, left: number, top: number, at: Flow, above: Above): number {
+	const line = DEFAULT_FONT_SIZE * at.lineFactor;
+	const widths = table.columnWidths;
+	if (widths?.length && !table.rows.some(row => row.cells.some(cell => holdsTable(cell.children)))) {
+		const inside = { ...above };
+		let y = top + TABLE_TOP;
+		for (const row of table.rows) {
+			let border = left + TABLE_LEFT;
+			const cells: { height: number, above: Above }[] = [];
+			for (const [column, cell] of row.cells.entries()) {
+				const width = widths[column] ?? widths[widths.length - 1]!;
+				const mine = { ...inside };
+				const bottom = flow(cell.children, 1, border + CELL_LEFT, Math.max(width - CELL_NARROWER, INDENT), y + CELL_TOP, at, mine, true);
+				cells.push({ height: bottom - y - CELL_TOP, above: mine });
+				border += width + COLUMN_EXTRA;
+			}
+			const highest = Math.max(0, ...cells.map(cell => cell.height));
+			// An empty row is a line high.
+			y += CELL_TOP + Math.max(highest, line / PT) + CELL_BOTTOM;
+			if (!cells.length) continue;
+			// How far each cell's height may be off (points), as the gate counts it; the cells that could be the highest.
+			const spread = at.pinned ? PINNED_SPREAD : FREE_SPREAD;
+			const off = (cell: { above: Above }) => (cell.above.em - inside.em) * spread + cell.above.wrapRisk - inside.wrapRisk;
+			const could = cells.filter(cell => cell.height * PT + off(cell) >= highest * PT);
+			const worst = could.reduce((a, b) => (off(b) > off(a) ? b : a));
+			inside.unknown = cells.some(cell => cell.above.unknown);
+			inside.em = worst.above.em;
+			inside.wrapRisk = worst.above.wrapRisk + CELL_SPREAD;
+		}
+	}
+	above.em += table.rows.length * DEFAULT_FONT_SIZE;
+	if (table.rows.some(row => row.cells.some(cell => cell.children.length > 1 || cell.children.some(child => child.kind !== 'paragraph')))) above.unknown = true;
+	return top + table.rows.length * line / PT;
+}
+
+/** Where the pictures inside the text boxes (and their tables) sit, with a line height for boxes that do not give their own. */
 function layOut(outlines: Outline[], factor: number, pins: Map<Outline, number | undefined>, aspects: Map<Image, number>): FlowPicture[] {
 	const pictures: FlowPicture[] = [];
 	for (const outline of outlines) {
 		const place = outline.place;
 		if (place?.x === undefined || place.y === undefined) continue;
 		const own = pins.get(outline);
-		const lineFactor = own ?? factor;
-		const boxWidth = place.width ?? 13;
-		let y = place.y, emAbove = 0, unknownAbove = false, wrapRisk = 0;
-		walk(outline.children, 1, (element, level) => {
-			const x = place.x! + (level - 1) * INDENT;
-			if (element.kind === 'paragraph') {
-				const size = element.layout?.fontSize ?? DEFAULT_FONT_SIZE;
-				const text = element.runs.map(run => run.text).join('');
-				const width = (boxWidth - (level - 1) * INDENT) * PT;
-				const lines = lineCount(text, size, width);
-				const lineHeight = element.layout?.lineSpacing ?? size * lineFactor;
-				y += ((element.layout?.spaceBefore ?? 0) + lines * lineHeight + (element.layout?.spaceAfter ?? 0)) / PT;
-				emAbove += lines * size;
-				// Latin letters are counted at an average width: near a wrap, a line more or fewer.
-				if (/[A-Za-z]/.test(text)) {
-					let used = 0;
-					for (const ch of text) used += widthOf(ch, size);
-					const fill = used / width, part = fill - Math.floor(fill);
-					if (fill >= 0.8 && (part <= 0.2 || part >= 0.8)) wrapRisk += lineHeight;
-				}
-			}
-			else if (element.kind === 'image' && !element.place) {
-				const size = pictureSize(element, aspects);
-				if (!size) {
-					unknownAbove = true;
-					return;
-				}
-				pictures.push({ image: element, box: { left: x, top: y, right: x + size.width, bottom: y + size.height }, emAbove, pinned: own !== undefined, unknownAbove, wrapRisk });
-				y += size.height;
-			}
-			else if (element.kind === 'table') {
-				y += element.rows.length * DEFAULT_FONT_SIZE * lineFactor / PT;
-				emAbove += element.rows.length * DEFAULT_FONT_SIZE;
-				if (element.rows.some(row => row.cells.some(cell => cell.children.length > 1 || cell.children.some(child => child.kind !== 'paragraph')))) unknownAbove = true;
-			}
-			else if (element.kind === 'embedded-file' || element.kind === 'ink') unknownAbove = true;
-		});
+		flow(outline.children, 1, place.x, place.width ?? 13, place.y, { lineFactor: own ?? factor, pinned: own !== undefined, aspects, pictures }, { em: 0, wrapRisk: 0, unknown: false });
 	}
 	return pictures;
 }
@@ -297,8 +403,8 @@ export async function placeOnPictures(outlines: Outline[], strokes: InkStroke[],
 	// A picture without a stored height takes its pixels' proportions.
 	const aspects = new Map<Image, number>();
 	for (const outline of outlines) {
-		walk(outline.children, 1, element => {
-			if (element.kind === 'image' && !element.place && element.size?.width && !element.size.height) aspects.set(element, 0);
+		eachPicture(outline.children, image => {
+			if (!image.place && image.size?.width && !image.size.height) aspects.set(image, 0);
 		});
 	}
 	for (const image of [...aspects.keys()]) {

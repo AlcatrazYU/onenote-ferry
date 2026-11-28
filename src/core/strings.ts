@@ -52,6 +52,8 @@ export interface Strings {
 	recognizedTextTitle: string;
 	/** Title of the folded copy of a picture with the writing on it (handwriting, highlighter) drawn where it was estimated to be (§11.5 items 67 and 69). */
 	inkEstimated: string;
+	/** Names a picture in a table's cell (rows and columns from 1; `picture` when its cell holds more than one) for its folded copy below the table (§11.5 item 86). */
+	tableCell(row: number, column: number, picture?: number): string;
 	/** The note in a section that could not be converted, with the parser's message. */
 	conversionFailedNote(error: string): string;
 	attachmentsFolder: string;
@@ -213,6 +215,7 @@ export const en: Strings = {
 	printoutTextTitle: 'Text of the printout',
 	recognizedTextTitle: 'Text recognized by OneNote (may contain errors)',
 	inkEstimated: 'Ink (estimated position)',
+	tableCell: (row, column, picture) => `Row ${row}, column ${column}${picture ? `, picture ${picture}` : ''}`,
 	conversionFailedNote: error => `This section could not be converted. The parser reported: ${error}`,
 	attachmentsFolder: '_attachments',
 	tocFileName: '_contents',
@@ -321,6 +324,7 @@ export const zhHans: Strings = {
 	printoutTextTitle: '打印页上的文字',
 	recognizedTextTitle: 'OneNote 识别的文字（可能有错）',
 	inkEstimated: '笔迹（位置为估算）',
+	tableCell: (row, column, picture) => `第 ${row} 行第 ${column} 列${picture ? `，第 ${picture} 张图` : ''}`,
 	conversionFailedNote: error => `这个分区没能转换。解析器报告：${error}`,
 	attachmentsFolder: '_附件',
 	tocFileName: '_目录',
@@ -429,6 +433,7 @@ export const zhHant: Strings = {
 	printoutTextTitle: '列印頁上的文字',
 	recognizedTextTitle: 'OneNote 辨識的文字（可能有誤）',
 	inkEstimated: '筆跡（位置為估算）',
+	tableCell: (row, column, picture) => `第 ${row} 列第 ${column} 欄${picture ? `，第 ${picture} 張圖` : ''}`,
 	conversionFailedNote: error => `這個節沒能轉換。解析器報告：${error}`,
 	attachmentsFolder: '_附件',
 	tocFileName: '_目錄',
@@ -537,6 +542,7 @@ export const ja: Strings = {
 	printoutTextTitle: '印刷イメージの文字',
 	recognizedTextTitle: 'OneNote が認識した文字（誤りを含む場合があります）',
 	inkEstimated: 'インク（位置は推定）',
+	tableCell: (row, column, picture) => `${row} 行目 ${column} 列目${picture ? `の ${picture} 枚目` : ''}`,
 	conversionFailedNote: error => `このセクションは変換できませんでした。解析器のメッセージ：${error}`,
 	attachmentsFolder: '_添付ファイル',
 	tocFileName: '_目次',
@@ -645,6 +651,7 @@ export const ko: Strings = {
 	printoutTextTitle: '인쇄물 페이지의 글자',
 	recognizedTextTitle: 'OneNote가 인식한 글자(오류가 있을 수 있음)',
 	inkEstimated: '잉크(위치는 추정)',
+	tableCell: (row, column, picture) => `${row}행 ${column}열${picture ? ` ${picture}번째 그림` : ''}`,
 	conversionFailedNote: error => `이 섹션은 변환하지 못했습니다. 파서 메시지: ${error}`,
 	attachmentsFolder: '_첨부 파일',
 	tocFileName: '_목차',

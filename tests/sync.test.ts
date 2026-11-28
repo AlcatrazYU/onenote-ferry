@@ -277,6 +277,10 @@ test('page info from the parser JSON: in order, ids upper case, times as ISO str
 	const pictured = (ocr: string | null) => [{ type: 'outline', x: 1, y: 1, w: 9, items: [{ contents: [{ type: 'image', asset: 'aa.png', alt: ocr, ocr }] }] }];
 	const [e, f] = await scannedPages({ pages: [{ id: '{e}', contents: pictured(null) }, { id: '{f}', contents: pictured('text read from the picture') }] });
 	assert.equal(f!.fingerprint, e!.fingerprint);
+	// A table's column widths (given since §11.5 item 86) do not count: pages imported before keep their fingerprints.
+	const table = (w?: number[]) => [{ type: 'outline', x: 1, y: 1, w: 9, items: [{ contents: [{ type: 'table', rows: [[[{ contents: [{ runs: [{ text: 'Pier' }] }] }]]], ...(w ? { w } : {}) }] }] }];
+	const [g, h] = await scannedPages({ pages: [{ id: '{g}', contents: table() }, { id: '{h}', contents: table([1.36, 4.8]) }] });
+	assert.equal(h!.fingerprint, g!.fingerprint);
 });
 
 test('fingerprints made another way (an earlier version, or none) are not compared: the page\'s time tells, as before fingerprints (§11.5 item 79)', () => {
