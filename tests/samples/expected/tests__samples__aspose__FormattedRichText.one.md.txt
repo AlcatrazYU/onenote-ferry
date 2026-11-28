@@ -16,5 +16,5 @@
 
 ## One hyperlink.md
 
-This <span style="color:#e84c22">is</span> [hyperlink](www.google.com). ==🟡This== **<span style="color:#00b050">text</span>** ==🔵<span style="color:#c00000">is</span> *<span style="color:#c00000">not</span>* a== **<u>hyperlink</u>**.
+This <span style="color:#e84c22">is</span> [hyperlink](www.google.com). ==🟡This== <span style="color:#00b050"><b>text</b></span> ==🔵<span style="color:#c00000">is</span> <span style="color:#c00000"><i>not</i></span> a== <b><u>hyperlink</u></b>.
 
