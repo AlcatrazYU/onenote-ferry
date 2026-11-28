@@ -71,9 +71,13 @@ export function busyLine(session: ImportSession, ui: UiStrings): string | undefi
 		return updating || session.entry === 'update' ? ui.checkingUpdates(session.checkProgress.done, session.checkProgress.total) : ui.oneDriveRefreshing;
 	}
 	if (session.folderError) return undefined;
-	// One check, one line: what it does on the way (downloads, a look at the target folder) does
-	// not change the words; the OneDrive row's line shows the downloads.
-	if (session.checkingUpdates || (updating && (session.checking || session.findingLocked))) return ui.checkingUpdates(session.checkProgress.done, session.checkProgress.total);
+	// One check, one line: a look at the target folder on the way does not change the words. A copy
+	// downloading on the way adds how much of it has come, so a long file does not look stuck (§11.5
+	// item 89); the OneDrive row's line keeps counting sections, one measure from start to end.
+	if (session.checkingUpdates || (updating && (session.checking || session.findingLocked))) {
+		const { done, total } = session.checkProgress, d = session.downloading;
+		return d ? ui.checkingDownloading(done, total, formatBytes(d.bytes), formatBytes(d.totalBytes)) : ui.checkingUpdates(done, total);
+	}
 	if (session.reading) return ui.reading;
 	if (session.checking || session.findingLocked) return ui.checking;
 	if (session.downloading) return ui.downloadingFiles(session.downloading.files, session.downloading.totalFiles, formatBytes(session.downloading.bytes), formatBytes(session.downloading.totalBytes));

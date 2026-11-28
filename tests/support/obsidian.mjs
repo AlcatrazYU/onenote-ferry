@@ -33,6 +33,11 @@ export class Setting {}
 export class ButtonComponent {}
 export class Modal {}
 export class Notice {}
+// Named by the import window (wizard.ts), whose bottom line is tested on its own.
+export class ProgressBarComponent {}
+export class SettingGroup {}
+export function setIcon() {}
+export function setTooltip() {}
 export async function requestUrl() {
 	throw new Error('no network in tests');
 }

@@ -129,6 +129,8 @@ export interface UiStrings {
 	/** A section OneNote renamed or moved to another group: its name (with groups) before. */
 	sectionWas(was: string): string;
 	checkingUpdates(done: number, total: number): string;
+	/** The same, while the copy of a OneDrive notebook is downloaded on the way: how much of it has come (§11.5 item 89). */
+	checkingDownloading(done: number, total: number, size: string, totalSize: string): string;
 	/** `folder`: where the versions replaced go (said when sections are updated). */
 	willUpdate(updated: number, added: number, restored: number, reconverted: number, folder: string): string;
 	bothEditedWarning(count: number, folder: string): string;
@@ -368,6 +370,7 @@ const en: UiStrings = {
 	pagesReordered: count => `${plural(count, 'page', 'pages')} only moved or changed level`,
 	sectionWas: was => `Was "${was}"`,
 	checkingUpdates: (done, total) => `Checking for updates ${n(done)}/${n(total)}...`,
+	checkingDownloading: (done, total, size, totalSize) => `Checking for updates ${n(done)}/${n(total)}: downloading ${size} of ${totalSize} from OneDrive...`,
 	willUpdate: (updated, added, restored, reconverted, folder) => {
 		const parts = [updated ? `update ${plural(updated, 'section', 'sections')}` : '', added ? `add ${plural(added, 'section', 'sections')}` : '', reconverted ? `convert ${plural(reconverted, 'section', 'sections')} again` : '', restored ? `bring back ${plural(restored, 'page', 'pages')}` : ''].filter(Boolean);
 		return `Will ${parts.join(', ')}.${updated || reconverted ? ` The current versions go to "${folder}".` : ''}`;
@@ -590,6 +593,7 @@ const zh: UiStrings = {
 	pagesReordered: count => `${n(count)} 页仅调整了顺序或层级`,
 	sectionWas: was => `原为“${was}”`,
 	checkingUpdates: (done, total) => `正在检查更新 ${n(done)}/${n(total)}...`,
+	checkingDownloading: (done, total, size, totalSize) => `正在检查更新 ${n(done)}/${n(total)}：从 OneDrive 下载 ${size} / ${totalSize}...`,
 	willUpdate: (updated, added, restored, reconverted, folder) => {
 		const parts = [updated ? `更新 ${n(updated)} 个分区` : '', added ? `新增 ${n(added)} 个分区` : '', reconverted ? `重新转换 ${n(reconverted)} 个分区` : '', restored ? `补回 ${n(restored)} 页` : ''].filter(Boolean);
 		return `将${parts.join('、')}${updated || reconverted ? `，更新前的版本会放进“${folder}”` : ''}。`;
@@ -814,6 +818,7 @@ const ja: UiStrings = {
 	pagesReordered: count => `${n(count)} ページは順序か階層だけが変わりました`,
 	sectionWas: was => `元は「${was}」`,
 	checkingUpdates: (done, total) => `更新を確認中 ${n(done)}/${n(total)}...`,
+	checkingDownloading: (done, total, size, totalSize) => `更新を確認中 ${n(done)}/${n(total)}：OneDrive からダウンロード中 ${size} / ${totalSize}...`,
 	willUpdate: (updated, added, restored, reconverted, folder) => {
 		const parts = [updated ? `セクション ${n(updated)} 個を更新` : '', added ? `セクション ${n(added)} 個を追加` : '', reconverted ? `セクション ${n(reconverted)} 個を変換し直し` : '', restored ? `${n(restored)} ページを戻す` : ''].filter(Boolean);
 		return `${parts.join('、')}予定です。${updated || reconverted ? `更新前の版は「${folder}」に移します。` : ''}`;
@@ -1037,6 +1042,7 @@ const ko: UiStrings = {
 	pagesReordered: count => `${n(count)}페이지는 순서나 수준만 바뀜`,
 	sectionWas: was => `원래 "${was}"`,
 	checkingUpdates: (done, total) => `업데이트 확인 중 ${n(done)}/${n(total)}...`,
+	checkingDownloading: (done, total, size, totalSize) => `업데이트 확인 중 ${n(done)}/${n(total)}: OneDrive에서 다운로드 중 ${size} / ${totalSize}...`,
 	willUpdate: (updated, added, restored, reconverted, folder) => {
 		const parts = [updated ? `섹션 ${n(updated)}개 업데이트` : '', added ? `섹션 ${n(added)}개 추가` : '', reconverted ? `섹션 ${n(reconverted)}개 다시 변환` : '', restored ? `${n(restored)}페이지 복원` : ''].filter(Boolean);
 		return `${parts.join(', ')} 예정입니다.${updated || reconverted ? ` 업데이트 전 버전은 "${folder}"(으)로 옮깁니다.` : ''}`;
