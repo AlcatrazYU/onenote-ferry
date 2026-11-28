@@ -72,7 +72,10 @@ test('public files contain no dash characters', () => {
 		...sources(join(ROOT, 'tests')),
 		...readdirSync(join(ROOT, 'docs')).filter(name => name.endsWith('.md')).map(name => join(ROOT, 'docs', name)),
 		join(ROOT, 'README.md'),
+		join(ROOT, 'CONTRIBUTING.md'),
+		join(ROOT, 'RELEASE_NOTES.md'),
 		join(ROOT, 'THIRD_PARTY_LICENSES.md'),
+		join(ROOT, '.github/workflows/release.yml'),
 		...textFiles(join(ROOT, 'parser')),
 		// The plugin's store listing (manifest.json), build scripts and settings files.
 		...readdirSync(ROOT).filter(name => /\.(json|mjs)$|^\.npmrc$/.test(name)).map(name => join(ROOT, name)),
